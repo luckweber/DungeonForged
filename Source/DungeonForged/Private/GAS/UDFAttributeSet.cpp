@@ -27,6 +27,7 @@ UDFAttributeSet::UDFAttributeSet()
 	InitCritMultiplier(2.0f);
 	InitCooldownReduction(0.f);
 	InitMovementSpeedMultiplier(1.f);
+	InitSprintStaminaDrain(20.f);
 }
 
 void UDFAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -48,6 +49,7 @@ void UDFAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, CritMultiplier, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, CooldownReduction, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, MovementSpeedMultiplier, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, SprintStaminaDrain, COND_None, REPNOTIFY_Always);
 }
 
 void UDFAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue)
@@ -97,7 +99,11 @@ void UDFAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 	}
 	else if (Attribute == GetMovementSpeedMultiplierAttribute())
 	{
-		NewValue = FMath::Max(NewValue, KINDA_SMALL_NUMBER);
+		NewValue = FMath::Max(NewValue, 0.1f);
+	}
+	else if (Attribute == GetSprintStaminaDrainAttribute())
+	{
+		NewValue = FMath::Max(NewValue, 0.f);
 	}
 }
 
@@ -264,4 +270,8 @@ void UDFAttributeSet::OnRep_CooldownReduction(const FGameplayAttributeData& OldV
 void UDFAttributeSet::OnRep_MovementSpeedMultiplier(const FGameplayAttributeData& OldValue)
 {
 	GAMEPLAYATTRIBUTE_REPNOTIFY(UDFAttributeSet, MovementSpeedMultiplier, OldValue);
+}
+void UDFAttributeSet::OnRep_SprintStaminaDrain(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UDFAttributeSet, SprintStaminaDrain, OldValue);
 }

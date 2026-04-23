@@ -10,12 +10,14 @@
 UDFDamageCalculation::UDFDamageCalculation()
 	: UGameplayEffectExecutionCalculation()
 	, IntelligenceCapture(UDFAttributeSet::GetIntelligenceAttribute(), EGameplayEffectAttributeCaptureSource::Source, true)
+	, StrengthCapture(UDFAttributeSet::GetStrengthAttribute(), EGameplayEffectAttributeCaptureSource::Source, true)
 	, MagicResistCapture(UDFAttributeSet::GetMagicResistAttribute(), EGameplayEffectAttributeCaptureSource::Target, true)
 	, ArmorCapture(UDFAttributeSet::GetArmorAttribute(), EGameplayEffectAttributeCaptureSource::Target, true)
 	, CritChanceCapture(UDFAttributeSet::GetCritChanceAttribute(), EGameplayEffectAttributeCaptureSource::Source, true)
 	, CritMultCapture(UDFAttributeSet::GetCritMultiplierAttribute(), EGameplayEffectAttributeCaptureSource::Source, true)
 {
 	RelevantAttributesToCapture.Add(IntelligenceCapture);
+	RelevantAttributesToCapture.Add(StrengthCapture);
 	RelevantAttributesToCapture.Add(MagicResistCapture);
 	RelevantAttributesToCapture.Add(ArmorCapture);
 	RelevantAttributesToCapture.Add(CritChanceCapture);
@@ -39,12 +41,14 @@ void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExe
 	float Intel = 0.f;
 	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(IntelligenceCapture, EvalParams, Intel);
 
+	float Str = 0.f;
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(StrengthCapture, EvalParams, Str);
+
 	float MR = 0.f;
 	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(MagicResistCapture, EvalParams, MR);
 
 	float Armor = 0.f;
 	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(ArmorCapture, EvalParams, Armor);
-	(void)Armor;
 
 	float CritChance = 0.f;
 	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(CritChanceCapture, EvalParams, CritChance);
@@ -57,7 +61,25 @@ void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExe
 		? Spec.GetSetByCallerMagnitude(DataDamageTag, false, 0.f)
 		: 0.f;
 
-	float PreMitigation = (SetByCallerBase + Intel * 0.5f) * (1.f - FMath::Clamp(MR, 0.f, 100.f) / 100.f);
+	static const FGameplayTagContainer GEmpty;
+	const FGameplayTagContainer& AssetTags = Spec.Def ? Spec.Def->GetAssetTags() : GEmpty;
+	const bool bPhysical = Spec.Def && AssetTags.HasTag(FDFGameplayTags::Effect_Damage_Physical);
+	const bool bMagic = Spec.Def && AssetTags.HasTag(FDFGameplayTags::Effect_Damage_Magic);
+
+	float PreMitigation = 0.f;
+	if (bPhysical)
+	{
+		PreMitigation = (SetByCallerBase + Str * 0.5f) * (1.f - FMath::Clamp(Armor, 0.f, 100.f) / 100.f);
+	}
+	else if (bMagic)
+	{
+		PreMitigation = (SetByCallerBase + Intel * 0.5f) * (1.f - FMath::Clamp(MR, 0.f, 100.f) / 100.f);
+	}
+	else
+	{
+		// Legacy: treat as magic if asset tags are missing
+		PreMitigation = (SetByCallerBase + Intel * 0.5f) * (1.f - FMath::Clamp(MR, 0.f, 100.f) / 100.f);
+	}
 	PreMitigation = FMath::Max(0.f, PreMitigation);
 
 	const bool bCrit = FMath::FRand() < FMath::Clamp(CritChance, 0.f, 1.f);

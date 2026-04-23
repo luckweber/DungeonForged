@@ -19,6 +19,7 @@ protected:
 		FGameplayEffectCustomExecutionOutput& OutExecutionOutput) const override;
 
 	FGameplayEffectAttributeCaptureDefinition IntelligenceCapture;
+	FGameplayEffectAttributeCaptureDefinition StrengthCapture;
 	FGameplayEffectAttributeCaptureDefinition MagicResistCapture;
 	FGameplayEffectAttributeCaptureDefinition ArmorCapture;
 	FGameplayEffectAttributeCaptureDefinition CritChanceCapture;

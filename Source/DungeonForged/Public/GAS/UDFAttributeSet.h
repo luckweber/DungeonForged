@@ -104,6 +104,11 @@ public:
 	FGameplayAttributeData MovementSpeedMultiplier;
 	ATTRIBUTE_ACCESSORS(UDFAttributeSet, MovementSpeedMultiplier)
 
+	/** Stamina cost per second while sprinting (used with periodic sprint-drain GEs). */
+	UPROPERTY(BlueprintReadOnly, Category = "DF|Attributes|Movement", ReplicatedUsing = OnRep_SprintStaminaDrain)
+	FGameplayAttributeData SprintStaminaDrain;
+	ATTRIBUTE_ACCESSORS(UDFAttributeSet, SprintStaminaDrain)
+
 	//~ UAttributeSet
 	virtual void PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue) override;
 	virtual void PostAttributeChange(const FGameplayAttribute& Attribute, float OldValue, float NewValue) override;
@@ -141,6 +146,8 @@ protected:
 	void OnRep_CooldownReduction(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
 	void OnRep_MovementSpeedMultiplier(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_SprintStaminaDrain(const FGameplayAttributeData& OldValue);
 
 private:
 	/** If Health <= 0, applies once until Health goes above zero again. */

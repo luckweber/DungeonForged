@@ -4,6 +4,9 @@
 
 #define DF_TAG(Member) FDFGameplayTags::Member = M.AddNativeGameplayTag
 
+FGameplayTag FDFGameplayTags::Ability_Parent;
+FGameplayTag FDFGameplayTags::Ability_Fire;
+FGameplayTag FDFGameplayTags::Ability_Ice;
 FGameplayTag FDFGameplayTags::Ability_Attack_Melee;
 FGameplayTag FDFGameplayTags::Ability_Attack_Ranged;
 FGameplayTag FDFGameplayTags::Ability_Fire_Fireball;
@@ -29,6 +32,9 @@ FGameplayTag FDFGameplayTags::State_Targeting;
 FGameplayTag FDFGameplayTags::State_InCombat;
 FGameplayTag FDFGameplayTags::State_Sprinting;
 FGameplayTag FDFGameplayTags::State_Dodging;
+FGameplayTag FDFGameplayTags::Effect_Damage_Physical;
+FGameplayTag FDFGameplayTags::Effect_Damage_Magic;
+FGameplayTag FDFGameplayTags::Effect_Damage_True;
 FGameplayTag FDFGameplayTags::Effect_DoT_Fire;
 FGameplayTag FDFGameplayTags::Effect_DoT_Poison;
 FGameplayTag FDFGameplayTags::Effect_DoT_Bleed;
@@ -44,6 +50,9 @@ FGameplayTag FDFGameplayTags::Event_Ability_Montage_End;
 FGameplayTag FDFGameplayTags::Data_Damage;
 FGameplayTag FDFGameplayTags::Data_Healing;
 FGameplayTag FDFGameplayTags::Data_Duration;
+FGameplayTag FDFGameplayTags::Data_Cost;
+FGameplayTag FDFGameplayTags::Data_Cooldown;
+FGameplayTag FDFGameplayTags::Data_Magnitude;
 FGameplayTag FDFGameplayTags::Data_Knockback;
 FGameplayTag FDFGameplayTags::UI_MenuOpen;
 FGameplayTag FDFGameplayTags::UI_InventoryOpen;
@@ -78,6 +87,9 @@ void FDFGameplayTags::RegisterGameplayTags()
 
 	UGameplayTagsManager& M = UGameplayTagsManager::Get();
 
+	DF_TAG(Ability_Parent)(FName("Ability"), FString("Root tag for all abilities (cancel / filter)."));
+	DF_TAG(Ability_Fire)(FName("Ability.Fire"), FString("Fire magic ability subtree."));
+	DF_TAG(Ability_Ice)(FName("Ability.Ice"), FString("Ice magic ability subtree."));
 	DF_TAG(Ability_Attack_Melee)(FName("Ability.Attack.Melee"), FString("Melee auto-attack or weapon swing."));
 	DF_TAG(Ability_Attack_Ranged)(FName("Ability.Attack.Ranged"), FString("Ranged basic attack or projectile-based attack."));
 	DF_TAG(Ability_Fire_Fireball)(FName("Ability.Fire.Fireball"), FString("Fireball ability."));
@@ -105,6 +117,9 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(State_Sprinting)(FName("State.Sprinting"), FString("Sprint movement."));
 	DF_TAG(State_Dodging)(FName("State.Dodging"), FString("Invuln window / roll."));
 
+	DF_TAG(Effect_Damage_Physical)(FName("Effect.Damage.Physical"), FString("Physical damage effect (asset tag)."));
+	DF_TAG(Effect_Damage_Magic)(FName("Effect.Damage.Magic"), FString("Magic damage effect (asset tag)."));
+	DF_TAG(Effect_Damage_True)(FName("Effect.Damage.True"), FString("True damage effect (asset tag)."));
 	DF_TAG(Effect_DoT_Fire)(FName("Effect.DoT.Fire"), FString("Damage over time — fire."));
 	DF_TAG(Effect_DoT_Poison)(FName("Effect.DoT.Poison"), FString("DoT — poison."));
 	DF_TAG(Effect_DoT_Bleed)(FName("Effect.DoT.Bleed"), FString("DoT — bleed."));
@@ -122,6 +137,9 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(Data_Damage)(FName("Data.Damage"), FString("SetByCaller / damage magnitude."));
 	DF_TAG(Data_Healing)(FName("Data.Healing"), FString("SetByCaller — healing."));
 	DF_TAG(Data_Duration)(FName("Data.Duration"), FString("SetByCaller — duration."));
+	DF_TAG(Data_Cost)(FName("Data.Cost"), FString("SetByCaller — mana/stamina cost."));
+	DF_TAG(Data_Cooldown)(FName("Data.Cooldown"), FString("SetByCaller — cooldown seconds."));
+	DF_TAG(Data_Magnitude)(FName("Data.Magnitude"), FString("SetByCaller — generic magnitude (buff/debuff)."));
 	DF_TAG(Data_Knockback)(FName("Data.Knockback"), FString("SetByCaller — melee knockback / impulse scale."));
 
 	DF_TAG(UI_MenuOpen)(FName("UI.MenuOpen"), FString("Pause / main menu visible."));

@@ -21,7 +21,10 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	/** Resolves Data.Knockback; RequestGameplayTag fallback if Register has not run yet. */
 	static FGameplayTag ResolveDataKnockbackTag();
 
-	//~ Ability
+	//~ Ability (hierarchical roots; used for block/cancel queries)
+	static FGameplayTag Ability_Parent;
+	static FGameplayTag Ability_Fire;
+	static FGameplayTag Ability_Ice;
 	static FGameplayTag Ability_Attack_Melee;
 	static FGameplayTag Ability_Attack_Ranged;
 	static FGameplayTag Ability_Fire_Fireball;
@@ -51,6 +54,9 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag State_Dodging;
 
 	//~ Effect
+	static FGameplayTag Effect_Damage_Physical;
+	static FGameplayTag Effect_Damage_Magic;
+	static FGameplayTag Effect_Damage_True;
 	static FGameplayTag Effect_DoT_Fire;
 	static FGameplayTag Effect_DoT_Poison;
 	static FGameplayTag Effect_DoT_Bleed;
@@ -70,6 +76,9 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Data_Damage;
 	static FGameplayTag Data_Healing;
 	static FGameplayTag Data_Duration;
+	static FGameplayTag Data_Cost;
+	static FGameplayTag Data_Cooldown;
+	static FGameplayTag Data_Magnitude;
 	static FGameplayTag Data_Knockback;
 
 	//~ UI
