@@ -274,7 +274,7 @@ void ADFPlayerCharacter::Input_CameraZoom(const FInputActionValue& Value)
 		return;
 	}
 	// Inverted wheel: zoom in = shorter arm; scales by ZoomSpeed on the camera
-	Cam->OnZoomInput(-Value.Get<float>() * (CameraZoomStep / 25.f));
+	Cam->OnZoomInput(-Value.Get<float>() * (CameraZoomStep / 50.f));
 }
 
 void ADFPlayerCharacter::Input_Attack()

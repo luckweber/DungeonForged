@@ -76,9 +76,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Camera|Framing", meta = (ClampMin = "0.0"))
 	float MaxZoom = 800.f;
 
-	/** Unreal units added per 1.0f wheel / axis from OnZoomInput before clamp. */
+	/** Scales OnZoomInput axis (character passes wheel * CameraZoomStep/ZoomSpeed to match old zoom feel). */
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Camera|Framing", meta = (ClampMin = "0.0"))
-	float ZoomSpeed = 25.f;
+	float ZoomSpeed = 50.f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Camera|Framing", meta = (ClampMin = "0.0"))
 	float InterpSpeed = 8.f;
