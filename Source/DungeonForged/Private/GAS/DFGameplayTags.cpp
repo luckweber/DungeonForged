@@ -34,6 +34,12 @@ FGameplayTag FDFGameplayTags::State_Sprinting;
 FGameplayTag FDFGameplayTags::State_Dodging;
 FGameplayTag FDFGameplayTags::State_Attacking;
 FGameplayTag FDFGameplayTags::State_Casting;
+FGameplayTag FDFGameplayTags::State_CCIgnore;
+FGameplayTag FDFGameplayTags::State_BossEnraged;
+FGameplayTag FDFGameplayTags::State_Spawned_Boss;
+FGameplayTag FDFGameplayTags::State_BossVulnerable;
+FGameplayTag FDFGameplayTags::Event_Boss_DoorLock;
+FGameplayTag FDFGameplayTags::Event_Boss_IntroComplete;
 FGameplayTag FDFGameplayTags::Effect_Damage_Physical;
 FGameplayTag FDFGameplayTags::Effect_Damage_Magic;
 FGameplayTag FDFGameplayTags::Effect_Damage_True;
@@ -59,6 +65,7 @@ FGameplayTag FDFGameplayTags::Data_Knockback;
 FGameplayTag FDFGameplayTags::UI_MenuOpen;
 FGameplayTag FDFGameplayTags::UI_InventoryOpen;
 FGameplayTag FDFGameplayTags::UI_AbilityMenuOpen;
+FGameplayTag FDFGameplayTags::UI_CinematicLock;
 
 static bool GDF_RegisteredNativeGameplayTags = false;
 
@@ -120,6 +127,14 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(State_Dodging)(FName("State.Dodging"), FString("Invuln window / roll."));
 	DF_TAG(State_Attacking)(FName("State.Attacking"), FString("In melee/weapon attack window; upper body or combo."));
 	DF_TAG(State_Casting)(FName("State.Casting"), FString("Charging or casting a spell/ability with cast anim."));
+	DF_TAG(State_CCIgnore)(FName("State.CCIgnore"), FString("CC effects (stun) should not apply (enrage, bosses)."));
+	DF_TAG(State_BossEnraged)(FName("State.BossEnraged"), FString("Boss enrage / soft taunt for UI and AI."));
+	DF_TAG(State_Spawned_Boss)(FName("State.Spawned.Boss"), FString("Minion from a boss encounter."));
+	DF_TAG(State_BossVulnerable)(FName("State.BossVulnerable"), FString("Stumble / long recovery window."));
+
+	DF_TAG(Event_Boss_DoorLock)(FName("Event.Boss.DoorLock"), FString("Lock arena exit doors — subscribe in BP/Actor."));
+
+	DF_TAG(Event_Boss_IntroComplete)(FName("Event.Boss.IntroComplete"), FString("Boss intro cinematic finished."));
 
 	DF_TAG(Effect_Damage_Physical)(FName("Effect.Damage.Physical"), FString("Physical damage effect (asset tag)."));
 	DF_TAG(Effect_Damage_Magic)(FName("Effect.Damage.Magic"), FString("Magic damage effect (asset tag)."));
@@ -149,6 +164,8 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(UI_MenuOpen)(FName("UI.MenuOpen"), FString("Pause / main menu visible."));
 	DF_TAG(UI_InventoryOpen)(FName("UI.InventoryOpen"), FString("Inventory screen up."));
 	DF_TAG(UI_AbilityMenuOpen)(FName("UI.AbilityMenuOpen"), FString("Ability offer / roguelike pick UI."));
+
+	DF_TAG(UI_CinematicLock)(FName("UI.CinematicLock"), FString("Input and abilities locked for cinematic."));
 
 	GDF_RegisteredNativeGameplayTags = true;
 }

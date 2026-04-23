@@ -129,8 +129,11 @@ protected:
 	void UnbindAttributeDelegates();
 	void OnHealthOrMaxChanged(float Current, float Max);
 
+	/** Called before death check; boss uses this for phase transitions. */
+	virtual void NotifyHealthChangedFromAttributes(float Current, float Max);
+
 	/** Server: runs death flow once, broadcasts, multicasts VFX, schedules destroy. */
-	void HandleServerDeath(AActor* Killer);
+	virtual void HandleServerDeath(AActor* Killer);
 
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastOnDeath(AActor* Killer);

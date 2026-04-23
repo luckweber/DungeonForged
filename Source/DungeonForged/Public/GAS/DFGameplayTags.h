@@ -54,6 +54,21 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag State_Dodging;
 	static FGameplayTag State_Attacking;
 	static FGameplayTag State_Casting;
+	/** Stun / most CC GEs with ApplicationTagRequirements should ignore targets with this tag. */
+	static FGameplayTag State_CCIgnore;
+	static FGameplayTag State_BossEnraged;
+	/** Set on minions spawned by a boss encounter. */
+	static FGameplayTag State_Spawned_Boss;
+	static FGameplayTag State_BossVulnerable;
+
+	//~ Event
+	/** Listeners: lock arena doors, play NavMesh blockers, etc. */
+	static FGameplayTag Event_Boss_DoorLock;
+	/** Cinematic or trigger finished; restore gameplay. */
+	static FGameplayTag Event_Boss_IntroComplete;
+	static FGameplayTag Event_Ability_Fire_Launch;
+	static FGameplayTag Event_Ability_Melee_Hit;
+	static FGameplayTag Event_Ability_Montage_End;
 
 	//~ Effect
 	static FGameplayTag Effect_Damage_Physical;
@@ -69,11 +84,6 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Effect_Debuff_Weaken;
 	static FGameplayTag Effect_Debuff_ArmorBreak;
 
-	//~ Event
-	static FGameplayTag Event_Ability_Fire_Launch;
-	static FGameplayTag Event_Ability_Melee_Hit;
-	static FGameplayTag Event_Ability_Montage_End;
-
 	//~ Data (SetByCaller)
 	static FGameplayTag Data_Damage;
 	static FGameplayTag Data_Healing;
@@ -87,4 +97,6 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag UI_MenuOpen;
 	static FGameplayTag UI_InventoryOpen;
 	static FGameplayTag UI_AbilityMenuOpen;
+	/** Gate gameplay input/abilities while boss intro cinematic runs. */
+	static FGameplayTag UI_CinematicLock;
 };

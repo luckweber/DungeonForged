@@ -48,6 +48,10 @@ public class DungeonForged : ModuleRules
 
 			// FX
 			"Niagara",
+
+			// Cinematics (MovieScene: UMovieSceneSequencePlayer::Play, etc.)
+			"MovieScene",
+			"LevelSequence",
 		});
 
 		// UBT: editor-only link dependencies (equivalent to shipping without editor modules).

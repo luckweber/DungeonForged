@@ -141,8 +141,13 @@ void ADFEnemyBase::UnbindAttributeDelegates()
 	bAttributeDelegatesBound = false;
 }
 
-void ADFEnemyBase::OnHealthOrMaxChanged(float Current, float /*Max*/)
+void ADFEnemyBase::NotifyHealthChangedFromAttributes(float /*Current*/, float /*Max*/)
 {
+}
+
+void ADFEnemyBase::OnHealthOrMaxChanged(float Current, float Max)
+{
+	NotifyHealthChangedFromAttributes(Current, Max);
 	if (bHasDied)
 	{
 		return;

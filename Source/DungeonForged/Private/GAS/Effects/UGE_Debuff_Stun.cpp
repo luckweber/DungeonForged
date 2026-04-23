@@ -22,4 +22,6 @@ void UGE_Debuff_Stun::ConfigureEffectCDO()
 	Gr.AddTag(FDFGameplayTags::State_Stunned);
 	Grant.SetAndApplyTargetTagChanges(Gr);
 	FindOrAddComponent<UDFGEComponent_CancelAbilitiesOnApply>();
+	// Enrage / Boss: do not apply stun if target has State.CCIgnore
+	ApplicationTagRequirements.IgnoreTags.AddTag(FDFGameplayTags::State_CCIgnore);
 }
