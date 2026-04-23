@@ -6,11 +6,17 @@
 #include "CoreMinimal.h"
 #include "Data/DFDataTableStructs.h"
 #include "Subsystems/GameInstanceSubsystem.h"
-#include "ADFDungeonManager.generated.h"
 
 class AActor;
 class UDataTable;
 class UPCGComponent;
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnFloorCleared);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnBossSpawned, FName, BossRowName);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRunCompleted);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPlayerDied, AActor*, Player);
+
+#include "ADFDungeonManager.generated.h"
 
 UCLASS(BlueprintType)
 class DUNGEONFORGED_API UDFDungeonManager : public UGameInstanceSubsystem
@@ -86,11 +92,6 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Dungeon|Spawning")
 	TArray<FTransform> SpawnPointsPreview;
-
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnFloorCleared);
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnBossSpawned, FName, BossRowName);
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRunCompleted);
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPlayerDied, AActor*, Player);
 
 	UPROPERTY(BlueprintAssignable, Category = "DF|Dungeon|Events")
 	FOnFloorCleared OnFloorCleared;

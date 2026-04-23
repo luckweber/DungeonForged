@@ -19,22 +19,25 @@
 | DungeonForged  | Runtime | Single game module; `IMPLEMENT_PRIMARY_GAME_MODULE` |
 
 **Key dependencies per module (current `DungeonForged.Build.cs`):**
-- **DungeonForged** — PublicDeps: `Core`, `CoreUObject`, `Engine`, `InputCore`, `EnhancedInput`
-
-**Intended for GAS and gameplay (add when implemented):** `GameplayAbilities`, `GameplayTags`, and any modules required by your ASC/AttributeSet setup (e.g. `UMG` / `Slate` for UI tie-ins). *Not yet declared in Build.cs — add alongside first GAS/attributes code.*
+- **DungeonForged** — PublicDeps: `Core`, `CoreUObject`, `Engine`, `InputCore`, `NetCore`, `GameplayAbilities`, `GameplayTags`, `GameplayTasks`, `EnhancedInput`, `UMG`, `Slate`, `SlateCore`, `CommonUI`, `CommonInput`, `AIModule`, `NavigationSystem`, `PCG`, `Niagara`. Editor-only private: `UnrealEd`, `PropertyEditor`, `ToolMenus`, `EditorStyle`, `UMGEditor` (when `Target.bBuildEditor`).
 
 ## Plugin Dependencies
 **Engine plugins (from `DungeonForged.uproject`):**
-- **GameplayAbilities** — GAS; ASC on `PlayerState` and enemy base per project rules
+- **GameplayAbilities** — GAS
+- **CommonUI** — UI stack
+- **PCG** — procedural content (dungeon manager)
+- **Niagara** — VFX
 - **ModelingToolsEditorMode** — Editor only (`TargetAllowList`: Editor)
+
+**Built-in (not listed in `.uproject`):** **Enhanced Input** — enabled with the engine for UE5.
 
 **Marketplace / Fab plugins:** *None in repo — add as you integrate assets.*
 
-**Custom plugins:** *No `Plugins/` directory yet.*
+**Custom plugins:** *No project `Plugins/` directory in repo.*
 
 ## Coding Conventions
 **UObject / Actor naming:** `UDF` for `UObject` / component-style classes, `ADF` for `AActor` (project-specific; standard UE `F` / `A` / `U` / `E` / `I` still apply inside macro usage).
-**Data:** All **DataTable** row structs inherit **`FTableRowBase`**.
+**Data:** **DataTable** row structs inherit **`FTableRowBase`**; plain `USTRUCT`s used only inside components/arrays (not as table rows) may omit it.
 **Input:** **Enhanced Input only** — no legacy `PlayerInput` / axis bindings for gameplay.
 **Gameplay code:** **No Blueprint gameplay logic** — Blueprints may call C++ only.
 **Design:** **Composition over inheritance** where practical.
@@ -57,21 +60,21 @@
 - `GlobalDefaultGameMode` points to `DungeonForgedGameMode` (`/Script/DungeonForged.DungeonForgedGameMode`)
 - Class redirects: `TP_ThirdPersonGameMode` → `DungeonForgedGameMode`, `TP_ThirdPersonCharacter` → `DungeonForgedCharacter`
 
-**Gameplay framework (target architecture — class names to align in C++):**
-| Role            | Class name (intended)     |
-|-----------------|---------------------------|
-| GameMode        | `ADungeonForgedGameMode`  |
-| Default Pawn/Character (template) | `ADungeonForgedCharacter` |
-| GAS on player   | ASC on `PlayerState` (custom `APlayerState` / `UAbilitySystemComponent` as you implement) |
-| GAS on enemies  | ASC on enemy base         |
+**Gameplay framework (implemented C++):**
+| Role | Class |
+|------|--------|
+| Game instance | `UDungeonForgedGameInstance` — GAS `InitGlobalData` + native tag registration |
+| Player state / GAS | `ADFPlayerState` — `UAbilitySystemComponent` + `UDFAttributeSet`, replication mode **Mixed** |
+| Player character | `ADFPlayerCharacter` — `IAbilitySystemInterface`, `InitAbilityActorInfo` in `PossessedBy` / `OnRep_PlayerState` |
+| Enemy / GAS | `ADFEnemyBase` — ASC on pawn, replication mode **Minimal** |
+| Run / roguelike | `UDFRunManager` (`UGameInstanceSubsystem`) — run state, death/completion, offers |
+| Dungeon | `UDFDungeonManager` (`UGameInstanceSubsystem`) — floors, spawns, PCG |
 
-**Subsystems (UGS / UWorld / ULocal):** *Not yet listed in project — add table rows as you add `UGameInstanceSubsystem` / `UWorldSubsystem` classes.*
+**GAS usage:**
+- Attribute set: `UDFAttributeSet`; native tags: `FDFGameplayTags`; abilities extend `UDFGameplayAbility` / `UGameplayAbility`
+- Globals: `UDFAbilitySystemGlobals` (see `DefaultGame.ini`)
 
-**GAS usage (intended):**
-- Full C++ GAS: abilities, effects, attribute sets, tags
-- key classes/tags: TBD; reference `Config/DefaultGameplayTags.ini` when present
-
-**Current source tree note:** The module currently only exposes `DungeonForged.h` / `DungeonForged.cpp` at the module root. New gameplay code should use the `Public/<Subsystem>` / `Private/<Subsystem>` layout above and extend `Build.cs` as needed for IWYU and dependencies.
+**Data:** DataTable rows use `FTableRowBase` where the row is table-backed; runtime-only structs (e.g. inventory slots in arrays) may be plain `USTRUCT` without `FTableRowBase`.
 
 ## Build Configuration
 **Build targets:** `Game` (`DungeonForged.Target.cs`), `Editor` (`DungeonForgedEditor.Target.cs`); no dedicated Server/Client targets in repo.
