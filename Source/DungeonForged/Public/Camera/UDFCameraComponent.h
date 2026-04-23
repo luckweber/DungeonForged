@@ -125,5 +125,5 @@ protected:
 
 	/** Clamps UserArmOffset so (BlendedStateArm + UserArmOffset) lies in [MinZoom,MaxZoom]. */
 	void ClampUserArmOffset();
-	float GetTargetSocketOffsetForState() const;
+	FVector GetTargetSocketOffsetForState() const;
 };

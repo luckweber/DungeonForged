@@ -11,12 +11,12 @@ class AActor;
 class UDataTable;
 class UPCGComponent;
 
+#include "ADFDungeonManager.generated.h"
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnFloorCleared);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnBossSpawned, FName, BossRowName);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRunCompleted);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPlayerDied, AActor*, Player);
-
-#include "ADFDungeonManager.generated.h"
 
 UCLASS(BlueprintType)
 class DUNGEONFORGED_API UDFDungeonManager : public UGameInstanceSubsystem

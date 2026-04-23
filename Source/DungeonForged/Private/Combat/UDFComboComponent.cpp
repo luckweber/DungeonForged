@@ -53,7 +53,8 @@ void UDFComboComponent::UnbindMontageEndDelegate()
 	{
 		if (LastBoundMontageForEnd)
 		{
-			A->Montage_SetEndDelegate(FOnMontageEnded(), LastBoundMontageForEnd);
+			FOnMontageEnded ClearDelegate;
+			A->Montage_SetEndDelegate(ClearDelegate, LastBoundMontageForEnd.Get());
 		}
 	}
 	LastBoundMontageForEnd = nullptr;
@@ -68,7 +69,8 @@ void UDFComboComponent::TryBindEndDelegateFor(UAnimMontage* Montage)
 	}
 	if (LastBoundMontageForEnd && LastBoundMontageForEnd != Montage)
 	{
-		A->Montage_SetEndDelegate(FOnMontageEnded(), LastBoundMontageForEnd);
+		FOnMontageEnded ClearDelegate;
+		A->Montage_SetEndDelegate(ClearDelegate, LastBoundMontageForEnd.Get());
 	}
 	LastBoundMontageForEnd = Montage;
 	FOnMontageEnded D;
