@@ -14,6 +14,7 @@ class UDFAttributeSet;
 class UDFLockOnComponent;
 class UDFCameraComponent;
 class UDFComboComponent;
+class UDFInteractionComponent;
 class UDFMeleeTraceComponent;
 class UInputAction;
 class UInputMappingContext;
@@ -95,6 +96,10 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	TObjectPtr<UDFComboComponent> Combo;
+
+	/** Traces and sphere overlap: interact with IDFInteractable. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Interaction")
+	TObjectPtr<UDFInteractionComponent> Interaction;
 
 	/** Zoom: TargetArmLength change per 1.0f of the zoom action (mouse wheel). */
 	UPROPERTY(EditDefaultsOnly, Category = "Camera", meta = (ClampMin = "0.0"))

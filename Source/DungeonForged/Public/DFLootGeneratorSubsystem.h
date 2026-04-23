@@ -29,6 +29,21 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|Loot")
 	void RollLoot(const FDFEnemyTableRow& EnemyData, FVector SpawnLocation, FVector Impulse = FVector::ZeroVector);
 
+	/**
+	 * Spawns 2–4 guaranteed drops: builds a pool from LootPoolDataTable+LootTableRow, filters by MinRarity
+	 * against ItemDataTable, then uses weighted row picks. Authority only.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DF|Loot")
+	void RollGuaranteedDropsFromPool(
+		UDataTable* LootPoolDataTable,
+		FName LootTableRow,
+		UDataTable* InItemsForRarity,
+		EItemRarity MinRarity,
+		int32 MinCount,
+		int32 MaxCount,
+		FVector SpawnLocation,
+		FVector BaseImpulse = FVector::ZeroVector);
+
 	/** Single weighted pick from the list (rarity as weight) — utility for other systems. */
 	UFUNCTION(BlueprintCallable, Category = "DF|Loot", meta = (AutoCreateRefTerm = "InRowNames"))
 	static FName PickOneWeightedRow(const UDataTable* InItemDataTable, const TArray<FName>& InRowNames);

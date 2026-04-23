@@ -199,6 +199,17 @@ struct DUNGEONFORGED_API FDFEnemyTableRow : public FTableRowBase
 	TArray<TObjectPtr<UAnimMontage>> TauntMontages;
 };
 
+/** Row in a DataTable of loot pools: references multiple item row names in DT_Items. Used by chests. */
+USTRUCT(BlueprintType)
+struct DUNGEONFORGED_API FDFLootPoolTableRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	/** FNames of rows in your item table (FDFItemTableRow) for this pool. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Loot")
+	TArray<FName> ItemRowNames;
+};
+
 /** Character class / archetype (starting mesh, base stats, ability row names in DT_Abilities). */
 USTRUCT(BlueprintType)
 struct DUNGEONFORGED_API FDFClassTableRow : public FTableRowBase

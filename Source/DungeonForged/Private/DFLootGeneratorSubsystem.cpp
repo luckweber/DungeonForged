@@ -121,3 +121,75 @@ void UDFLootGeneratorSubsystem::RollLoot(const FDFEnemyTableRow& EnemyData, FVec
 		++N;
 	}
 }
+
+static int32 RarityToInt(const EItemRarity R)
+{
+	return static_cast<int32>(R);
+}
+
+void UDFLootGeneratorSubsystem::RollGuaranteedDropsFromPool(
+	UDataTable* LootPoolDataTable,
+	const FName LootTableRow,
+	UDataTable* InItemsForRarity,
+	const EItemRarity MinRarity,
+	int32 MinCount,
+	int32 MaxCount,
+	const FVector SpawnLocation,
+	const FVector BaseImpulse)
+{
+	UWorld* const World = GetWorld();
+	if (!World || World->GetNetMode() == NM_Client)
+	{
+		return;
+	}
+	if (!LootPoolDataTable || LootTableRow.IsNone() || !InItemsForRarity)
+	{
+		return;
+	}
+	const FDFLootPoolTableRow* const Pool = LootPoolDataTable->FindRow<FDFLootPoolTableRow>(LootTableRow, TEXT("DFLoot|ChestPool"), false);
+	if (!Pool || Pool->ItemRowNames.Num() == 0)
+	{
+		return;
+	}
+	const int32 MinR = RarityToInt(MinRarity);
+	TArray<FName> Filtered;
+	for (const FName& N : Pool->ItemRowNames)
+	{
+		if (const FDFItemTableRow* I = InItemsForRarity->FindRow<FDFItemTableRow>(N, TEXT("DFLoot|ChestRarity"), false))
+		{
+			if (RarityToInt(I->Rarity) >= MinR)
+			{
+				Filtered.Add(N);
+			}
+		}
+	}
+	if (Filtered.Num() == 0)
+	{
+		return;
+	}
+	MinCount = FMath::Max(1, MinCount);
+	MaxCount = FMath::Max(MinCount, MaxCount);
+	const int32 NSpawn = FMath::RandRange(MinCount, MaxCount);
+	const TSubclassOf<ADFLootDrop> LClass = LootDropClass ? LootDropClass : TSubclassOf<ADFLootDrop>(ADFLootDrop::StaticClass());
+	for (int32 I = 0; I < NSpawn; ++I)
+	{
+		const FName Picked = PickOneWeightedRow(InItemsForRarity, Filtered);
+		if (Picked.IsNone())
+		{
+			continue;
+		}
+		const float Ang = DungeonForgedLoot::TwoPI * (static_cast<float>(I) / FMath::Max(1, NSpawn + 1));
+		const float Rad = FMath::FRandRange(0.f, LootScatterRadius);
+		const FVector Offset = FVector(FMath::Cos(Ang) * Rad, FMath::Sin(Ang) * Rad, 8.f);
+		const FTransform T(FRotator::ZeroRotator, SpawnLocation + Offset);
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+		ADFLootDrop* const Drop = World->SpawnActor<ADFLootDrop>(LClass, T, Params);
+		if (!Drop)
+		{
+			continue;
+		}
+		const FVector J = BaseImpulse.IsNearlyZero() ? FVector::UpVector * 220.f : BaseImpulse;
+		Drop->InitLoot(InItemsForRarity, Picked, J, true);
+	}
+}

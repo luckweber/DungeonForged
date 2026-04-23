@@ -11,6 +11,7 @@
 #include "Camera/UDFLockOnComponent.h"
 #include "Combat/UDFComboComponent.h"
 #include "Combat/UDFMeleeTraceComponent.h"
+#include "Interaction/UDFInteractionComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "AbilitySystemComponent.h"
 #include "EnhancedInputComponent.h"
@@ -43,6 +44,7 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 
 	MeleeTrace = CreateDefaultSubobject<UDFMeleeTraceComponent>(TEXT("MeleeTrace"));
 	Combo = CreateDefaultSubobject<UDFComboComponent>(TEXT("Combo"));
+	Interaction = CreateDefaultSubobject<UDFInteractionComponent>(TEXT("InteractionComponent"));
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
@@ -329,7 +331,10 @@ void ADFPlayerCharacter::Input_Ability4()
 
 void ADFPlayerCharacter::Input_Interact()
 {
-	// Hook for interaction traces / abilities — keep gameplay in C++ or forward to a subsystem
+	if (Interaction)
+	{
+		Interaction->TryInteract();
+	}
 }
 
 void ADFPlayerCharacter::Input_SprintStart()
