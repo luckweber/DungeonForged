@@ -2,7 +2,10 @@
 
 #include "GAS/UDFAttributeSet.h"
 #include "GAS/DFGameplayTags.h"
+#include "GAS/Effects/UGE_Buff_Shield.h"
+#include "GAS/Effects/UGE_Cooldown_Universal_SecondWind.h"
 #include "GAS/UDFPassivesGASEvents.h"
+#include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "GameplayEffectTypes.h"
 #include "Net/UnrealNetwork.h"
@@ -65,6 +68,17 @@ void UDFAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 	// Clamped “current” resources
 	if (Attribute == GetHealthAttribute())
 	{
+		if (UAbilitySystemComponent* const ASC = GetOwningAbilitySystemComponent())
+		{
+			if (NewValue <= 0.f && ASC->GetOwner() && ASC->GetOwner()->HasAuthority() && FDFGameplayTags::State_Universal_SecondWindAvailable.IsValid()
+				&& FDFGameplayTags::Ability_Cooldown_SecondWind.IsValid() && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Universal_SecondWindAvailable)
+				&& !ASC->HasMatchingGameplayTag(FDFGameplayTags::Ability_Cooldown_SecondWind))
+			{
+				const float MaxH = FMath::Max(1.f, ASC->GetNumericAttribute(GetMaxHealthAttribute()));
+				NewValue = FMath::Max(1.f, MaxH * 0.25f);
+				bSecondWindRescue = true;
+			}
+		}
 		ClampAttributePair(GetHealthAttribute(), GetMaxHealthAttribute(), NewValue);
 	}
 	else if (Attribute == GetMaxHealthAttribute())
@@ -141,6 +155,10 @@ void UDFAttributeSet::PostAttributeChange(const FGameplayAttribute& Attribute, f
 
 	if (Attribute == GetHealthAttribute() || Attribute == GetMaxHealthAttribute())
 	{
+		if (Attribute == GetHealthAttribute() && bSecondWindRescue)
+		{
+			ProcessSecondWindAftermath();
+		}
 		TryBroadcastHealth();
 		if (GetHealth() > 0.f)
 		{
@@ -254,6 +272,48 @@ void UDFAttributeSet::TryBroadcastHealth()
 void UDFAttributeSet::TryBroadcastMana()
 {
 	OnManaChanged.Broadcast(GetMana(), GetMaxMana());
+}
+
+void UDFAttributeSet::ProcessSecondWindAftermath()
+{
+	bSecondWindRescue = false;
+	UAbilitySystemComponent* const ASC = GetOwningAbilitySystemComponent();
+	AActor* const Owner = ASC ? ASC->GetOwner() : nullptr;
+	if (!ASC || !Owner || !Owner->HasAuthority() || !ASC->GetAvatarActor())
+	{
+		return;
+	}
+	AActor* const Av = ASC->GetAvatarActor();
+	const FGameplayEffectContextHandle Ctx = ASC->MakeEffectContext();
+	{
+		const FGameplayEffectSpecHandle S = ASC->MakeOutgoingSpec(UGE_Buff_Shield::StaticClass(), 1.f, Ctx);
+		if (S.IsValid() && S.Data.IsValid())
+		{
+			S.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Duration, 3.f);
+			ASC->ApplyGameplayEffectSpecToSelf(*S.Data.Get());
+		}
+	}
+	{
+		const FGameplayEffectSpecHandle S = ASC->MakeOutgoingSpec(UGE_Cooldown_Universal_SecondWind::StaticClass(), 1.f, Ctx);
+		if (S.IsValid() && S.Data.IsValid())
+		{
+			S.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Cooldown, 120.f);
+			ASC->ApplyGameplayEffectSpecToSelf(*S.Data.Get());
+		}
+	}
+	if (FDFGameplayTags::State_Universal_SecondWindAvailable.IsValid())
+	{
+		FGameplayTagContainer Granted;
+		Granted.AddTag(FDFGameplayTags::State_Universal_SecondWindAvailable);
+		ASC->RemoveActiveEffectsWithGrantedTags(Granted);
+		ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Universal_SecondWindAvailable, 0);
+	}
+	bOutOfHealthBroadcasted = false;
+	OnSecondWind.Broadcast();
+	{
+		FGameplayEventData E;
+		UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(Av, FDFGameplayTags::Event_Universal_SecondWind_Activated, E);
+	}
 }
 
 //~ OnReps

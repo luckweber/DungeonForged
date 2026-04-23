@@ -74,8 +74,31 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Ability_Rogue_Eviscerate;
 	static FGameplayTag Ability_Rogue_Vanish;
 	static FGameplayTag Ability_Rogue_SmokeScreen;
+	// Universal (roguelike pickups — all classes)
+	static FGameplayTag Ability_Universal_HealthPotion;
+	static FGameplayTag Ability_Universal_SecondWind;
+	static FGameplayTag Ability_Universal_BattleHymn;
+	static FGameplayTag Ability_Universal_Siphon;
+	static FGameplayTag Ability_Universal_Berserk;
+	static FGameplayTag Ability_Universal_CallLightning;
 	/** Parent tag for cooldown GEs; used by TimeWarp purge. */
 	static FGameplayTag Ability_Cooldown;
+	/** Per-skill universal cooldown (asset tags on GEs). */
+	static FGameplayTag Ability_Cooldown_HealthPotion;
+	static FGameplayTag Ability_Cooldown_SecondWind;
+	static FGameplayTag Ability_Cooldown_BattleHymn;
+	static FGameplayTag Ability_Cooldown_Siphon;
+	static FGameplayTag Ability_Cooldown_Berserk;
+	static FGameplayTag Ability_Cooldown_CallLightning;
+	static FGameplayTag State_Universal_SecondWindAvailable;
+	static FGameplayTag State_Berserk;
+	static FGameplayTag Effect_Buff_BattleHymn;
+	/** Siphon trace frame (AN_TraceStart). */
+	static FGameplayTag Event_Universal_Siphon_Trace;
+	/** Potion uses remaining: payload EventMagnitude = charges. */
+	static FGameplayTag Event_Universal_HealthPotion_Charges;
+	/** For HUD/FX: second wind proc. */
+	static FGameplayTag Event_Universal_SecondWind_Activated;
 	static FGameplayTag Event_Ability_Mage_FrostTrace;
 	static FGameplayTag Event_Ability_Mage_ArcaneTrace;
 	static FGameplayTag State_ManaShieldActive;

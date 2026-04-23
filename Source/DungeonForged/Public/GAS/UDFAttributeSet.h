@@ -24,6 +24,9 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(FOnUDFManaChanged, float /*CurrentMana*/, f
 /** Fired when health reaches zero from gameplay effects (and clamped to zero) — set once per death until revived */
 DECLARE_MULTICAST_DELEGATE(FOnUDFOutOfHealth);
 
+/** Fired on authority when State.Universal.SecondWindAvailable saves from lethal damage (GAS + HUD). */
+DECLARE_MULTICAST_DELEGATE(FOnUDFSecondWind);
+
 UCLASS(Blueprintable)
 class DUNGEONFORGED_API UDFAttributeSet : public UAttributeSet
 {
@@ -35,6 +38,8 @@ public:
 	FOnUDFHealthChanged OnHealthChanged;
 	FOnUDFManaChanged OnManaChanged;
 	FOnUDFOutOfHealth OnOutOfHealth;
+	/** Procs once per second-wind save (use with Event.Universal.SecondWind.Activated for UI). */
+	FOnUDFSecondWind OnSecondWind;
 
 	//~ Resources
 
@@ -173,5 +178,9 @@ private:
 	void TryBroadcastHealth();
 	void TryBroadcastMana();
 
+	void ProcessSecondWindAftermath();
+
 	bool bOutOfHealthBroadcasted = false;
+	/** Set in PreAttributeChange when HP would hit 0+ Second Wind; cleared in PostAttributeChange. */
+	bool bSecondWindRescue = false;
 };

@@ -1525,6 +1525,837 @@ Output all .h and .cpp files with correct Public/Private paths.
 
 ---
 
+## ════════════════════════════════════════
+## ⚔️ PROMPT 25 — ABILITIES: GUERREIRO (WARRIOR)
+## ════════════════════════════════════════
+
+```
+@ue-gameplay-abilities
+@ue-gameplay-tags
+@ue-animation-system
+@ue-niagara-effects
+@ue-physics-collision
+
+Create all Warrior class abilities for DungeonForged UE 5.4.
+All abilities extend UDFGameplayAbility.
+Path convention:
+  .h  → Source/DungeonForged/Public/GAS/Abilities/Warrior/<FileName>.h
+  .cpp → Source/DungeonForged/Private/GAS/Abilities/Warrior/<FileName>.cpp
+Always write the full path as a comment at the top of each file.
+Already exists: GA_Dodge (Prompt 18), Basic Melee Combo (Prompt 17).
+Do NOT recreate those. Create only the abilities below.
+
+─── GA_ShieldBash ─────────────────────────────────────────────
+Tag: Ability.Warrior.ShieldBash
+Cost: 20 Stamina | Cooldown: 8s
+Requirement: Player must have Tag "Equipment.OffHand.Shield"
+
+Flow:
+1. CommitAbility
+2. PlayMontageAndWait (ShieldBashMontage)
+3. On AnimNotify AN_TraceStart:
+   - BoxTrace in front of player (50x50x80cm)
+   - Hit enemies: apply GE_Damage_Physical (SetByCaller 40 + Strength*0.5)
+   - Apply GE_Debuff_Stun (1.5s) to each hit enemy via ASC
+   - Apply GE_Buff_Shield (0.5s invulnerability) to self
+4. Camera shake (light, 0.3s)
+5. EndAbility on montage end
+
+─── GA_WarCry ─────────────────────────────────────────────────
+Tag: Ability.Warrior.WarCry
+Cost: 30 Mana | Cooldown: 45s
+Type: AOE Buff — no damage
+
+Flow:
+1. CommitAbility
+2. PlayMontageAndWait (WarCryMontage — roar animation)
+3. On Montage blend out:
+   - Sphere overlap radius=800, filter allies only
+   - Apply GE_Buff_DamageUp (Strength +25, duration 10s) to self + allies in range
+   - Apply GE_Buff_Speed (+15% speed, duration 10s) to self + allies
+   - Spawn WarCry Niagara VFX (gold burst radiating outward)
+   - Play WarCry SFX (roar)
+4. Broadcast OnWarCryActivated delegate (for AI enemies to react — flee check)
+5. EndAbility
+
+─── GA_Whirlwind ──────────────────────────────────────────────
+Tag: Ability.Warrior.Whirlwind
+Cost: 40 Mana + 20 Stamina | Cooldown: 12s
+Type: Channeled AOE melee spin
+
+Flow:
+1. CommitAbility
+2. Apply GE_Whirlwind_Active (Infinite, grants Tag State.Spinning)
+3. PlayMontageAndWait (WhirlwindMontage — looping spin segment)
+4. While active (WaitGameplayEvent "Event.Ability.Whirlwind.Tick" from AnimNotify):
+   - CapsuleOverlapMulti radius=200 around player
+   - Hit each unique enemy once per 0.3s (track with TSet + FTimerHandle per enemy)
+   - Apply GE_Damage_Physical (SetByCaller 25 + Strength*0.3) per tick
+   - Spawn hit sparks Niagara at each impact point
+5. Player movement: allow slow movement during spin (50% speed via CMC override)
+6. On Input Released (WaitInputRelease task) OR 3s max duration:
+   - RemoveGameplayEffectByHandle (GE_Whirlwind_Active)
+   - Play spin-stop blend montage
+   - EndAbility
+
+─── GA_IronSkin ───────────────────────────────────────────────
+Tag: Ability.Warrior.IronSkin
+Cost: 35 Mana | Cooldown: 25s
+Type: Defensive cooldown
+
+Flow:
+1. CommitAbility
+2. Apply GE_IronSkin (HasDuration 6s):
+   - Modifier: Armor += 80
+   - Modifier: MagicResist += 40
+   - GrantedTag: State.Invulnerable (first 0.5s — absorption startup)
+   - Period 0.5s: check if Health < 30% → also apply GE_HealthRegen_Burst
+3. Spawn IronSkin VFX (metallic shimmer over character, grey/silver tones)
+4. Play IronSkin AnimMontage (flex pose, brief)
+5. WaitGameplayEffectRemoved (GE_IronSkin handle):
+   - Play shatter VFX when buff expires
+   - EndAbility
+
+─── GA_Charge ─────────────────────────────────────────────────
+Tag: Ability.Warrior.Charge
+Cost: 25 Stamina | Cooldown: 14s
+Requirement: Target must be 400–2000 units away (checked in CanActivateAbility)
+
+Flow:
+1. CanActivateAbility: confirm target via LockOnComponent->CurrentTarget
+   AND distance in [400, 2000] range; else fail with GameplayEvent "Ability.Failed.Range"
+2. CommitAbility
+3. Apply GE_Charge_IFrame (0.5s invulnerable during travel)
+4. Get target location, compute direction
+5. Launch character: LaunchCharacter(Direction * 2200, true, true)
+6. WaitMovementModeChange (landing) OR WaitDelay(0.6s):
+   - Sphere overlap at arrival (radius=120)
+   - Apply GE_Damage_Physical (SetByCaller 60 + Strength) to all in radius
+   - Apply GE_Debuff_Stun (1.2s) to primary target
+   - Spawn ground-slam Niagara on landing
+   - Camera shake (heavy, 0.5s)
+7. Play charge-land montage
+8. Remove GE_Charge_IFrame
+9. EndAbility
+
+─── GA_Execute ────────────────────────────────────────────────
+Tag: Ability.Warrior.Execute
+Cost: 50 Mana | Cooldown: 20s
+Requirement: Target Health < 25% (checked in CanActivateAbility)
+
+Flow:
+1. CanActivateAbility:
+   - Must have CurrentTarget via LockOnComponent
+   - Target must have Health attribute < 25% of MaxHealth
+2. CommitAbility
+3. PlayMontageAndWait (ExecuteMontage — dramatic overhead slam)
+4. On AnimNotify AN_TraceStart:
+   - Single target hit on CurrentTarget
+   - Damage = (Strength * 3.0) + (Target.MissingHealth * 0.5) ← executes harder at lower HP
+   - Apply via UDFDamageCalculation with custom ExecuteMultiplier SetByCaller
+   - If this kills the target:
+     → Apply GE_Buff_ExecuteReset: refund 50 Mana, reduce Charge cooldown by 8s
+     → Spawn death-blow VFX (blood burst, slow-motion hit-stop 0.1s TimeDialation)
+5. EndAbility on montage end
+
+Output all 5 ability .h and .cpp files with correct Public/Private paths.
+```
+
+---
+
+## ════════════════════════════════════════
+## 🔮 PROMPT 26 — ABILITIES: MAGO (MAGE)
+## ════════════════════════════════════════
+
+```
+@ue-gameplay-abilities
+@ue-gameplay-tags
+@ue-animation-system
+@ue-niagara-effects
+@ue-physics-collision
+
+Create all Mage class abilities for DungeonForged UE 5.4.
+All abilities extend UDFGameplayAbility.
+Path convention:
+  .h  → Source/DungeonForged/Public/GAS/Abilities/Mage/<FileName>.h
+  .cpp → Source/DungeonForged/Private/GAS/Abilities/Mage/<FileName>.cpp
+Always write the full path as a comment at the top of each file.
+Already exists: GA_Fireball (Prompt 12). Do NOT recreate it.
+
+─── GA_FrostBolt ──────────────────────────────────────────────
+Tag: Ability.Mage.FrostBolt
+Cost: 25 Mana | Cooldown: 4s
+Type: Targeted projectile — slows on hit
+
+Flow:
+1. CommitAbility
+2. PlayMontageAndWait (FrostBoltCastMontage)
+3. On AnimNotify AN_TraceStart:
+   - Spawn ADFFrostBoltProjectile at muzzle socket
+   - Projectile: speed=2400, homing toward LockOnTarget if active
+4. ADFFrostBoltProjectile OnHit:
+   - Apply GE_Damage_Magic (Intelligence * 0.8)
+   - Apply GE_Debuff_Slow (50% slow, 3s) to target
+   - Spawn FrostHit Niagara (ice shatter, blue crystals)
+   - If target already has Effect.DoT.Frost tag → apply GE_Freeze (root 1.5s) instead of slow
+5. EndAbility on montage end
+
+─── GA_BlizzardStorm ──────────────────────────────────────────
+Tag: Ability.Mage.BlizzardStorm
+Cost: 80 Mana | Cooldown: 30s
+Type: AOE ground-target DoT zone (WoW Blizzard style)
+
+Flow:
+1. CommitAbility
+2. PlayMontageAndWait (BlizzardCastMontage — arms raise, channeling)
+3. GetGroundTargetLocation: decal indicator (8m radius) follows cursor/aim direction
+   - Use WaitTargetData task with ADFGroundTargetActor (reticle)
+   - On Target confirmed: proceed
+4. Spawn ADFBlizzardZone actor at confirmed location:
+   - Duration: 8s
+   - Period: 0.5s tick
+   - Each tick: SphereOverlap radius=400
+     → Apply GE_Damage_Magic (Intelligence * 0.4) to each enemy
+     → Apply GE_DoT_Frost (1s, stackable) to each enemy
+     → Spawn snowflake Niagara burst per tick
+   - Zone has UDecalComponent (frost circle on ground)
+5. WaitDelay(8s) → EndAbility (zone handles its own destroy)
+
+─── GA_ArcaneBarrage ──────────────────────────────────────────
+Tag: Ability.Mage.ArcaneBarrage
+Cost: 15 Mana per charge | Cooldown: 1.5s per charge | MaxCharges: 3
+Type: Stacking charge ability — rapid fire magic missiles
+
+Setup:
+- Use GAS ability charge system: MaxCharges=3, ChargeRegenTime=6s
+- Each activation consumes 1 charge
+
+Flow (per cast):
+1. CommitAbility (1 charge)
+2. PlayMontageAndWait (ArcaneQuickCastMontage — fast hand flick, 0.4s)
+3. On AnimNotify AN_TraceStart:
+   - Spawn 3 ADFArcaneMissileProjectile with small spread (±5°)
+   - Each missile: speed=3000, homing=true (soft homing 60°/s)
+4. Each missile OnHit:
+   - Apply GE_Damage_Magic (Intelligence * 0.4) per missile
+   - Spawn arcane pop Niagara (purple spark)
+   - If all 3 hit same target: trigger Arcane Overload
+     → Extra GE_Damage_Magic (Intelligence * 1.2) + GE_Debuff_Silence (2s)
+5. EndAbility (instant — fast cast feel)
+
+─── GA_TimeWarp ───────────────────────────────────────────────
+Tag: Ability.Mage.TimeWarp
+Cost: 60 Mana | Cooldown: 60s
+Type: Signature ultimate — resets all ability cooldowns
+
+Flow:
+1. CommitAbility
+2. PlayMontageAndWait (TimeWarpMontage — dramatic rewind gesture, 1.2s)
+3. VFX: swirling clock/time Niagara around player, purple+gold palette
+4. Post-montage:
+   - Get all active cooldown GameplayEffects on self ASC
+   - Filter by tag "Ability.Cooldown.*"
+   - RemoveActiveGameplayEffect for each → ALL abilities reset
+   - Apply GE_Buff_TimeWarpHaste (HasDuration 8s):
+     → CooldownReduction += 0.5 (50% CDR for 8s — double-cast window)
+     → IntelligenceBonusMultiplier += 0.3
+5. Spawn grand VFX pulse (time ripple outward)
+6. EndAbility
+
+─── GA_ManaShield ─────────────────────────────────────────────
+Tag: Ability.Mage.ManaShield
+Cost: 0 Mana (but drains Mana when hit) | Cooldown: 20s
+Type: Reactive defense — absorbs damage using Mana instead of Health
+
+Flow:
+1. CommitAbility (no cost)
+2. Apply GE_ManaShield_Active (Infinite until cancelled):
+   - GrantedTag: State.ManaShieldActive
+3. Spawn shield bubble VFX around player (transparent blue sphere)
+4. In UDFAttributeSet::PostGameplayEffectExecute:
+   - If incoming damage AND target HasTag(State.ManaShieldActive):
+     → Redirect 70% of damage from Health to Mana drain
+     → Remaining 30% hits Health normally
+     → If Mana hits 0: force-remove GE_ManaShield_Active + play shield-break VFX
+5. WaitGameplayEffectRemoved OR WaitInputAction(IA_Ability toggle):
+   - RemoveGameplayEffect if player manually toggles off
+   - Hide bubble VFX
+6. EndAbility
+
+─── GA_Teleport ───────────────────────────────────────────────
+Tag: Ability.Mage.Teleport
+Cost: 40 Mana | Cooldown: 10s
+Type: Blink — instant repositioning (replaces Dodge for Mage)
+
+Flow:
+1. CanActivateAbility: NOT HasTag(State.Dead) AND NOT HasTag(State.Stunned)
+2. CommitAbility
+3. Determine blink destination:
+   - If LockOnTarget active: blink BEHIND target (TargetLocation - TargetForward*150)
+   - Else: blink in input direction 700 units (or toward camera forward)
+   - Validate with NavigationSystem->ProjectPointToNavigation
+4. Apply GE_Teleport_IFrame (0.3s invulnerable)
+5. Spawn departure VFX at current location (vanish puff, purple)
+6. TeleportTo(DestinationLocation) — instant, no interpolation
+7. Spawn arrival VFX at destination (appear puff, purple)
+8. Remove GE_Teleport_IFrame
+9. EndAbility (immediate — no montage, feels snappy)
+
+Bonus: if Teleport is used while an enemy is casting (target HasTag State.Casting):
+- Apply GE_Damage_Magic (Intelligence * 1.5) on arrival — "Spellsteal interrupt"
+
+Output all 6 ability .h and .cpp files with correct Public/Private paths.
+```
+
+---
+
+## ════════════════════════════════════════
+## 🗡️ PROMPT 27 — ABILITIES: ASSASSINO (ROGUE)
+## ════════════════════════════════════════
+
+```
+@ue-gameplay-abilities
+@ue-gameplay-tags
+@ue-animation-system
+@ue-niagara-effects
+@ue-physics-collision
+@ue-character-movement
+
+Create all Rogue/Assassin class abilities for DungeonForged UE 5.4.
+All abilities extend UDFGameplayAbility.
+Path convention:
+  .h  → Source/DungeonForged/Public/GAS/Abilities/Rogue/<FileName>.h
+  .cpp → Source/DungeonForged/Private/GAS/Abilities/Rogue/<FileName>.cpp
+Always write the full path as a comment at the top of each file.
+Already exists: GA_Dodge (Prompt 18). Do NOT recreate it.
+
+─── Resource: Combo Points System ────────────────────────────
+Before the abilities, create UDFComboPointsComponent (ActorComponent):
+- int32 CurrentComboPoints = 0 (max 5)
+- Broadcast OnComboPointsChanged(int32 New, int32 Max)
+- AddComboPoints(int32 Amount): clamp to 5, broadcast
+- SpendComboPoints(int32 Amount): returns bool (enough points?)
+- ResetComboPoints(): set 0, broadcast
+(Combo Points are the Rogue resource — builders add, finishers spend)
+
+─── GA_Backstab ───────────────────────────────────────────────
+Tag: Ability.Rogue.Backstab
+Cost: 15 Energy (use Stamina as Energy) | Cooldown: 0s (limited by GCD 1s)
+Type: Builder — positional melee strike, must be behind target
+
+Flow:
+1. CanActivateAbility:
+   - Check position: dot(PlayerForward, TargetForward) > 0.5 (player is behind target)
+   - If not behind: ability still activates but damage is 50% (front stab)
+2. CommitAbility
+3. PlayMontageAndWait (BackstabMontage — quick lunge animation, 0.5s)
+4. On AN_TraceStart:
+   - Single target melee trace
+   - IsBehind: Damage = Agility * 2.0 + BaseDamage (full)
+   - IsFront:  Damage = Agility * 1.0 + BaseDamage (half)
+   - Apply GE_Damage_Physical with SetByCaller
+   - Apply GE_DoT_Bleed (3s) always
+   - AddComboPoints(1) via UDFComboPointsComponent
+   - If IsBehind: AddComboPoints(2) instead (extra point for positional)
+5. EndAbility
+
+─── GA_FanOfKnives ────────────────────────────────────────────
+Tag: Ability.Rogue.FanOfKnives
+Cost: 25 Stamina | Cooldown: 8s
+Type: AOE burst — hits all nearby enemies
+
+Flow:
+1. CommitAbility
+2. PlayMontageAndWait (FanOfKnivesMontage — arms spread wide, 0.6s)
+3. On AN_TraceStart:
+   - SphereOverlap radius=350 around player
+   - For each enemy: spawn ADFKnifeProjectile with random spread angle (360°, N knives = overlap count)
+     Each knife: speed=2800, no homing, destroyOnHit=true
+4. Each knife OnHit:
+   - Apply GE_Damage_Physical (Agility * 0.6) per knife
+   - Apply GE_DoT_Poison (3s) to target (stackable)
+   - Spawn knife-impact Niagara (blade glint)
+5. AddComboPoints(1) regardless of hit count
+6. EndAbility on montage end
+
+─── GA_ShadowStep ─────────────────────────────────────────────
+Tag: Ability.Rogue.ShadowStep
+Cost: 30 Stamina | Cooldown: 12s
+Type: Gap closer — teleport directly behind target (offensive blink)
+
+Flow:
+1. CanActivateAbility: must have LockOnTarget
+2. CommitAbility
+3. Apply GE_ShadowStep_Stealth (0.5s):
+   - GrantedTag: State.Invisible
+   - Modifier: MovementSpeedMultiplier += 0.5
+4. Spawn shadow trail Niagara at start position (dark smoke dissipating)
+5. TeleportTo(TargetLocation - TargetForward * 120 + FVector(0,0,10))
+   (directly behind target, slight Z offset to avoid floor clip)
+6. Face target: SetActorRotation toward target
+7. Spawn arrival shadow Niagara (dark burst)
+8. Remove GE_ShadowStep_Stealth
+9. Auto-activate GA_Backstab if target is alive (chained ability):
+   - TryActivateAbilityByTag("Ability.Rogue.Backstab") with bAllowRemoteActivation=false
+10. AddComboPoints(2)
+11. EndAbility
+
+─── GA_Eviscerate ─────────────────────────────────────────────
+Tag: Ability.Rogue.Eviscerate
+Cost: 0 Stamina (free) | Cooldown: 1s
+Type: Finisher — consumes ALL Combo Points for massive bleed
+
+Flow:
+1. CanActivateAbility: ComboPointsComponent->CurrentComboPoints >= 1
+2. CommitAbility
+3. Cache int32 PointsSpent = ComboPointsComponent->CurrentComboPoints
+4. ComboPointsComponent->ResetComboPoints()
+5. PlayMontageAndWait (EviscerateMontage — vicious slashing sequence, 0.8s)
+6. On AN_TraceStart:
+   - Single target hit
+   - BaseDamage = Agility * 1.5
+   - BonusDamage = PointsSpent * Agility * 0.8  ← scales with combo points
+   - TotalDamage = BaseDamage + BonusDamage
+   - Apply GE_Damage_Physical (TotalDamage)
+   - Apply GE_DoT_Bleed:
+     → Duration = 2 + (PointsSpent * 1)  ← more points = longer bleed
+     → Damage per tick = Agility * 0.3 * PointsSpent
+   - Spawn eviscerate Niagara (deep red slash trail, proportional to points)
+   - If PointsSpent == 5: trigger Killing Spree bonus
+     → Apply GE_Buff_KillingSpree (5s): +40% Agility, +20% attack speed
+7. EndAbility
+
+─── GA_Vanish ─────────────────────────────────────────────────
+Tag: Ability.Rogue.Vanish
+Cost: 50 Stamina | Cooldown: 45s
+Type: Escape / reset — full stealth, breaks combat
+
+Flow:
+1. CommitAbility
+2. Apply GE_Vanish_Stealth (HasDuration 8s OR until combat action):
+   - GrantedTag: State.Invisible, State.Stealthed
+   - Modifier: MovementSpeedMultiplier += 0.2
+   - CancelIfDamaged: bind to Health attribute change → if damage received → RemoveEffect
+3. Spawn vanish smoke VFX (character dissolves with smoke puff)
+4. Set mesh visibility: 30% opacity via dynamic material (not fully invisible — WoW style)
+5. Notify all enemies via GameplayEvent "Event.Stealth.Entered":
+   - Enemy AI: clear BB_TargetActor if it was this player
+   - Enemies return to Patrol state
+6. If player attacks while stealthed (any Ability with Tag Ability.Attack.*):
+   - RemoveEffect GE_Vanish_Stealth
+   - First attack out of stealth: apply GE_Buff_ShadowStrike (1 hit):
+     → Next damage multiplied by 2.0
+     → Automatic AddComboPoints(3) (ambush bonus)
+7. WaitGameplayEffectRemoved OR WaitDelay(8s):
+   - Show character at full opacity
+   - EndAbility
+
+─── GA_SmokeScreen ────────────────────────────────────────────
+Tag: Ability.Rogue.SmokeScreen
+Cost: 20 Stamina | Cooldown: 20s
+Type: AOE utility — area denial, blinds enemies
+
+Flow:
+1. CommitAbility
+2. PlayMontageAndWait (ThrowMontage — quick underarm toss, 0.3s)
+3. Spawn ADFSmokeBombActor at aim direction (short arc throw 300 units):
+   - Duration: 5s
+   - UNiagaraComponent: dense smoke cloud, radius=300
+   - Every 0.3s tick: SphereOverlap — for each enemy in smoke:
+     → Apply GE_Debuff_Blind (0.5s renewable): 
+       AI: set BB_bCanSeeTarget = false even if player is visible
+       Reduces enemy accuracy (add GameplayTag Effect.Debuff.Blinded)
+4. Player inside smoke: gains GE_Buff_SmokeCover (while overlapping):
+   - GrantedTag: State.Concealed
+   - Enemy AI will not detect player while in smoke (override perception)
+5. ADFSmokeBombActor destroys itself after 5s + spawns clear VFX
+6. EndAbility immediately after throw (fire and forget)
+
+Output all 7 files (UDFComboPointsComponent + 6 abilities) with correct Public/Private paths.
+```
+
+---
+
+## ════════════════════════════════════════
+## ✨ PROMPT 28 — ABILITIES: PASSIVAS E AURAS
+## ════════════════════════════════════════
+
+```
+@ue-gameplay-abilities
+@ue-gameplay-tags
+@ue-actor-component-archit...
+@ue-niagara-effects
+
+Create all Passive Abilities and Aura system for DungeonForged UE 5.4.
+All abilities extend UDFGameplayAbility with ActivationPolicy = Passive.
+Path convention:
+  .h  → Source/DungeonForged/Public/GAS/Abilities/Passive/<FileName>.h
+  .cpp → Source/DungeonForged/Private/GAS/Abilities/Passive/<FileName>.cpp
+Always write the full path as a comment at the top of each file.
+
+─── Passive Ability base pattern ──────────────────────────────
+For ALL passive abilities:
+- ActivationPolicy = Passive (auto-activated when granted)
+- ActivateAbility: Apply persistent GE_<PassiveName>_Aura (Infinite)
+  + store ActiveEffectHandle
+- OnRemoveAbility override: RemoveActiveGameplayEffect(ActiveEffectHandle)
+- No cost, no cooldown, no input binding
+
+─── GA_Passive_Warrior_Fortitude ──────────────────────────────
+Tag: Ability.Passive.Warrior.Fortitude
+Class: Warrior only (granted by DT_Classes Warrior row)
+
+Effect GE_Fortitude (Infinite):
+- Modifier: MaxHealth += (Strength * 5)     ← scales with Strength
+- Modifier: Armor += 10 flat
+- Period 5s: if Health < 50% → apply GE_Buff_BattleFury (10s):
+  → Strength += 15 (enrage when wounded)
+
+─── GA_Passive_Warrior_Retaliation ────────────────────────────
+Tag: Ability.Passive.Warrior.Retaliation
+
+Trigger-based passive (different pattern — use GameplayEvent):
+- ActivateAbility: WaitGameplayEvent("Event.Hit.Received") loop
+- On each hit received:
+  → If damage > (MaxHealth * 0.05): counter-apply GE_Damage_Physical
+    to attacker (Strength * 0.3) — automatic riposte
+  → Spawn small riposte spark VFX on attacker
+
+─── GA_Passive_Mage_ArcaneMastery ─────────────────────────────
+Tag: Ability.Passive.Mage.ArcaneMastery
+Class: Mage only
+
+Effect GE_ArcaneMastery (Infinite):
+- Modifier: Intelligence += (Level * 3)     ← scales with character level
+- Modifier: CooldownReduction += 0.05       ← passive 5% CDR
+- Modifier: MaxMana += (Intelligence * 2)
+
+─── GA_Passive_Mage_ManaVortex ────────────────────────────────
+Tag: Ability.Passive.Mage.ManaVortex
+
+Trigger-based passive:
+- WaitGameplayEvent("Event.Ability.Kill") — fires when player kills with ability
+- On kill: apply GE_ManaVortex_Refund (Instant):
+  → Mana += 20 flat refund (every kill restores mana)
+- Spawn mana orb VFX sucked into player on kill
+
+─── GA_Passive_Rogue_Predator ─────────────────────────────────
+Tag: Ability.Passive.Rogue.Predator
+Class: Rogue only
+
+Effect GE_Predator (Infinite):
+- Modifier: MovementSpeedMultiplier += 0.08  ← always faster
+- Modifier: CritChance += 0.10              ← +10% crit base
+
+─── GA_Passive_Rogue_BleedMastery ─────────────────────────────
+Tag: Ability.Passive.Rogue.BleedMastery
+
+Trigger-based passive:
+- WaitAttributeChange: watch for GE_DoT_Bleed applied to any target by this player
+- On Bleed applied to a new target:
+  → Enhance the bleed: AddActiveGameplayEffectGrantedTagsForDuration
+    → Extra modifier: Bleed tick damage += Agility * 0.2
+  → If target already has 2+ bleeds: apply GE_Debuff_ArmorBreak (3s)
+    (multiple bleeds = armor destroyed)
+
+─── UDFAuraComponent ──────────────────────────────────────────
+ActorComponent for persistent aura zone effects (different from passive GEs):
+
+Properties:
+- float AuraRadius = 600.f
+- float AuraTickRate = 1.0f
+- TSubclassOf<UGameplayEffect> FriendlyAuraEffect
+- TSubclassOf<UGameplayEffect> EnemyAuraEffect (optional — debuff aura)
+- UNiagaraSystem* AuraVFX
+- UNiagaraComponent* ActiveAuraVFX
+
+Functions:
+- BeginPlay: spawn AuraVFX, start FTimerHandle TickAura
+- TickAura: SphereOverlap(AuraRadius)
+  → Apply FriendlyAuraEffect to allies (if set)
+  → Apply EnemyAuraEffect to enemies (if set)
+  → Only apply if target does NOT already have the effect active
+- SetAuraRadius(float NewRadius): update overlap + scale VFX
+- Enable/Disable: pause/resume timer, hide/show VFX
+
+Example Auras using UDFAuraComponent (describe setup, not full classes):
+- Aura_HolyGround (Paladin future): radius=500, allies regen 2% HP/s
+- Aura_FrostPresence (Mage item): radius=400, enemies get GE_Debuff_Slow 20%
+- Aura_BattlefieldDread (Boss): radius=800, players get GE_Debuff_Weaken 15%
+
+Output all passive ability files + UDFAuraComponent.h/.cpp with correct paths.
+```
+
+---
+
+## ════════════════════════════════════════
+## 🌟 PROMPT 29 — ABILITIES: UNIVERSAIS E UTILITÁRIAS
+## ════════════════════════════════════════
+
+```
+@ue-gameplay-abilities
+@ue-gameplay-tags
+@ue-animation-system
+@ue-niagara-effects
+@ue-ui-umg-slate
+
+Create Universal and Utility abilities for DungeonForged UE 5.4.
+These are available to ALL classes as drops/pickups during the roguelike run.
+All extend UDFGameplayAbility.
+Path convention:
+  .h  → Source/DungeonForged/Public/GAS/Abilities/Universal/<FileName>.h
+  .cpp → Source/DungeonForged/Private/GAS/Abilities/Universal/<FileName>.cpp
+Always write the full path as a comment at the top of each file.
+
+─── GA_HealthPotion ───────────────────────────────────────────
+Tag: Ability.Universal.HealthPotion
+Cost: 0 | Cooldown: 30s
+Type: Consumable ability (granted by item pickup, limited charges)
+
+Properties (additional):
+- int32 Charges = 3        ← set from item row
+- int32 HealPercent = 40   ← heals 40% of MaxHealth
+
+Flow:
+1. CanActivateAbility: Charges > 0
+2. CommitAbility (no resource cost)
+3. Charges--
+4. PlayMontageAndWait (DrinkPotionMontage — quick sip, 0.4s)
+5. Apply GE_HealthPotion_Heal (Instant):
+   - SetByCaller Data.Healing = MaxHealth * (HealPercent / 100)
+6. Spawn healing VFX (green particles rising from player)
+7. Update HUD potion counter: broadcast OnChargesChanged(Charges)
+8. If Charges == 0: RemoveAbilityFromASC (auto-removes when empty)
+9. EndAbility
+
+─── GA_SecondWind ─────────────────────────────────────────────
+Tag: Ability.Universal.SecondWind
+Cost: 0 | Cooldown: 120s (long — emergency button)
+Type: Cheat death passive trigger (auto-activates)
+
+Flow (passive trigger pattern):
+1. ActivationPolicy = Passive
+2. ActivateAbility: WaitAttributeChange Health to 0 or below (death threshold)
+3. On trigger:
+   - BEFORE death broadcast fires: intercept via UDFAttributeSet flag bSecondWindAvailable
+   - Apply GE_SecondWind_Revival (Instant):
+     → Health = MaxHealth * 0.25 (25% HP restored)
+     → Apply GE_Buff_Shield (3s invulnerable recovery window)
+   - Apply GE_SecondWind_Cooldown (HasDuration 120s):
+     → GrantedTag: Ability.Cooldown.SecondWind (blocks re-trigger)
+   - Spawn dramatic revival VFX (golden burst, screen flash white)
+   - Camera shake (heavy, 0.8s)
+   - Broadcast OnSecondWindActivated (HUD: show "SECOND WIND!" text popup)
+4. After revival: re-WaitAttributeChange for next potential trigger
+   (but blocked by Ability.Cooldown.SecondWind tag until 120s)
+
+─── GA_BattleHymn ─────────────────────────────────────────────
+Tag: Ability.Universal.BattleHymn
+Cost: 45 Mana | Cooldown: 35s
+Type: Self-buff — short burst of all-stats boost
+
+Flow:
+1. CommitAbility
+2. PlayMontageAndWait (BattleHymnMontage — shout animation, 0.5s)
+3. Apply GE_BattleHymn (HasDuration 12s):
+   - Modifier: Strength += 20
+   - Modifier: Intelligence += 20
+   - Modifier: Agility += 20
+   - Modifier: CritChance += 0.15
+   - Modifier: CooldownReduction += 0.20
+   - GrantedTag: Effect.Buff.BattleHymn
+4. Spawn aura VFX (multicolor glow cycling through class colors)
+5. WaitGameplayEffectRemoved:
+   - Play buff-end audio (fades out)
+   - EndAbility
+
+─── GA_Siphon ─────────────────────────────────────────────────
+Tag: Ability.Universal.Siphon
+Cost: 20 Mana | Cooldown: 6s
+Type: Life steal strike — heals player for damage dealt
+
+Flow:
+1. CommitAbility
+2. PlayMontageAndWait (SiphonMontage — draining grasp animation, 0.6s)
+3. On AN_TraceStart:
+   - Single target melee/ranged trace (60% Strength + 40% Intelligence hybrid)
+   - Apply GE_Damage_True (bypasses armor — soul drain)
+   - Calculate DamageDealt via ExecutionCalculation result
+   - Apply GE_Siphon_Heal (Instant): Health += DamageDealt * 0.6
+   - Spawn life-drain VFX: red tendrils from target to player
+   - If target killed: bonus GE_Siphon_Overheal → Health += MaxHealth * 0.1
+     (overheal as temporary shield if Health > Max)
+4. EndAbility
+
+─── GA_Berserk ────────────────────────────────────────────────
+Tag: Ability.Universal.Berserk
+Cost: 0 | Cooldown: 90s
+Type: Ultimate berserk mode — risk/reward mechanic
+
+Flow:
+1. CommitAbility
+2. Apply GE_Berserk_Active (HasDuration 10s):
+   - Modifier: Strength += 60
+   - Modifier: Agility += 40
+   - Modifier: MovementSpeedMultiplier += 0.4
+   - Modifier: Armor -= 50            ← defense drops!
+   - Modifier: MagicResist -= 30      ← magic defense drops!
+   - GrantedTag: State.Berserk
+   - Period 1s: Apply GE_Damage_True to SELF (Health -= MaxHealth * 0.02)
+     (berserk costs health every second — must kill or die)
+3. Spawn berserk VFX (red aura, distortion, screen edge vignette red)
+4. Override camera: increase FOV from 90 to 100 smoothly
+5. Change character material to red emissive overlay
+6. WaitGameplayEffectRemoved:
+   - Restore FOV to 90
+   - Remove material overlay
+   - If player survived: apply GE_BerserkExhaustion (5s):
+     → Strength -= 20, Speed -= 0.2 (crash after berserk)
+   - EndAbility
+
+─── GA_CallLightning ──────────────────────────────────────────
+Tag: Ability.Universal.CallLightning
+Cost: 55 Mana | Cooldown: 18s
+Type: Ground-target instant strike
+
+Flow:
+1. CommitAbility
+2. PlayMontageAndWait (LightningCastMontage — arm raised, 0.7s)
+3. GetAimTargetLocation: line trace from camera forward 2000 units
+4. Spawn ADFLightningStrikeActor at hit location:
+   - Instant: no projectile travel
+   - CapsuleOverlap radius=200, height=600
+   - Apply GE_Damage_Magic (Intelligence * 1.8) to all in capsule
+   - Apply GE_Debuff_Stun (0.8s) to all hit
+   - Spawn lightning bolt Niagara (top-down strike, branching arcs)
+   - Camera shake (moderate, 0.4s)
+   - If secondary target within 400 units: chain bolt → apply GE_Damage_Magic
+     (Intelligence * 0.8) to chain target (1 chain max)
+5. EndAbility on montage end
+
+Output all 6 Universal ability .h and .cpp files with correct Public/Private paths.
+```
+
+---
+
+## ════════════════════════════════════════
+## 🐉 PROMPT 30 — ABILITIES: BOSS EXCLUSIVAS
+## ════════════════════════════════════════
+
+```
+@ue-gameplay-abilities
+@ue-gameplay-tags
+@ue-animation-system
+@ue-niagara-effects
+@ue-physics-collision
+@ue-character-movement
+
+Create Boss-exclusive abilities for DungeonForged UE 5.4.
+These are granted ONLY to ADFBossBase derived actors.
+All extend UDFGameplayAbility with bSourceObjectMustBeBoss = true (custom check).
+Path convention:
+  .h  → Source/DungeonForged/Public/GAS/Abilities/Boss/<FileName>.h
+  .cpp → Source/DungeonForged/Private/GAS/Abilities/Boss/<FileName>.cpp
+Already exists in Prompt 22: GroundSlam, SummonMinions, ChargeAttack. Do NOT recreate.
+
+─── GA_Boss_TerrorShout ───────────────────────────────────────
+Tag: Ability.Boss.TerrorShout
+Cooldown: 30s | Type: AOE CC + debuff
+Phase: Available from Phase 1
+
+Flow:
+1. PlayMontageAndWait (BossShoutMontage — head rears back, massive roar)
+2. Camera shake (very heavy, 1.5s, radial falloff)
+3. SphereOverlap radius=1200:
+   - Apply GE_Debuff_TerrorStruck (HasDuration 3s) to player if in range:
+     → MovementSpeedMultiplier -= 0.5
+     → GrantedTag: Effect.Debuff.Terrified
+     → AI override: player input locked (simulates fear — player auto-moves away)
+   - Apply GE_Debuff_Weaken (10s) to player: Armor -= 30, MagicResist -= 20
+4. Spawn shockwave Niagara (ground ripple outward from boss, dust + debris)
+5. EndAbility
+
+─── GA_Boss_MeteorStrike ──────────────────────────────────────
+Tag: Ability.Boss.MeteorStrike
+Cooldown: 45s | Phase: Phase 2 only
+Type: Telegraphed AOE — gives player 2s warning
+
+Flow:
+1. Select target location: player's current position + predictive offset (1s ahead)
+2. Spawn ADFMeteorWarningDecal at target (red circle, radius=400):
+   - Animate: pulsing red → bright red over 2s
+   - Spawn warning sound (rumbling)
+3. WaitDelay(2.0s) ← player window to escape
+4. Spawn ADFMeteorImpactActor:
+   - Instant explosion at decal location
+   - SphereOverlap radius=400:
+     → Apply GE_Damage_True (500 flat — devastating) to player if in zone
+     → Apply GE_Debuff_Stun (2s) to player
+   - Inner radius=150: GE_Damage_True (1000 — instant kill zone)
+   - Spawn massive explosion Niagara (fire, rock debris, crater decal on floor)
+   - Camera shake (extreme, 2s)
+5. EndAbility after impact
+
+─── GA_Boss_VoidBarrier ───────────────────────────────────────
+Tag: Ability.Boss.VoidBarrier
+Cooldown: 60s | Phase: Phase 2 only
+Type: Defensive phase — boss becomes temporarily unkillable
+
+Flow:
+1. Apply GE_VoidBarrier (HasDuration 8s):
+   - GrantedTag: State.Invulnerable
+   - Modifier: Armor = 99999 (effectively immune)
+2. Spawn barrier VFX: swirling void energy sphere around boss (dark purple)
+3. While barrier active: boss activates GA_Boss_VoidOrbs:
+   - Spawn 4 ADFVoidOrbActor orbiting boss at radius=300
+   - Each orb: UProjectileMovementComponent orbiting (custom tick — circular path)
+   - Orb OnPlayerOverlap: apply GE_Damage_True (80) + GE_Debuff_Slow (2s)
+   - Orbs have health: 150 HP each (player must destroy all 4)
+4. Track orbs destroyed via OnOrbDestroyed delegate
+5. When all 4 orbs destroyed (or 8s elapsed):
+   - RemoveActiveGameplayEffect GE_VoidBarrier
+   - Boss becomes vulnerable + briefly stunned 1s (reward for breaking barrier)
+   - Destroy remaining orbs
+6. EndAbility
+
+─── GA_Boss_PhaseTransition_Slam ──────────────────────────────
+Tag: Ability.Boss.PhaseTransitionSlam
+Cooldown: N/A (auto-triggered once per phase transition by ADFBossBase)
+Type: Unavoidable cinematic ability — screen event
+
+Flow (called by TriggerPhaseTransition in ADFBossBase):
+1. Apply GE_Debuff_Stun to PLAYER (1.5s — cinematic lock)
+2. PlayMontageAndWait (PhaseTransitionSlamMontage — boss collapses then erupts)
+3. At montage midpoint (AnimNotify AN_PhaseErupt):
+   - SphereOverlap entire room (radius=9999)
+   - Apply GE_Damage_True (MaxHealth * 0.15) to player — always hits for 15% HP
+   - This forces the player to manage health before phase transitions
+   - Spawn room-wide shockwave Niagara (fills entire dungeon room)
+   - Flash screen white for 0.3s via post-process
+4. Remove player stun
+5. EndAbility (phase transition continues in ADFBossBase)
+
+─── GA_Boss_EnragePulse ───────────────────────────────────────
+Tag: Ability.Boss.EnragePulse
+Cooldown: 8s | Available only when bIsEnraged == true
+Type: Rapid-fire AOE spam during enrage
+
+Flow:
+1. CanActivateAbility: Boss->bIsEnraged == true
+2. PlayMontageAndWait (EnragePulseMontage — fast pound animation, 0.4s)
+3. SphereOverlap radius=600:
+   - Apply GE_Damage_Physical (Strength * 1.5) to player
+   - Apply GE_Debuff_Slow (1s) to player
+   - Spawn kinetic shockwave Niagara (orange/red)
+4. EndAbility immediately (fast cycle — 8s CD but enrage = non-stop pressure)
+
+Output all 5 boss ability .h and .cpp files with correct Public/Private paths.
+```
+
+---
+
+## 📝 DICAS DE USO NO CURSOR
+
 ## 📝 DICAS DE USO NO CURSOR
 
 **Skills disponíveis no projeto** (`.cursor/skills/`):
@@ -1534,44 +2365,61 @@ Output all .h and .cpp files with correct Public/Private paths.
 | `@ue-project-context` | 0, 15 |
 | `@ue-cpp-foundations` | 0, 1, 2, 7, 15 |
 | `@ue-module-build-system` | 0, 1, 15 |
-| `@ue-gameplay-abilities` | 2, 3, 4, 5, 7, 8, 10, 11, 12, 14, 15, 17, 18, 20, 22, 23, 24 |
-| `@ue-gameplay-tags` | 2, 5, 6, 8, 11, 12, 14, 16, 17, 18, 19, 20, 21, 22, 24 |
+| `@ue-gameplay-abilities` | 2,3,4,5,7,8,10,11,12,14,15,17,18,20,22,23,24,25,26,27,28,29,30 |
+| `@ue-gameplay-tags` | 2,5,6,8,11,12,14,16,17,18,19,20,21,22,24,25,26,27,28,29,30 |
 | `@ue-gameplay-framework` | 3, 4, 9, 13, 16 |
 | `@ue-input-system` | 3, 7 |
-| `@ue-character-movement` | 3, 18, 21 |
+| `@ue-character-movement` | 3, 18, 21, 27, 30 |
 | `@ue-networking-replication` | 4, 8, 15, 18 |
-| `@ue-animation-system` | 5, 12, 17, 18, 21, 22 |
+| `@ue-animation-system` | 5,12,17,18,21,22,25,26,27,28,29,30 |
 | `@ue-data-assets-tables` | 6, 9, 10, 13, 20, 23, 24 |
 | `@ue-asset-manager` | 6, 14 |
 | `@ue-ai-navigation` | 8, 19 |
-| `@ue-actor-component-archit...` | 8, 10, 16, 17, 19, 22, 24 |
+| `@ue-actor-component-archit...` | 8,10,16,17,19,22,24,28 |
 | `@ue-procedural-generation` | 9 |
 | `@ue-world-level-streaming` | 9 |
-| `@ue-physics-collision` | 10, 12, 17, 24 |
-| `@ue-ui-umg-slate` | 11, 16, 22, 23, 24 |
-| `@ue-niagara-effects` | 12, 17, 22 |
+| `@ue-physics-collision` | 10,12,17,24,25,26,27,30 |
+| `@ue-ui-umg-slate` | 11, 16, 22, 23, 24, 29 |
+| `@ue-niagara-effects` | 12,17,22,25,26,27,28,29,30 |
 | `@ue-serialization-savegames` | 13, 23 |
 | `@ue-game-features` | 13 |
 | `@ue-testing-debugging` | 15 |
-| `@ue-mass-entity` | — (disponível para futuro sistema de multidão) |
-| `@ue-async-threading` | — (disponível para loading assíncrono) |
-| `@ue-audio-system` | — (disponível para Prompt de MetaSounds futuro) |
+| `@ue-mass-entity` | — (futuro: sistema de multidão) |
+| `@ue-async-threading` | — (futuro: loading assíncrono) |
+| `@ue-audio-system` | — (futuro: MetaSounds) |
+
+**Mapa de Abilities por Classe:**
+
+| Prompt | Classe | Abilities |
+|---|---|---|
+| 12 | 🔮 Mago | Fireball |
+| 17 | 🌍 Universal | Melee Combo (3 hits) |
+| 18 | 🌍 Universal | Sprint, Dodge |
+| 25 | ⚔️ Guerreiro | ShieldBash, WarCry, Whirlwind, IronSkin, Charge, Execute |
+| 26 | 🔮 Mago | FrostBolt, BlizzardStorm, ArcaneBarrage, TimeWarp, ManaShield, Teleport |
+| 27 | 🗡️ Assassino | ComboPoints, Backstab, FanOfKnives, ShadowStep, Eviscerate, Vanish, SmokeScreen |
+| 28 | ✨ Passivas | Fortitude, Retaliation, ArcaneMastery, ManaVortex, Predator, BleedMastery, AuraComponent |
+| 29 | 🌟 Universal | HealthPotion, SecondWind, BattleHymn, Siphon, Berserk, CallLightning |
+| 30 | 🐉 Boss | TerrorShout, MeteorStrike, VoidBarrier, PhaseTransitionSlam, EnragePulse |
 
 **Ordem recomendada completa:**
 ```
-0 → 1 → 14 → 2 → 4 → 3 → 20 → 5 → 18 → 21 → 17 → 16 → 6 → 7 → 19 → 8 → 9 → 10 → 24 → 11 → 23 → 12 → 22 → 13 → 15
+0 → 1 → 14 → 2 → 4 → 3 → 20 → 5 → 18 → 21 → 17 → 16
+→ 6 → 7 → 19 → 8 → 9 → 10 → 24 → 11 → 23
+→ 28 → 25 → 26 → 27 → 29 → 12
+→ 22 → 30 → 13 → 15
 ```
 
 **Como usar:**
 1. **Abra o projeto inteiro** no Cursor como workspace
 2. **Use o modo Agent** para criação de múltiplos arquivos
-3. **Cole o Prompt 0 primeiro** — ele carrega as skills base globais
-4. Cada prompt carrega **apenas as skills necessárias** para aquele sistema
-5. **Após cada prompt**, revise os paths — arquivos devem estar em `Public/` e `Private/`
-6. Use `@Public/GAS/Effects/DFGameplayEffectLibrary.h` para referenciar arquivos já gerados
+3. **Cole o Prompt 0 primeiro** — carrega as skills base globais para toda sessão
+4. Abilities de classe **dependem do Prompt 5** (base GameplayAbility) — execute-o antes
+5. Abilities de boss **dependem do Prompt 22** (BossBase) — execute-o antes do Prompt 30
+6. Use `@Public/GAS/Abilities/Warrior/DFAbility_ShieldBash.h` para referenciar abilities já geradas
 7. **Para debugar GAS**, adicione ao Prompt 0: `"Always add GAS verbose log tags for debugging"`
-8. Skills `@ue-mass-entity`, `@ue-async-threading` e `@ue-audio-system` estão disponíveis para prompts futuros de MetaSounds e otimização
+8. Skills `@ue-mass-entity`, `@ue-async-threading` e `@ue-audio-system` estão disponíveis para prompts futuros
 
 ---
 
-*DungeonForged — Cursor Prompts v3.0 | UE5.4 | GAS | Data-Driven | Enhanced Input | 24 Prompts Completos*
+*DungeonForged — Cursor Prompts v4.0 | UE5.4 | GAS | 31 Prompts | 3 Classes + Passivas + Universal + Boss*
