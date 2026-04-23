@@ -15,6 +15,7 @@
 #include "GAS/Effects/UGE_Damage_Physical.h"
 #include "GAS/Effects/UGE_DoT_Bleed.h"
 #include "GAS/UDFAttributeSet.h"
+#include "GAS/UDFPassivesGASEvents.h"
 #include "AbilitySystemComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
@@ -188,6 +189,7 @@ void UDFAbility_Rogue_Eviscerate::DoEvisc()
 			if (B.IsValid() && B.Data)
 			{
 				Src->ApplyGameplayEffectSpecToTarget(*B.Data, Tasc);
+				UDFPassivesGASEvents::DispatchRogueBleedApplied(C, Target, Src);
 			}
 		}
 	}

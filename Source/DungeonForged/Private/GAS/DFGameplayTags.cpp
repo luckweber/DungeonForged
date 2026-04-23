@@ -22,6 +22,12 @@ FGameplayTag FDFGameplayTags::Ability_Slot_3;
 FGameplayTag FDFGameplayTags::Ability_Slot_4;
 FGameplayTag FDFGameplayTags::Ability_Passive_HealthRegen;
 FGameplayTag FDFGameplayTags::Ability_Passive_ManaRegen;
+FGameplayTag FDFGameplayTags::Ability_Passive_Warrior_Fortitude;
+FGameplayTag FDFGameplayTags::Ability_Passive_Warrior_Retaliation;
+FGameplayTag FDFGameplayTags::Ability_Passive_Mage_ArcaneMastery;
+FGameplayTag FDFGameplayTags::Ability_Passive_Mage_ManaVortex;
+FGameplayTag FDFGameplayTags::Ability_Passive_Rogue_Predator;
+FGameplayTag FDFGameplayTags::Ability_Passive_Rogue_BleedMastery;
 FGameplayTag FDFGameplayTags::Ability_Movement_Sprint;
 FGameplayTag FDFGameplayTags::Ability_Movement_Dodge;
 FGameplayTag FDFGameplayTags::Ability_Warrior_ShieldBash;
@@ -99,6 +105,9 @@ FGameplayTag FDFGameplayTags::Effect_Debuff_Blinded;
 FGameplayTag FDFGameplayTags::Event_Ability_Fire_Launch;
 FGameplayTag FDFGameplayTags::Event_Ability_Melee_Hit;
 FGameplayTag FDFGameplayTags::Event_Ability_Montage_End;
+FGameplayTag FDFGameplayTags::Event_Hit_Received;
+FGameplayTag FDFGameplayTags::Event_Ability_Kill;
+FGameplayTag FDFGameplayTags::Event_Passive_Rogue_BleedApplied;
 FGameplayTag FDFGameplayTags::Data_Damage;
 FGameplayTag FDFGameplayTags::Data_Healing;
 FGameplayTag FDFGameplayTags::Data_Duration;
@@ -158,6 +167,12 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(Ability_Slot_4)(FName("Ability.Slot.4"), FString("Input slot 4 mapping."));
 	DF_TAG(Ability_Passive_HealthRegen)(FName("Ability.Passive.HealthRegen"), FString("Passive health regeneration."));
 	DF_TAG(Ability_Passive_ManaRegen)(FName("Ability.Passive.ManaRegen"), FString("Passive mana regeneration."));
+	DF_TAG(Ability_Passive_Warrior_Fortitude)(FName("Ability.Passive.Warrior.Fortitude"), FString("Max HP/Armor; wounded enrage (periodic)."));
+	DF_TAG(Ability_Passive_Warrior_Retaliation)(FName("Ability.Passive.Warrior.Retaliation"), FString("Thorns-like riposte on big hits."));
+	DF_TAG(Ability_Passive_Mage_ArcaneMastery)(FName("Ability.Passive.Mage.ArcaneMastery"), FString("Int / CDR / max mana from level."));
+	DF_TAG(Ability_Passive_Mage_ManaVortex)(FName("Ability.Passive.Mage.ManaVortex"), FString("Ability kills restore mana (event)."));
+	DF_TAG(Ability_Passive_Rogue_Predator)(FName("Ability.Passive.Rogue.Predator"), FString("Move speed and crit from predator stance."));
+	DF_TAG(Ability_Passive_Rogue_BleedMastery)(FName("Ability.Passive.Rogue.BleedMastery"), FString("Augment bleeds, armor break on multi-bleed."));
 	DF_TAG(Ability_Movement_Sprint)(FName("Ability.Movement.Sprint"), FString("Sprint (hold) movement ability."));
 	DF_TAG(Ability_Movement_Dodge)(FName("Ability.Movement.Dodge"), FString("Dodge / roll."));
 
@@ -242,6 +257,9 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(Event_Ability_Fire_Launch)(FName("Event.Ability.Fire.Launch"), FString("Anim notify: fire projectile release."));
 	DF_TAG(Event_Ability_Melee_Hit)(FName("Event.Ability.Melee.Hit"), FString("Melee impact / damage window."));
 	DF_TAG(Event_Ability_Montage_End)(FName("Event.Ability.Montage.End"), FString("Ability montage finished."));
+	DF_TAG(Event_Hit_Received)(FName("Event.Hit.Received"), FString("On damage: victim; EventMagnitude = damage this execute."));
+	DF_TAG(Event_Ability_Kill)(FName("Event.Ability.Kill"), FString("Killer: lethal when context has gameplay ability (Mana Vortex, etc.)."));
+	DF_TAG(Event_Passive_Rogue_BleedApplied)(FName("Event.Passive.Rogue.BleedApplied"), FString("Rogue: bleed was applied; payload Target=enemy."));
 
 	DF_TAG(Data_Damage)(FName("Data.Damage"), FString("SetByCaller / damage magnitude."));
 	DF_TAG(Data_Healing)(FName("Data.Healing"), FString("SetByCaller — healing."));

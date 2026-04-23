@@ -2,6 +2,7 @@
 
 #include "GAS/UDFAttributeSet.h"
 #include "GAS/DFGameplayTags.h"
+#include "GAS/UDFPassivesGASEvents.h"
 #include "AbilitySystemComponent.h"
 #include "GameplayEffectTypes.h"
 #include "Net/UnrealNetwork.h"
@@ -17,6 +18,7 @@ UDFAttributeSet::UDFAttributeSet()
 	InitStamina(100.f);
 	InitMaxStamina(100.f);
 
+	InitCharacterLevel(1.f);
 	InitStrength(10.f);
 	InitIntelligence(10.f);
 	InitAgility(10.f);
@@ -42,6 +44,7 @@ void UDFAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, MaxMana, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, Stamina, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, MaxStamina, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, CharacterLevel, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, Strength, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, Intelligence, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, Agility, COND_None, REPNOTIFY_Always);
@@ -86,6 +89,10 @@ void UDFAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 		NewValue = FMath::Max(NewValue, 0.f);
 	}
 	// Offense & mitigation — non-negative
+	else if (Attribute == GetCharacterLevelAttribute())
+	{
+		NewValue = FMath::Max(NewValue, 1.f);
+	}
 	else if (Attribute == GetStrengthAttribute() || Attribute == GetIntelligenceAttribute() || Attribute == GetAgilityAttribute() ||
 		Attribute == GetArmorAttribute() || Attribute == GetMagicResistAttribute())
 	{
@@ -158,6 +165,10 @@ void UDFAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 		if (UAbilitySystemComponent* const ASC = GetOwningAbilitySystemComponent())
 		{
 			const float Mag = Data.EvaluatedData.Magnitude;
+			if (Mag < 0.f)
+			{
+				UDFPassivesGASEvents::DispatchHitReceived(ASC, Data.EffectSpec, -Mag);
+			}
 			if (Mag < 0.f && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_ManaShieldActive))
 			{
 				const float Dmg = -Mag;
@@ -246,6 +257,10 @@ void UDFAttributeSet::TryBroadcastMana()
 }
 
 //~ OnReps
+void UDFAttributeSet::OnRep_CharacterLevel(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UDFAttributeSet, CharacterLevel, OldValue);
+}
 void UDFAttributeSet::OnRep_Health(const FGameplayAttributeData& OldValue)
 {
 	GAMEPLAYATTRIBUTE_REPNOTIFY(UDFAttributeSet, Health, OldValue);

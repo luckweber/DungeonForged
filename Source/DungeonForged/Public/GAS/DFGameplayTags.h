@@ -41,6 +41,12 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Ability_Slot_4;
 	static FGameplayTag Ability_Passive_HealthRegen;
 	static FGameplayTag Ability_Passive_ManaRegen;
+	static FGameplayTag Ability_Passive_Warrior_Fortitude;
+	static FGameplayTag Ability_Passive_Warrior_Retaliation;
+	static FGameplayTag Ability_Passive_Mage_ArcaneMastery;
+	static FGameplayTag Ability_Passive_Mage_ManaVortex;
+	static FGameplayTag Ability_Passive_Rogue_Predator;
+	static FGameplayTag Ability_Passive_Rogue_BleedMastery;
 	static FGameplayTag Ability_Movement_Sprint;
 	static FGameplayTag Ability_Movement_Dodge;
 	// Warrior
@@ -122,6 +128,9 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Event_Ability_Fire_Launch;
 	static FGameplayTag Event_Ability_Melee_Hit;
 	static FGameplayTag Event_Ability_Montage_End;
+	static FGameplayTag Event_Hit_Received;
+	static FGameplayTag Event_Ability_Kill;
+	static FGameplayTag Event_Passive_Rogue_BleedApplied;
 
 	//~ Effect
 	static FGameplayTag Effect_Damage_Physical;

@@ -13,6 +13,7 @@
 #include "GAS/Effects/UGE_Damage_Physical.h"
 #include "GAS/Effects/UGE_DoT_Bleed.h"
 #include "GAS/UDFAttributeSet.h"
+#include "GAS/UDFPassivesGASEvents.h"
 #include "GameplayTagContainer.h"
 #include "HAL/PlatformTime.h"
 #include "Characters/ADFEnemyBase.h"
@@ -200,6 +201,7 @@ void UDFAbility_Rogue_Backstab::DoBackstab()
 			B.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Duration, 3.f);
 			B.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Damage, Agi * 0.1f);
 			Src->ApplyGameplayEffectSpecToTarget(*B.Data, Tasc);
+			UDFPassivesGASEvents::DispatchRogueBleedApplied(C, Target, Src);
 		}
 	}
 	if (ComboC)

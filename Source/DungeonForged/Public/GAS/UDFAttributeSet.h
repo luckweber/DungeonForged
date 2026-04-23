@@ -64,6 +64,11 @@ public:
 
 	//~ Offense
 
+	/** Character level (from progression / roguelike run); used by Arcane Mastery, XP curves, etc. */
+	UPROPERTY(BlueprintReadOnly, Category = "DF|Attributes|Progression", ReplicatedUsing = OnRep_CharacterLevel)
+	FGameplayAttributeData CharacterLevel;
+	ATTRIBUTE_ACCESSORS(UDFAttributeSet, CharacterLevel)
+
 	UPROPERTY(BlueprintReadOnly, Category = "DF|Attributes|Combat", ReplicatedUsing = OnRep_Strength)
 	FGameplayAttributeData Strength;
 	ATTRIBUTE_ACCESSORS(UDFAttributeSet, Strength)
@@ -133,6 +138,8 @@ protected:
 	void OnRep_Stamina(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
 	void OnRep_MaxStamina(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_CharacterLevel(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
 	void OnRep_Strength(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
