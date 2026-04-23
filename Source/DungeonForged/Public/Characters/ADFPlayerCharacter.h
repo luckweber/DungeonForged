@@ -13,6 +13,8 @@ class UCameraComponent;
 class UDFAttributeSet;
 class UDFLockOnComponent;
 class UDFCameraComponent;
+class UDFComboComponent;
+class UDFMeleeTraceComponent;
 class UInputAction;
 class UInputMappingContext;
 class UAbilitySystemComponent;
@@ -80,6 +82,13 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	TObjectPtr<UDFLockOnComponent> LockOnComponent;
+
+	/** Melee: weapon sweep, GAS application. Wires to combo + anim notifies. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	TObjectPtr<UDFMeleeTraceComponent> MeleeTrace;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	TObjectPtr<UDFComboComponent> Combo;
 
 	/** Zoom: TargetArmLength change per 1.0f of the zoom action (mouse wheel). */
 	UPROPERTY(EditDefaultsOnly, Category = "Camera", meta = (ClampMin = "0.0"))

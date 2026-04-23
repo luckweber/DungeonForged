@@ -18,6 +18,8 @@ struct DUNGEONFORGED_API FDFGameplayTags
 
 	/** Resolves Data.Damage; RequestGameplayTag fallback if Register has not run yet. */
 	static FGameplayTag ResolveDataDamageTag();
+	/** Resolves Data.Knockback; RequestGameplayTag fallback if Register has not run yet. */
+	static FGameplayTag ResolveDataKnockbackTag();
 
 	//~ Ability
 	static FGameplayTag Ability_Attack_Melee;
@@ -66,6 +68,7 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Data_Damage;
 	static FGameplayTag Data_Healing;
 	static FGameplayTag Data_Duration;
+	static FGameplayTag Data_Knockback;
 
 	//~ UI
 	static FGameplayTag UI_MenuOpen;

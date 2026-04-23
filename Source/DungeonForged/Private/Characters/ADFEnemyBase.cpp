@@ -4,6 +4,7 @@
 #include "Data/DFDataTableStructs.h"
 #include "DFLootGeneratorSubsystem.h"
 #include "GAS/UDFAttributeSet.h"
+#include "Combat/UDFHitReactionComponent.h"
 #include "Abilities/GameplayAbility.h"
 #include "AbilitySystemComponent.h"
 #include "AIController.h"
@@ -35,6 +36,8 @@ ADFEnemyBase::ADFEnemyBase()
 	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Minimal);
 
 	AttributeSet = CreateDefaultSubobject<UDFAttributeSet>(TEXT("AttributeSet"));
+
+	HitReaction = CreateDefaultSubobject<UDFHitReactionComponent>(TEXT("HitReaction"));
 
 	BehaviorTreeComponent = CreateDefaultSubobject<UBehaviorTreeComponent>(TEXT("BehaviorTreeComponent"));
 

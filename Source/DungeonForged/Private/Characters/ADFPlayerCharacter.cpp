@@ -6,6 +6,8 @@
 #include "Camera/CameraComponent.h"
 #include "Camera/UDFCameraComponent.h"
 #include "Camera/UDFLockOnComponent.h"
+#include "Combat/UDFComboComponent.h"
+#include "Combat/UDFMeleeTraceComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "AbilitySystemComponent.h"
 #include "EnhancedInputComponent.h"
@@ -34,6 +36,9 @@ ADFPlayerCharacter::ADFPlayerCharacter()
 	CameraBoom = CreateDefaultSubobject<UDFCameraComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
 	LockOnComponent = CreateDefaultSubobject<UDFLockOnComponent>(TEXT("LockOnComponent"));
+
+	MeleeTrace = CreateDefaultSubobject<UDFMeleeTraceComponent>(TEXT("MeleeTrace"));
+	Combo = CreateDefaultSubobject<UDFComboComponent>(TEXT("Combo"));
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
@@ -279,7 +284,14 @@ void ADFPlayerCharacter::Input_CameraZoom(const FInputActionValue& Value)
 
 void ADFPlayerCharacter::Input_Attack()
 {
-	TryActivateByGameplayTagName(FName("Ability.Attack"));
+	if (Combo)
+	{
+		Combo->OnAttackInput();
+	}
+	else
+	{
+		TryActivateByGameplayTagName(FName("Ability.Attack"));
+	}
 }
 
 void ADFPlayerCharacter::Input_Ability1()

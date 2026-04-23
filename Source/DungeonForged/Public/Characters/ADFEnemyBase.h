@@ -16,6 +16,7 @@ class UDataTable;
 class UDFAttributeSet;
 class UUserWidget;
 class UWidgetComponent;
+class UDFHitReactionComponent;
 class UAIPerceptionComponent;
 class UBehaviorTree;
 class UBehaviorTreeComponent;
@@ -53,6 +54,9 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GAS")
 	TObjectPtr<UDFAttributeSet> AttributeSet;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	TObjectPtr<UDFHitReactionComponent> HitReaction;
 
 	/** GAS: Minimal replication = server-focused FX / minimal effect replication to proxies (use for AI). */
 	/** AI perception (hostiles, patrolling, etc.) */

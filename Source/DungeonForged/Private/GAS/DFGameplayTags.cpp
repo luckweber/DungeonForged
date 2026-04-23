@@ -42,6 +42,7 @@ FGameplayTag FDFGameplayTags::Event_Ability_Montage_End;
 FGameplayTag FDFGameplayTags::Data_Damage;
 FGameplayTag FDFGameplayTags::Data_Healing;
 FGameplayTag FDFGameplayTags::Data_Duration;
+FGameplayTag FDFGameplayTags::Data_Knockback;
 FGameplayTag FDFGameplayTags::UI_MenuOpen;
 FGameplayTag FDFGameplayTags::UI_InventoryOpen;
 FGameplayTag FDFGameplayTags::UI_AbilityMenuOpen;
@@ -55,6 +56,15 @@ FGameplayTag FDFGameplayTags::ResolveDataDamageTag()
 		return FDFGameplayTags::Data_Damage;
 	}
 	return FGameplayTag::RequestGameplayTag(FName("Data.Damage"), false);
+}
+
+FGameplayTag FDFGameplayTags::ResolveDataKnockbackTag()
+{
+	if (FDFGameplayTags::Data_Knockback.IsValid())
+	{
+		return FDFGameplayTags::Data_Knockback;
+	}
+	return FGameplayTag::RequestGameplayTag(FName("Data.Knockback"), false);
 }
 
 void FDFGameplayTags::RegisterGameplayTags()
@@ -108,6 +118,7 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(Data_Damage)(FName("Data.Damage"), FString("SetByCaller / damage magnitude."));
 	DF_TAG(Data_Healing)(FName("Data.Healing"), FString("SetByCaller — healing."));
 	DF_TAG(Data_Duration)(FName("Data.Duration"), FString("SetByCaller — duration."));
+	DF_TAG(Data_Knockback)(FName("Data.Knockback"), FString("SetByCaller — melee knockback / impulse scale."));
 
 	DF_TAG(UI_MenuOpen)(FName("UI.MenuOpen"), FString("Pause / main menu visible."));
 	DF_TAG(UI_InventoryOpen)(FName("UI.InventoryOpen"), FString("Inventory screen up."));
