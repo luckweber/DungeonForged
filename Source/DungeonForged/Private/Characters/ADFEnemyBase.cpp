@@ -1,6 +1,7 @@
 // Source/DungeonForged/Private/Characters/ADFEnemyBase.cpp
 
 #include "Characters/ADFEnemyBase.h"
+#include "AI/ADFAIController.h"
 #include "Data/DFDataTableStructs.h"
 #include "DFLootGeneratorSubsystem.h"
 #include "GAS/UDFAttributeSet.h"
@@ -8,10 +9,9 @@
 #include "Abilities/GameplayAbility.h"
 #include "AbilitySystemComponent.h"
 #include "AIController.h"
+#include "BrainComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
-#include "BehaviorTree/BehaviorTree.h"
-#include "BehaviorTree/BehaviorTreeComponent.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SceneComponent.h"
@@ -20,8 +20,6 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameplayEffectTypes.h"
 #include "Perception/AIPerceptionComponent.h"
-#include "Perception/AISenseConfig_Sight.h"
-#include "Perception/AISense_Sight.h"
 #include "TimerManager.h"
 
 ADFEnemyBase::ADFEnemyBase()
@@ -29,6 +27,7 @@ ADFEnemyBase::ADFEnemyBase()
 	PrimaryActorTick.bCanEverTick = false;
 	bReplicates = true;
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
+	AIControllerClass = ADFAIController::StaticClass();
 
 	TeamId = FGenericTeamId(DefaultEnemyTeamId);
 
@@ -39,24 +38,6 @@ ADFEnemyBase::ADFEnemyBase()
 	AttributeSet = CreateDefaultSubobject<UDFAttributeSet>(TEXT("AttributeSet"));
 
 	HitReaction = CreateDefaultSubobject<UDFHitReactionComponent>(TEXT("HitReaction"));
-
-	BehaviorTreeComponent = CreateDefaultSubobject<UBehaviorTreeComponent>(TEXT("BehaviorTreeComponent"));
-
-	AIPerception = CreateDefaultSubobject<UAIPerceptionComponent>(TEXT("AIPerception"));
-	// CreateDefaultSubobject must be called on the object under construction (this pawn), not on AIPerception — otherwise
-	// FObjectInitializer::Obj != this and the engine fatals in UObject::CreateDefaultSubobject.
-	SightSenseConfig = CreateDefaultSubobject<UAISenseConfig_Sight>(TEXT("SightSenseConfig"));
-	if (SightSenseConfig)
-	{
-		SightSenseConfig->SightRadius = 2000.f;
-		SightSenseConfig->LoseSightRadius = 2500.f;
-		SightSenseConfig->PeripheralVisionAngleDegrees = 60.f;
-		SightSenseConfig->DetectionByAffiliation.bDetectEnemies = true;
-		SightSenseConfig->DetectionByAffiliation.bDetectNeutrals = true;
-		SightSenseConfig->DetectionByAffiliation.bDetectFriendlies = false;
-		AIPerception->ConfigureSense(*SightSenseConfig);
-	}
-	AIPerception->SetDominantSense(UAISense_Sight::StaticClass());
 
 	HealthBar = CreateDefaultSubobject<UWidgetComponent>(TEXT("HealthBar"));
 	// USceneComponent default subobjects must be attached in the constructor or CDO / Blueprint reinstancing can crash.
@@ -127,7 +108,6 @@ void ADFEnemyBase::BeginPlay()
 	}
 
 	InitAbilityAndBindHealth();
-	StartBehaviorIfReady();
 
 	if (HealthBar && HealthBarWidgetClass)
 	{
@@ -210,11 +190,26 @@ void ADFEnemyBase::InitializeFromDataTable(UDataTable* EnemyTable, FName RowName
 	}
 
 	GrantAbilitiesForRow(*Row);
+	ApplyAIConfigFromRow(*Row);
 
 	if (HasActorBegunPlay())
 	{
 		InitAbilityAndBindHealth();
-		StartBehaviorIfReady();
+	}
+}
+
+void ADFEnemyBase::ApplyAIConfigFromRow(const FDFEnemyTableRow& Row)
+{
+	MeleeRange = FMath::Max(0.f, Row.MeleeRange);
+	RangedRange = FMath::Max(0.f, Row.RangedRange);
+	AttackRange = FMath::Max(0.f, Row.AttackRange);
+	if (Row.PatrolPathPoints.Num() > 0)
+	{
+		PatrolPoints = Row.PatrolPathPoints;
+	}
+	if (Row.TauntMontages.Num() > 0)
+	{
+		TauntMontages = Row.TauntMontages;
 	}
 }
 
@@ -259,23 +254,10 @@ void ADFEnemyBase::GrantAbilitiesForRow(const FDFEnemyTableRow& Row)
 	}
 }
 
-void ADFEnemyBase::StartBehaviorIfReady()
-{
-	if (!BehaviorTreeComponent || !CachedAIBehaviorTree)
-	{
-		return;
-	}
-	BehaviorTreeComponent->StartTree(*CachedAIBehaviorTree, EBTExecutionMode::Looped);
-}
-
 UBlackboardComponent* ADFEnemyBase::GetBehaviorTreeBlackboard() const
 {
-	if (!BehaviorTreeComponent)
-	{
-		return nullptr;
-	}
-	// UBrainComponent
-	return BehaviorTreeComponent->GetBlackboardComponent();
+	AAIController* const AI = Cast<AAIController>(GetController());
+	return AI ? AI->GetBlackboardComponent() : nullptr;
 }
 
 void ADFEnemyBase::HandleServerDeath(AActor* Killer)
@@ -342,14 +324,6 @@ void ADFEnemyBase::DisableEnemyActions()
 	{
 		Move->DisableMovement();
 	}
-	if (AIPerception)
-	{
-		AIPerception->Deactivate();
-	}
-	if (BehaviorTreeComponent)
-	{
-		BehaviorTreeComponent->StopTree(EBTStopMode::Forced);
-	}
 	if (AAIController* const AI = Cast<AAIController>(GetController()))
 	{
 		AI->StopMovement();
@@ -357,6 +331,13 @@ void ADFEnemyBase::DisableEnemyActions()
 		if (UBrainComponent* const Brain = AI->GetBrainComponent())
 		{
 			Brain->StopLogic(TEXT("Death"));
+		}
+		if (ADFAIController* const DFAI = Cast<ADFAIController>(AI))
+		{
+			if (UAIPerceptionComponent* const P = DFAI->GetDFPerception())
+			{
+				P->Deactivate();
+			}
 		}
 	}
 	if (GetCapsuleComponent())

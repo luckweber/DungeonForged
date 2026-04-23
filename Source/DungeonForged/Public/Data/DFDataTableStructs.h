@@ -8,6 +8,7 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/Texture2D.h"
 #include "GameplayTagContainer.h"
+#include "Animation/AnimMontage.h"
 #include "GAS/UDFGameplayAbility.h"
 #include "DFDataTableStructs.generated.h"
 
@@ -166,6 +167,25 @@ struct DUNGEONFORGED_API FDFEnemyTableRow : public FTableRowBase
 	/** Used by ADFEnemyBase::BeginPlay to run the brain (set AutoPossessAI = PlacedInWorldOrSpawned and use AAIController). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI")
 	TObjectPtr<UBehaviorTree> AIBehaviorTree;
+
+	/** Melee “in range” / BT decorator threshold (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI", meta = (ClampMin = "0.0"))
+	float MeleeRange = 200.f;
+
+	/** Ranged “in range” / BT threshold (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI", meta = (ClampMin = "0.0"))
+	float RangedRange = 2000.f;
+
+	/** Service “attack range” (sphere / proximity) for target acquisition (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI", meta = (ClampMin = "0.0"))
+	float AttackRange = 600.f;
+
+	/** World locations for UDFBTTask_FindPatrolPoint; cyclic index in blackboard. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI")
+	TArray<FVector> PatrolPathPoints;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI")
+	TArray<TObjectPtr<UAnimMontage>> TauntMontages;
 };
 
 /** Character class / archetype (starting mesh, base stats, ability row names in DT_Abilities). */

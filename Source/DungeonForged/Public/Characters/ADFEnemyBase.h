@@ -17,12 +17,9 @@ class UDFAttributeSet;
 class UUserWidget;
 class UWidgetComponent;
 class UDFHitReactionComponent;
-class UAIPerceptionComponent;
 class UBehaviorTree;
-class UBehaviorTreeComponent;
 class UGameplayAbility;
 class UGameplayEffect;
-class UAISenseConfig_Sight;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnDFEnemyDied, AActor*, Enemy, AActor*, Killer, float, ExperienceReward);
 
@@ -61,24 +58,29 @@ public:
 	TObjectPtr<UDFHitReactionComponent> HitReaction;
 
 	/** GAS: Minimal replication = server-focused FX / minimal effect replication to proxies (use for AI). */
-	/** AI perception (hostiles, patrolling, etc.) */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI|Perception")
-	TObjectPtr<UAIPerceptionComponent> AIPerception;
-
 	/**
-	 * Default subobject on this actor (not on AIPerception): you must not call
-	 * AIPerception->CreateDefaultSubobject from the pawn ctor — the object initializer
-	 * is for the actor only and triggers a fatal "Using incorrect object initializer".
+	 * Behavior tree, blackboard, and sight/hearing are owned by ADFAIController.
+	 * The asset reference comes from the data row (CachedAIBehaviorTree).
 	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI|Perception")
-	TObjectPtr<UAISenseConfig_Sight> SightSenseConfig;
 
-	/**
-	 * Local brain. StartTree is called in BeginPlay when a behavior tree is provided via InitializeFromDataTable.
-	 * The blackboard is owned/created by this component once a tree is running; use GetBehaviorTreeBlackboard().
-	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI|Behavior")
-	TObjectPtr<UBehaviorTreeComponent> BehaviorTreeComponent;
+	/** Cyclic path used by UDFBTTask_FindPatrolPoint. Filled from the enemy row or in Blueprint. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Patrol")
+	TArray<FVector> PatrolPoints;
+
+	/** Random pick for UDFBTTask_PlayTauntMontage. Filled from the enemy data row and/or per-BP. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Social")
+	TArray<TObjectPtr<UAnimMontage>> TauntMontages;
+
+	/** From enemy data table (or defaults). */
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "AI|Combat")
+	float MeleeRange = 200.f;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "AI|Combat")
+	float RangedRange = 2000.f;
+
+	/** UDFBTService_UpdateTarget: proximity / attack “in range” threshold (cm). */
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "AI|Combat")
+	float AttackRange = 600.f;
 
 	/** 3D / screen-space bar; set Widget class on BP/defaults. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "UI")
@@ -109,6 +111,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AI|Behavior")
 	UBlackboardComponent* GetBehaviorTreeBlackboard() const;
 
+	/** Behavior tree from last data-driven init; ADFAIController::OnPossess runs it. */
+	UFUNCTION(BlueprintPure, Category = "AI|Behavior")
+	UBehaviorTree* GetAIBehaviorTreeAsset() const { return CachedAIBehaviorTree; }
+
 	UPROPERTY(BlueprintAssignable, Category = "DF|Enemy")
 	FOnDFEnemyDied OnEnemyDied;
 
@@ -137,8 +143,8 @@ protected:
 	void OnDestroyAfterDeath();
 
 	void ApplyBaseStatsFromRow(const FDFEnemyTableRow& Row);
+	void ApplyAIConfigFromRow(const FDFEnemyTableRow& Row);
 	void GrantAbilitiesForRow(const FDFEnemyTableRow& Row);
-	void StartBehaviorIfReady();
 
 	/** Stops the brain, movement, and AI controller input. */
 	void DisableEnemyActions();
