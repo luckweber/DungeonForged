@@ -11,9 +11,10 @@
 
 class UCameraComponent;
 class UDFAttributeSet;
+class UDFLockOnComponent;
+class UDFCameraComponent;
 class UInputAction;
 class UInputMappingContext;
-class USpringArmComponent;
 class UAbilitySystemComponent;
 
 UCLASS(Blueprintable)
@@ -72,10 +73,13 @@ public:
 	TObjectPtr<UInputAction> IA_Interact;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
-	TObjectPtr<USpringArmComponent> CameraBoom;
+	TObjectPtr<UDFCameraComponent> CameraBoom;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	TObjectPtr<UCameraComponent> FollowCamera;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
+	TObjectPtr<UDFLockOnComponent> LockOnComponent;
 
 	/** Zoom: TargetArmLength change per 1.0f of the zoom action (mouse wheel). */
 	UPROPERTY(EditDefaultsOnly, Category = "Camera", meta = (ClampMin = "0.0"))
@@ -112,8 +116,6 @@ protected:
 	/** Clamps controller look pitch to [-60, 60] after pitch input. */
 	void ApplyLookPitchClamp();
 
-	static constexpr float MinCameraArmLength = 200.f;
-	static constexpr float MaxCameraArmLength = 800.f;
 	static constexpr float MinLookPitch = -60.f;
 	static constexpr float MaxLookPitch = 60.f;
 

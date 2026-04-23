@@ -4,6 +4,8 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Camera/CameraComponent.h"
+#include "Camera/UDFCameraComponent.h"
+#include "Camera/UDFLockOnComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "AbilitySystemComponent.h"
 #include "EnhancedInputComponent.h"
@@ -29,13 +31,9 @@ ADFPlayerCharacter::ADFPlayerCharacter()
 		Move->bOrientRotationToMovement = true;
 	}
 
-	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
+	CameraBoom = CreateDefaultSubobject<UDFCameraComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
-	CameraBoom->TargetArmLength = 400.f;
-	CameraBoom->bUsePawnControlRotation = true;
-	CameraBoom->bInheritPitch = true;
-	CameraBoom->bInheritRoll = true;
-	CameraBoom->bInheritYaw = true;
+	LockOnComponent = CreateDefaultSubobject<UDFLockOnComponent>(TEXT("LockOnComponent"));
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
@@ -270,14 +268,13 @@ void ADFPlayerCharacter::Input_JumpEnd()
 
 void ADFPlayerCharacter::Input_CameraZoom(const FInputActionValue& Value)
 {
-	if (!CameraBoom)
+	UDFCameraComponent* const Cam = CameraBoom;
+	if (!Cam)
 	{
 		return;
 	}
-	const float Wheel = Value.Get<float>();
-	const float Delta = -Wheel * CameraZoomStep;
-	const float NewLen = FMath::Clamp(CameraBoom->TargetArmLength + Delta, MinCameraArmLength, MaxCameraArmLength);
-	CameraBoom->TargetArmLength = NewLen;
+	// Inverted wheel: zoom in = shorter arm; scales by ZoomSpeed on the camera
+	Cam->OnZoomInput(-Value.Get<float>() * (CameraZoomStep / 25.f));
 }
 
 void ADFPlayerCharacter::Input_Attack()
