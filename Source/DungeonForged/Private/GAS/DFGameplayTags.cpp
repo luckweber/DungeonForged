@@ -32,6 +32,8 @@ FGameplayTag FDFGameplayTags::State_Targeting;
 FGameplayTag FDFGameplayTags::State_InCombat;
 FGameplayTag FDFGameplayTags::State_Sprinting;
 FGameplayTag FDFGameplayTags::State_Dodging;
+FGameplayTag FDFGameplayTags::State_Attacking;
+FGameplayTag FDFGameplayTags::State_Casting;
 FGameplayTag FDFGameplayTags::Effect_Damage_Physical;
 FGameplayTag FDFGameplayTags::Effect_Damage_Magic;
 FGameplayTag FDFGameplayTags::Effect_Damage_True;
@@ -116,6 +118,8 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(State_InCombat)(FName("State.InCombat"), FString("In combat; regen, UI, music."));
 	DF_TAG(State_Sprinting)(FName("State.Sprinting"), FString("Sprint movement."));
 	DF_TAG(State_Dodging)(FName("State.Dodging"), FString("Invuln window / roll."));
+	DF_TAG(State_Attacking)(FName("State.Attacking"), FString("In melee/weapon attack window; upper body or combo."));
+	DF_TAG(State_Casting)(FName("State.Casting"), FString("Charging or casting a spell/ability with cast anim."));
 
 	DF_TAG(Effect_Damage_Physical)(FName("Effect.Damage.Physical"), FString("Physical damage effect (asset tag)."));
 	DF_TAG(Effect_Damage_Magic)(FName("Effect.Damage.Magic"), FString("Magic damage effect (asset tag)."));

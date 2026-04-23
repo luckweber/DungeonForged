@@ -52,6 +52,8 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag State_InCombat;
 	static FGameplayTag State_Sprinting;
 	static FGameplayTag State_Dodging;
+	static FGameplayTag State_Attacking;
+	static FGameplayTag State_Casting;
 
 	//~ Effect
 	static FGameplayTag Effect_Damage_Physical;
