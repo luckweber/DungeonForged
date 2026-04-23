@@ -903,6 +903,628 @@ Output all files with correct Public/Private paths and full path comment headers
 
 ---
 
+## ════════════════════════════════════════
+## 🤖 PROMPT 19 — AI BEHAVIOR TREE
+## ════════════════════════════════════════
+
+```
+@ue-ai-navigation
+@ue-gameplay-abilities
+@ue-gameplay-tags
+@ue-actor-component-archit...
+
+Create the complete AI system for DungeonForged UE 5.4 enemies.
+Follow the Public/Private folder convention:
+  .h  → Source/DungeonForged/Public/AI/<FileName>.h
+  .cpp → Source/DungeonForged/Private/AI/<FileName>.cpp
+Always write the full path as a comment at the top of each file.
+
+─── UDFAIController ───────────────────────────────────────────
+Extends AAIController.
+
+Properties:
+- UBehaviorTreeComponent* BehaviorTreeComponent
+- UBlackboardComponent* BlackboardComponent
+- UAIPerceptionComponent* PerceptionComponent
+- UAISenseConfig_Sight* SightConfig
+- UAISenseConfig_Hearing* HearingConfig
+
+Blackboard Keys (define as FName constants in a header DFAIKeys.h):
+- BB_TargetActor      (Object)
+- BB_TargetLocation   (Vector)
+- BB_bCanSeeTarget    (Bool)
+- BB_bIsInAttackRange (Bool)
+- BB_bIsDead          (Bool)
+- BB_PatrolIndex      (Int)
+- BB_CombatState      (Enum: Idle, Patrol, Chase, Attack, Flee)
+
+Functions:
+- OnPossess: RunBehaviorTree from enemy data row
+- OnPerceptionUpdated: on sight → set BB_TargetActor + BB_bCanSeeTarget
+- OnTargetPerceptionForgotten: clear BB_TargetActor, return to Patrol
+- SetCombatState(ECombatState State): update BB_CombatState
+- GetDistanceToTarget(): returns distance to BB_TargetActor
+
+─── Behavior Tree Tasks ───────────────────────────────────────
+Create these UBTTaskNode_DF* classes:
+
+1. UDFBTTask_MeleeAttack:
+   - RequiresAbilityTag: "Ability.Attack.Melee"
+   - ExecuteTask: TryActivateAbilityByTag on enemy ASC
+   - WaitForMontageEnd via delegate before returning EBTNodeResult::Succeeded
+
+2. UDFBTTask_RangedAttack:
+   - RequiresAbilityTag: "Ability.Attack.Ranged"
+   - ExecuteTask: face target → TryActivateAbilityByTag
+
+3. UDFBTTask_FindPatrolPoint:
+   - Reads patrol points from ADFEnemyBase::PatrolPoints array
+   - Increments BB_PatrolIndex cyclically
+   - Writes next point to BB_TargetLocation
+
+4. UDFBTTask_FleeFromPlayer:
+   - Finds navigation point away from player (180° opposite direction)
+   - MoveToLocation with AcceptanceRadius=200
+
+5. UDFBTTask_PlayTauntMontage:
+   - Plays random montage from ADFEnemyBase::TauntMontages
+   - Returns Succeeded immediately (fire and forget)
+
+─── Behavior Tree Services ────────────────────────────────────
+
+1. UDFBTService_UpdateTarget:
+   - TickNode every 0.2s
+   - Sphere overlap for nearest player
+   - Update BB_TargetActor, BB_bCanSeeTarget via line trace
+   - Update BB_bIsInAttackRange (AttackRange from enemy data row)
+
+2. UDFBTService_CheckHealth:
+   - TickNode every 0.5s
+   - If Health < 20% → set BB_CombatState to Flee
+   - If Health <= 0  → set BB_bIsDead = true
+
+─── Behavior Tree Decorators ──────────────────────────────────
+
+1. UDFBTDecorator_HasGASTag:
+   - Property: FGameplayTag RequiredTag
+   - CalculateRawConditionValue: check enemy ASC HasMatchingGameplayTag
+
+2. UDFBTDecorator_IsInRange:
+   - Property: float Range
+   - CalculateRawConditionValue: distance to BB_TargetActor <= Range
+
+─── Behavior Tree layout description ─────────────────────────
+Describe the BT_EnemyBase tree structure as a comment block:
+Root → Selector
+  ├─ [Decorator: BB_bIsDead == true] → BTTask_Die
+  ├─ Sequence (Chase + Attack)
+  │   ├─ [Decorator: HasTarget]
+  │   ├─ Service: UpdateTarget (0.2s)
+  │   ├─ Service: CheckHealth (0.5s)
+  │   ├─ Selector (Attack or Chase)
+  │   │   ├─ [Decorator: IsInRange(MeleeRange)] → Task_MeleeAttack
+  │   │   ├─ [Decorator: IsInRange(RangedRange)] → Task_RangedAttack
+  │   │   └─ MoveTo BB_TargetActor
+  │   └─ [Decorator: Health<20%] → Task_FleeFromPlayer
+  └─ Sequence (Patrol)
+      ├─ Task_FindPatrolPoint
+      └─ MoveTo BB_TargetLocation
+
+Output all .h and .cpp files with correct Public/Private paths.
+```
+
+---
+
+## ════════════════════════════════════════
+## 🌀 PROMPT 20 — GAMEPLAY EFFECT LIBRARY
+## ════════════════════════════════════════
+
+```
+@ue-gameplay-abilities
+@ue-gameplay-tags
+@ue-data-assets-tables
+
+Create the complete GameplayEffect Library for DungeonForged UE 5.4.
+Follow the Public/Private folder convention:
+  .h  → Source/DungeonForged/Public/GAS/Effects/<FileName>.h
+  .cpp → Source/DungeonForged/Private/GAS/Effects/<FileName>.cpp
+Always write the full path as a comment at the top of each file.
+
+─── UDFGameplayEffectLibrary (UBlueprintFunctionLibrary) ──────
+Static helpers callable from C++ and Blueprint:
+- MakeDamageEffect(float BaseDamage, FGameplayTag DamageTypeTag, AActor* Instigator)
+  → returns FGameplayEffectSpecHandle with SetByCaller Data.Damage
+- MakeHealEffect(float Amount, AActor* Instigator)
+  → returns FGameplayEffectSpecHandle with SetByCaller Data.Healing
+- ApplyEffectToSelf(AActor* Target, TSubclassOf<UGameplayEffect> GEClass, float Level=1)
+- ApplyEffectToTarget(AActor* Source, AActor* Target, TSubclassOf<UGameplayEffect> GEClass)
+
+─── Damage GameplayEffects ────────────────────────────────────
+Describe setup for each (C++ defaults via CDO in constructor):
+
+GE_Damage_Physical (Instant)
+- Execution: UDFDamageCalculation
+- SetByCaller: Data.Damage, Data.Knockback
+- Tag: Effect.Damage.Physical
+
+GE_Damage_Magic (Instant)
+- Execution: UDFDamageCalculation
+- SetByCaller: Data.Damage
+- Tag: Effect.Damage.Magic
+
+GE_Damage_True (Instant)
+- Modifier: Health -= SetByCaller(Data.Damage)  ← bypasses armor
+- Tag: Effect.Damage.True
+
+─── DoT GameplayEffects ───────────────────────────────────────
+
+GE_DoT_Fire (HasDuration, Period=1s, Duration=3s)
+- Modifier: Health -= (Strength * 0.1) per tick
+- GrantedTag: Effect.DoT.Fire
+- StackingType: AggregateBySource, MaxStacks=3
+- Period Inhibition: none
+
+GE_DoT_Poison (HasDuration, Period=1s, Duration=5s)
+- Modifier: Health -= flat 5 per tick (SetByCaller Data.Damage)
+- GrantedTag: Effect.DoT.Poison
+- StackingType: AggregateByTarget, MaxStacks=1
+
+GE_DoT_Bleed (HasDuration, Period=0.5s, Duration=4s)
+- Modifier: Health -= flat (SetByCaller Data.Damage * 0.2) per tick
+- GrantedTag: Effect.DoT.Bleed
+
+─── Buff GameplayEffects ──────────────────────────────────────
+
+GE_Buff_Speed (HasDuration, Duration=SetByCaller Data.Duration)
+- Modifier: MovementSpeedMultiplier += 0.3
+- GrantedTag: Effect.Buff.Speed
+- StackingType: None (replace)
+
+GE_Buff_DamageUp (HasDuration, Duration=SetByCaller Data.Duration)
+- Modifier: Strength += SetByCaller Data.Magnitude
+- GrantedTag: Effect.Buff.DamageUp
+
+GE_Buff_Shield (HasDuration)
+- GrantedTag: State.Invulnerable
+- On Expire: remove tag
+
+─── Debuff GameplayEffects ────────────────────────────────────
+
+GE_Debuff_Slow (HasDuration, Duration=SetByCaller Data.Duration)
+- Modifier: MovementSpeedMultiplier -= 0.4 (clamp min 0.1)
+- GrantedTag: Effect.Debuff.Slow
+- Immunity: if target has Effect.Buff.Speed → reduce slow by 50%
+
+GE_Debuff_Stun (HasDuration, Duration=SetByCaller Data.Duration)
+- GrantedTag: State.Stunned
+- CancelAbilitiesWithTag: Ability.*   ← cancels all active abilities
+
+GE_Debuff_ArmorBreak (HasDuration, Duration=5s)
+- Modifier: Armor -= SetByCaller Data.Magnitude
+- GrantedTag: Effect.Debuff.ArmorBreak
+- StackingType: AggregateBySource, MaxStacks=3
+
+GE_Debuff_Silence (HasDuration, Duration=SetByCaller Data.Duration)
+- GrantedTag: State.Silenced
+- BlockAbilitiesWithTag: Ability.Fire.*, Ability.Ice.*  ← blocks magic only
+
+─── Cost & Cooldown GameplayEffects ───────────────────────────
+
+GE_Cost_Mana_Base (Instant)
+- Modifier: Mana -= SetByCaller Data.Cost
+
+GE_Cost_Stamina_Base (Instant)
+- Modifier: Stamina -= SetByCaller Data.Cost
+
+GE_Cooldown_Base (HasDuration)
+- Duration: SetByCaller Data.Cooldown
+- GrantedTag: set per ability (e.g., Ability.Cooldown.Fireball)
+
+─── Status GameplayEffects ────────────────────────────────────
+
+GE_Death (Instant)
+- GrantedTag: State.Dead
+- Modifier: Health = 0 (clamp)
+
+GE_SprintStaminaDrain (Infinite, Period=0.1s)
+- Modifier: Stamina -= (SprintStaminaDrain * 0.1) per tick
+- GrantedTag: State.Sprinting
+
+GE_HealthRegen (Infinite, Period=1s)
+- Modifier: Health += (MaxHealth * 0.02) per tick
+- Condition: !HasTag(State.InCombat)
+
+GE_ManaRegen (Infinite, Period=1s)
+- Modifier: Mana += (MaxMana * 0.03) per tick
+
+GE_StaminaRegen (Infinite, Period=0.2s)
+- Modifier: Stamina += (MaxStamina * 0.08) per tick
+- Condition: !HasTag(State.Sprinting) && !HasTag(State.Dodging)
+
+Create UDFGameplayEffectLibrary.h/.cpp with all static helpers.
+For each GE, create a C++ class with CDO configuration in constructor.
+Output all files with correct Public/Private paths.
+```
+
+---
+
+## ════════════════════════════════════════
+## 🎬 PROMPT 21 — ANIMATION BLUEPRINT
+## ════════════════════════════════════════
+
+```
+@ue-animation-system
+@ue-character-movement
+@ue-gameplay-tags
+@ue-gameplay-abilities
+
+Create the complete Animation Blueprint system for DungeonForged UE 5.4.
+Follow the Public/Private folder convention:
+  .h  → Source/DungeonForged/Public/Animation/<FileName>.h
+  .cpp → Source/DungeonForged/Private/Animation/<FileName>.cpp
+Always write the full path as a comment at the top of each file.
+
+─── UDFAnimInstance (already started in Prompt 18 — extend it) ──
+Add to the existing UDFAnimInstance:
+
+Additional cached variables:
+- float LeanAngle          ← for banking on turns
+- float AimPitch           ← for aim offset (-90 to 90)
+- float AimYaw             ← for aim offset (-180 to 180)
+- bool bIsAttacking        ← from GameplayTag State.Attacking
+- bool bIsCasting          ← from GameplayTag State.Casting
+- bool bIsStunned          ← from GameplayTag State.Stunned
+- bool bIsLockedOn         ← from GameplayTag State.Targeting
+- bool bShouldStrafe       ← true when bIsLockedOn || bIsInCombat
+- EMovementDirection MovementDirection  ← Forward/Backward/Left/Right
+- float GroundDistance     ← for landing prediction (foot IK)
+
+New functions:
+- CalculateLean(float DeltaTime): smooth lean using angular velocity delta
+- CalculateAimOffsets(): get AimPitch/Yaw from control rotation vs actor rotation
+- DetermineMovementDirection(): 4-way or 8-way based on velocity vs facing
+- UpdateFootIK(float DeltaTime): two-bone IK for foot placement on uneven terrain
+  using line traces downward from foot sockets
+
+─── Locomotion Blend Space description ────────────────────────
+Describe BS_Locomotion_8Way setup:
+- X axis: Direction (-180 to 180) — strafing direction
+- Y axis: Speed (0 to 700)
+- Samples:
+  (0,0)      → Idle
+  (0,400)    → Walk_Fwd
+  (0,700)    → Run_Fwd
+  (180,400)  → Walk_Bwd
+  (90,400)   → Walk_Right
+  (-90,400)  → Walk_Left
+  (180,700)  → Run_Bwd
+  (90,700)   → Run_Right
+  (-90,700)  → Run_Left
+- Used only when bShouldStrafe = true (lock-on mode)
+
+Describe BS_Locomotion_Standard setup:
+- X axis: Speed (0 to 700) only
+- Used when not strafing (free movement)
+
+─── State Machine description ─────────────────────────────────
+Describe ABP_Player state machine layers:
+
+Base Layer (full body):
+States: Idle → Locomotion → InAir → Land
+- Idle: plays idle animation, transitions to Locomotion on Speed > 10
+- Locomotion: BlendSpace (Standard or 8Way based on bShouldStrafe)
+- InAir: blend falling anim, speed on Y axis
+- Land: transition on IsGrounded, plays land montage
+
+Upper Body Layer (Layered Blend per Bone, spine_01 up):
+States: None → Aiming → Casting → Dead
+- Aiming: AimOffset pose using AimPitch/AimYaw
+- Casting: upper body override for cast animations
+- Dead: full body ragdoll enable
+
+─── AnimNotify C++ Classes ────────────────────────────────────
+Create these additional AnimNotify classes in Public/Animation/:
+
+UDFAnimNotify_EnableRootMotion    → calls CMC->SetMovementMode(MOVE_Custom)
+UDFAnimNotify_DisableRootMotion   → restores MOVE_Walking
+UDFAnimNotify_FootStep            → plays footstep sound by surface type
+  (use PhysicalMaterial to detect surface: Stone, Dirt, Wood, Metal)
+UDFAnimNotify_SpawnTrailVFX       → enables weapon trail Niagara system
+UDFAnimNotify_DisableTrailVFX     → disables weapon trail
+
+─── UDFAnimInstance_Enemy ─────────────────────────────────────
+Separate AnimInstance for enemies:
+- Simpler: Speed, bIsInCombat, bIsDead, bIsStunned, HitReactionDirection
+- HitReactionDirection: FVector from last hit source (for directional hit anim)
+- Function SelectHitMontage(FVector HitDirection): returns correct montage
+  based on angle (Front/Back/Left/Right hit reactions)
+
+Output all .h and .cpp files with correct Public/Private paths.
+```
+
+---
+
+## ════════════════════════════════════════
+## 👑 PROMPT 22 — BOSS SYSTEM
+## ════════════════════════════════════════
+
+```
+@ue-gameplay-abilities
+@ue-gameplay-tags
+@ue-animation-system
+@ue-ui-umg-slate
+@ue-niagara-effects
+@ue-actor-component-archit...
+
+Create the complete Boss System for DungeonForged UE 5.4.
+Follow the Public/Private folder convention:
+  .h  → Source/DungeonForged/Public/Boss/<FileName>.h
+  .cpp → Source/DungeonForged/Private/Boss/<FileName>.cpp
+Always write the full path as a comment at the top of each file.
+
+─── ADFBossBase extends ADFEnemyBase ──────────────────────────
+
+Properties:
+- int32 CurrentPhase = 1
+- int32 MaxPhases = 2
+- TArray<float> PhaseThresholds  ← e.g. {0.6f, 0.3f} = 60% and 30% HP
+- TArray<TSubclassOf<UDFGameplayAbility>> PhaseAbilities  ← unlocked per phase
+- UAnimMontage* PhaseTransitionMontage
+- UNiagaraSystem* PhaseTransitionVFX
+- float EnrageTimer = 120.f       ← seconds until enrage
+- bool bIsEnraged
+
+Functions:
+- BeginPlay: start FTimerHandle EnrageTimerHandle
+- OnHealthChanged override: check phase thresholds → TriggerPhaseTransition
+- TriggerPhaseTransition(int32 NewPhase):
+  1. Apply GE_Debuff_Stun to self (brief 1.5s pause — cinematic moment)
+  2. Play PhaseTransitionMontage
+  3. Spawn PhaseTransitionVFX
+  4. Grant PhaseAbilities[NewPhase] to ASC
+  5. Apply stat scaling GE (damage +20%, speed +10% per phase)
+  6. Broadcast OnBossPhaseChanged delegate
+- OnEnrageTimerExpired:
+  1. Apply GE_BossEnrage (Infinite: +50% damage, +30% speed, immunity to CC)
+  2. Set bIsEnraged = true
+  3. Play enrage roar montage + VFX
+
+Signature abilities (create 3 examples):
+1. UDFBossAbility_GroundSlam:
+   - Melee AOE: sphere overlap at feet, apply GE_Damage_Physical to all in radius
+   - Camera shake via UGameplayStatics::PlayWorldCameraShake
+   - Spawn ground crack Niagara decal
+
+2. UDFBossAbility_SummonMinions:
+   - Spawn 3 ADFEnemyBase at preset spawn sockets around boss
+   - Minions get "Spawned.Boss" tag (removed on boss death)
+   - Max concurrent minions: 6 (block ability if exceeded)
+
+3. UDFBossAbility_ChargeAttack:
+   - Root motion charge toward player
+   - UDFMeleeTraceComponent active during charge
+   - Hit → apply GE_Damage_Physical + GE_Debuff_Stun(2s)
+   - Miss → boss stumbles (play stumble montage, 1s vulnerable window)
+
+─── UDFBossHealthBarWidget extends UDFUserWidgetBase ──────────
+Cinematic boss health bar (displayed at bottom of screen):
+- UProgressBar* BossHealthBar  (full width, dramatic)
+- TArray<UImage*> PhaseMarkers ← vertical lines at threshold percentages
+- UTextBlock* BossNameText
+- UTextBlock* PhaseText         ← "Phase 2", "ENRAGED"
+- UImage* EnrageIcon            ← appears when enraged
+- Functions:
+  - ShowBossBar(FText BossName, int32 MaxPhases)
+  - HideBossBar() with fade-out animation
+  - OnPhaseChanged(int32 NewPhase): update PhaseText + animate marker crossing
+  - OnEnrage(): pulse red animation on bar
+
+─── ADFBossTriggerVolume ──────────────────────────────────────
+Box trigger that starts the boss encounter:
+- OnPlayerEnter:
+  1. Lock all exit doors (send GameplayEvent to doors)
+  2. Play cinematic intro (Level Sequence via ULevelSequencePlayer)
+  3. Show WBP_BossHealthBar
+  4. Disable player input during cinematic (add UI GameplayTag)
+  5. After cinematic: restore input, start boss AI BehaviorTree
+
+Output all .h and .cpp with correct Public/Private paths.
+```
+
+---
+
+## ════════════════════════════════════════
+## 🃏 PROMPT 23 — ABILITY SELECTION SCREEN
+## ════════════════════════════════════════
+
+```
+@ue-ui-umg-slate
+@ue-gameplay-abilities
+@ue-gameplay-tags
+@ue-data-assets-tables
+@ue-serialization-savegames
+
+Create the Ability Selection / Upgrade Screen for DungeonForged UE 5.4.
+This is the roguelike core: between floors the player picks 1 of 3 abilities.
+Follow the Public/Private folder convention:
+  .h  → Source/DungeonForged/Public/UI/<FileName>.h
+  .cpp → Source/DungeonForged/Private/UI/<FileName>.cpp
+Always write the full path as a comment at the top of each file.
+
+─── UDFAbilitySelectionSubsystem (WorldSubsystem) ────────────
+
+Properties:
+- UDataTable* AbilityTable   ← DT_Abilities reference
+- TArray<FName> PlayerAbilityHistory  ← abilities already owned this run
+
+Functions:
+- RollAbilityChoices(int32 Count = 3): 
+  1. Get all rows from DT_Abilities
+  2. Filter out abilities already owned by player
+  3. Apply rarity weighting:
+     Common=60%, Uncommon=25%, Rare=12%, Epic=3%
+  4. Return TArray<FDFAbilityTableRow> of Count unique rolls
+- GrantSelectedAbility(FName AbilityRowName, ADFPlayerCharacter* Player):
+  1. Add to PlayerAbilityHistory
+  2. Grant GameplayAbility to ASC
+  3. Assign to next free ability slot (Ability.Slot.1 → .4)
+  4. Notify UDFRunManager of the selection
+- SkipSelection(): player can skip (roguelike design choice — small gold reward instead)
+
+─── WBP_AbilitySelection (UDFAbilitySelectionWidget) ─────────
+Full-screen overlay shown between floors:
+
+Layout:
+- Dark translucent background (blur + vignette)
+- Title: "Choose Your Power" (animated fade-in)
+- Subtitle: "Floor [X] Complete — Pick one ability"
+- 3x UDFAbilityCardWidget side by side
+- Skip button (bottom right): "Skip for 50 Gold"
+- Timer bar (optional): 30s to choose before auto-skip
+
+UDFAbilityCardWidget (one card per choice):
+- UImage* AbilityIcon
+- UTextBlock* AbilityName
+- UTextBlock* RarityLabel   ← colored by rarity (grey/green/blue/purple/orange)
+- UTextBlock* Description
+- UTextBlock* CooldownText
+- UTextBlock* CostText
+- UButton* SelectButton
+- Hover: scale up 1.05, glow border color by rarity
+- On Click: call SubSystem->GrantSelectedAbility, hide widget, resume game
+
+Functions:
+- NativeConstruct: call SubSystem->RollAbilityChoices(3), populate cards
+- PopulateCard(int32 Index, FDFAbilityTableRow Data)
+- OnAbilitySelected(FName RowName): play select SFX/VFX, close with animation
+- OnSkipClicked: add gold, close
+- StartTimer(): countdown 30s, OnTimerExpired → auto-skip
+
+─── Integration with DungeonManager ──────────────────────────
+In ADFDungeonManager::OnFloorCleared():
+1. Pause game (SetGlobalTimeDilation(0) except for UI)
+2. Add WBP_AbilitySelection to viewport (ZOrder=10)
+3. Set input mode: UI Only
+4. On selection complete: restore time, restore game input, AdvanceToNextFloor()
+
+Output all .h and .cpp files with correct Public/Private paths.
+```
+
+---
+
+## ════════════════════════════════════════
+## 🚪 PROMPT 24 — INTERACTION SYSTEM
+## ════════════════════════════════════════
+
+```
+@ue-actor-component-archit...
+@ue-gameplay-abilities
+@ue-gameplay-tags
+@ue-data-assets-tables
+@ue-physics-collision
+@ue-ui-umg-slate
+
+Create the complete Interaction System for DungeonForged UE 5.4.
+Follow the Public/Private folder convention:
+  .h  → Source/DungeonForged/Public/Interaction/<FileName>.h
+  .cpp → Source/DungeonForged/Private/Interaction/<FileName>.cpp
+Always write the full path as a comment at the top of each file.
+
+─── IDFInteractable (UInterface) ──────────────────────────────
+- CanInteract(ACharacter* Interactor): bool
+- Interact(ACharacter* Interactor): void
+- GetInteractionText(): FText   ← shown in prompt UI ("Open Chest", "Activate Shrine")
+- GetInteractionRange(): float
+
+─── ADFInteractableBase (AActor) ──────────────────────────────
+Implements IDFInteractable.
+
+Properties:
+- USphereComponent* InteractionRange   (radius from GetInteractionRange())
+- UStaticMeshComponent* Mesh
+- UWidgetComponent* InteractionPromptWidget  ← WBP_InteractionPrompt above actor
+- bool bIsInteractable = true
+- bool bSingleUse = true
+
+Functions:
+- OnRangeBeginOverlap: show WBP_InteractionPrompt, register to UDFInteractionComponent
+- OnRangeEndOverlap: hide prompt, unregister
+- Interact_Implementation: set bIsInteractable=false if bSingleUse, play interact anim
+
+─── UDFInteractionComponent (ActorComponent on Player) ────────
+
+Properties:
+- float InteractTraceRange = 300.f
+- TWeakObjectPtr<AActor> CurrentFocusedActor
+- TArray<TWeakObjectPtr<AActor>> NearbyInteractables
+
+Functions:
+- TickComponent: sphere check + line trace to find best interactable in front
+  → set CurrentFocusedActor, update prompt visibility
+- TryInteract(): called from IA_Interact binding
+  → if CurrentFocusedActor valid → Execute(IDFInteractable::Interact)
+- RegisterInteractable(AActor* Actor)
+- UnregisterInteractable(AActor* Actor)
+
+─── ADFChest extends ADFInteractableBase ──────────────────────
+Property:
+- FName LootTableRow   ← from DT_Items, determines drop pool
+- EItemRarity MinRarity ← floor-scaled minimum rarity
+- UAnimMontage* OpenMontage
+- UParticleSystem* OpenVFX
+- bool bIsOpen = false
+
+Interact_Implementation:
+1. if bIsOpen → return
+2. Play OpenMontage on SkeletalMesh
+3. Spawn OpenVFX
+4. Call UDFLootGeneratorSubsystem::RollLoot (2-4 items)
+5. Spawn ADFLootDrop actors with physics scatter impulse
+6. bIsOpen = true
+
+─── ADFDoor extends ADFInteractableBase ───────────────────────
+Types (EDoorType): KeyDoor, LeverDoor, ExitDoor, BossDoor
+
+Properties:
+- EDoorType DoorType
+- bool bIsLocked = false
+- bool bIsOpen = false
+- UTimelineComponent* OpenTimeline   ← smooth door open animation
+
+Functions:
+- Interact_Implementation: if !bIsLocked → OpenDoor(); else → show "Locked" hint
+- OpenDoor(): play timeline → lerp door mesh rotation 0→90 degrees
+- LockDoor() / UnlockDoor(): called by BossTriggerVolume
+- OnGameplayEvent("Event.Door.Open"): listens for remote open (boss death → unlock)
+
+─── ADFShrine extends ADFInteractableBase ─────────────────────
+Shrine types (EShrineType): Healing, Mana, PowerUp, Mystery
+
+Properties:
+- EShrineType ShrineType
+- TSubclassOf<UGameplayEffect> ShrineEffect
+- float CooldownBetweenUses = 0  ← 0 = single use (bSingleUse=true)
+- UNiagaraSystem* ActiveVFX
+- UNiagaraSystem* UsedVFX
+
+Interact_Implementation:
+1. Apply ShrineEffect to player via ASC
+2. Swap ActiveVFX to UsedVFX (shrine dims)
+3. For Mystery: roll random effect from: Heal 50% HP | +1 random ability level | random buff 60s
+
+─── WBP_InteractionPrompt ─────────────────────────────────────
+UDFInteractionPromptWidget extends UUserWidget:
+- UTextBlock* ActionText      ← "[G] Open Chest"
+- UTextBlock* InteractorHint  ← small subtitle if needed
+- UImage* KeyIcon             ← keyboard key icon
+- Animate: bob up/down 5px, fade in on register
+- UpdatePrompt(FText ActionText, UTexture2D* KeyIcon)
+
+Output all .h and .cpp files with correct Public/Private paths.
+```
+
+---
+
 ## 📝 DICAS DE USO NO CURSOR
 
 **Skills disponíveis no projeto** (`.cursor/skills/`):
@@ -912,37 +1534,44 @@ Output all files with correct Public/Private paths and full path comment headers
 | `@ue-project-context` | 0, 15 |
 | `@ue-cpp-foundations` | 0, 1, 2, 7, 15 |
 | `@ue-module-build-system` | 0, 1, 15 |
-| `@ue-gameplay-abilities` | 2, 3, 4, 5, 7, 8, 10, 11, 12, 14, 15, 17, 18 |
-| `@ue-gameplay-tags` | 2, 5, 6, 8, 11, 12, 14, 16, 17, 18 |
+| `@ue-gameplay-abilities` | 2, 3, 4, 5, 7, 8, 10, 11, 12, 14, 15, 17, 18, 20, 22, 23, 24 |
+| `@ue-gameplay-tags` | 2, 5, 6, 8, 11, 12, 14, 16, 17, 18, 19, 20, 21, 22, 24 |
 | `@ue-gameplay-framework` | 3, 4, 9, 13, 16 |
 | `@ue-input-system` | 3, 7 |
-| `@ue-character-movement` | 3, 18 |
+| `@ue-character-movement` | 3, 18, 21 |
 | `@ue-networking-replication` | 4, 8, 15, 18 |
-| `@ue-animation-system` | 5, 12, 17, 18 |
-| `@ue-data-assets-tables` | 6, 9, 10, 13 |
+| `@ue-animation-system` | 5, 12, 17, 18, 21, 22 |
+| `@ue-data-assets-tables` | 6, 9, 10, 13, 20, 23, 24 |
 | `@ue-asset-manager` | 6, 14 |
-| `@ue-ai-navigation` | 8 |
-| `@ue-actor-component-archit...` | 8, 10, 16, 17 |
+| `@ue-ai-navigation` | 8, 19 |
+| `@ue-actor-component-archit...` | 8, 10, 16, 17, 19, 22, 24 |
 | `@ue-procedural-generation` | 9 |
 | `@ue-world-level-streaming` | 9 |
-| `@ue-physics-collision` | 10, 12, 17 |
-| `@ue-ui-umg-slate` | 11, 16 |
-| `@ue-niagara-effects` | 12, 17 |
-| `@ue-serialization-savegames` | 13 |
+| `@ue-physics-collision` | 10, 12, 17, 24 |
+| `@ue-ui-umg-slate` | 11, 16, 22, 23, 24 |
+| `@ue-niagara-effects` | 12, 17, 22 |
+| `@ue-serialization-savegames` | 13, 23 |
 | `@ue-game-features` | 13 |
 | `@ue-testing-debugging` | 15 |
+| `@ue-mass-entity` | — (disponível para futuro sistema de multidão) |
+| `@ue-async-threading` | — (disponível para loading assíncrono) |
+| `@ue-audio-system` | — (disponível para Prompt de MetaSounds futuro) |
+
+**Ordem recomendada completa:**
+```
+0 → 1 → 14 → 2 → 4 → 3 → 20 → 5 → 18 → 21 → 17 → 16 → 6 → 7 → 19 → 8 → 9 → 10 → 24 → 11 → 23 → 12 → 22 → 13 → 15
+```
 
 **Como usar:**
 1. **Abra o projeto inteiro** no Cursor como workspace
 2. **Use o modo Agent** para criação de múltiplos arquivos
-3. **Cole o Prompt 0 primeiro** — ele carrega `@ue-project-context`, `@ue-cpp-foundations`, `@ue-module-build-system`
-4. Cada prompt subsequente carrega **apenas as skills necessárias** para aquele sistema
-5. O Cursor lerá as skills automaticamente ao processar o `@mention` no início do prompt
-6. **Ordem recomendada**: `0 → 1 → 14 → 2 → 4 → 3 → 5 → 18 → 17 → 16 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 15`
-7. **Após cada prompt**, revise os paths — o Cursor deve criar os arquivos em `Public/` e `Private/` automaticamente
-8. Use `@Public/Characters/DFPlayerCharacter.h` para referenciar arquivos já gerados nos próximos prompts
-9. **Para debugar GAS**, adicione ao Prompt 0: `"Always add GAS verbose log tags for debugging"`
+3. **Cole o Prompt 0 primeiro** — ele carrega as skills base globais
+4. Cada prompt carrega **apenas as skills necessárias** para aquele sistema
+5. **Após cada prompt**, revise os paths — arquivos devem estar em `Public/` e `Private/`
+6. Use `@Public/GAS/Effects/DFGameplayEffectLibrary.h` para referenciar arquivos já gerados
+7. **Para debugar GAS**, adicione ao Prompt 0: `"Always add GAS verbose log tags for debugging"`
+8. Skills `@ue-mass-entity`, `@ue-async-threading` e `@ue-audio-system` estão disponíveis para prompts futuros de MetaSounds e otimização
 
 ---
 
-*DungeonForged — Cursor Prompts v2.1 | UE5.4 | GAS | Data-Driven | Enhanced Input | Camera + Combat + Movement*
+*DungeonForged — Cursor Prompts v3.0 | UE5.4 | GAS | Data-Driven | Enhanced Input | 24 Prompts Completos*

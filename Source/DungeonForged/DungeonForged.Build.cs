@@ -43,6 +43,7 @@ public class DungeonForged : ModuleRules
 
 			// PCG
 			"PCG",
+			"AnimGraphRuntime",
 
 			// FX
 			"Niagara",

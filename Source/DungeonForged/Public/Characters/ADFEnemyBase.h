@@ -22,6 +22,7 @@ class UBehaviorTree;
 class UBehaviorTreeComponent;
 class UGameplayAbility;
 class UGameplayEffect;
+class UAISenseConfig_Sight;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnDFEnemyDied, AActor*, Enemy, AActor*, Killer, float, ExperienceReward);
 
@@ -34,6 +35,7 @@ public:
 	ADFEnemyBase();
 
 	//~ AActor
+	virtual void PostInitializeComponents() override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
@@ -62,6 +64,14 @@ public:
 	/** AI perception (hostiles, patrolling, etc.) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI|Perception")
 	TObjectPtr<UAIPerceptionComponent> AIPerception;
+
+	/**
+	 * Default subobject on this actor (not on AIPerception): you must not call
+	 * AIPerception->CreateDefaultSubobject from the pawn ctor — the object initializer
+	 * is for the actor only and triggers a fatal "Using incorrect object initializer".
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI|Perception")
+	TObjectPtr<UAISenseConfig_Sight> SightSenseConfig;
 
 	/**
 	 * Local brain. StartTree is called in BeginPlay when a behavior tree is provided via InitializeFromDataTable.

@@ -18,6 +18,8 @@ FGameplayTag FDFGameplayTags::Ability_Slot_3;
 FGameplayTag FDFGameplayTags::Ability_Slot_4;
 FGameplayTag FDFGameplayTags::Ability_Passive_HealthRegen;
 FGameplayTag FDFGameplayTags::Ability_Passive_ManaRegen;
+FGameplayTag FDFGameplayTags::Ability_Movement_Sprint;
+FGameplayTag FDFGameplayTags::Ability_Movement_Dodge;
 FGameplayTag FDFGameplayTags::State_Dead;
 FGameplayTag FDFGameplayTags::State_Stunned;
 FGameplayTag FDFGameplayTags::State_Rooted;
@@ -90,6 +92,8 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(Ability_Slot_4)(FName("Ability.Slot.4"), FString("Input slot 4 mapping."));
 	DF_TAG(Ability_Passive_HealthRegen)(FName("Ability.Passive.HealthRegen"), FString("Passive health regeneration."));
 	DF_TAG(Ability_Passive_ManaRegen)(FName("Ability.Passive.ManaRegen"), FString("Passive mana regeneration."));
+	DF_TAG(Ability_Movement_Sprint)(FName("Ability.Movement.Sprint"), FString("Sprint (hold) movement ability."));
+	DF_TAG(Ability_Movement_Dodge)(FName("Ability.Movement.Dodge"), FString("Dodge / roll."));
 
 	DF_TAG(State_Dead)(FName("State.Dead"), FString("Actor is dead; cannot act."));
 	DF_TAG(State_Stunned)(FName("State.Stunned"), FString("Stun — no actions."));

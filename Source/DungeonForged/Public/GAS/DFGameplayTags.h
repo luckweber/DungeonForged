@@ -36,6 +36,8 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Ability_Slot_4;
 	static FGameplayTag Ability_Passive_HealthRegen;
 	static FGameplayTag Ability_Passive_ManaRegen;
+	static FGameplayTag Ability_Movement_Sprint;
+	static FGameplayTag Ability_Movement_Dodge;
 
 	//~ State
 	static FGameplayTag State_Dead;

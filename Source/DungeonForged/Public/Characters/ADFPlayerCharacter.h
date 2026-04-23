@@ -25,7 +25,7 @@ class DUNGEONFORGED_API ADFPlayerCharacter : public ACharacter, public IAbilityS
 	GENERATED_BODY()
 
 public:
-	ADFPlayerCharacter();
+	ADFPlayerCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
@@ -74,6 +74,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> IA_Interact;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> IA_Sprint;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> IA_Dodge;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	TObjectPtr<UDFCameraComponent> CameraBoom;
 
@@ -118,8 +124,12 @@ protected:
 	void Input_Ability3();
 	void Input_Ability4();
 	void Input_Interact();
+	void Input_SprintStart();
+	void Input_SprintEnd();
+	void Input_Dodge();
 
 	void TryActivateByGameplayTagName(const FName& TagName);
+	void CancelAbilitiesByGameplayTagName(const FName& TagName);
 	void TryActivateAbilitySlot(int32 Slot1Based);
 
 	/** Clamps controller look pitch to [-60, 60] after pitch input. */

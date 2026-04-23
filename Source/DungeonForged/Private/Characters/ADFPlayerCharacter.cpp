@@ -1,6 +1,9 @@
 #include "Characters/ADFPlayerCharacter.h"
 
 #include "Characters/ADFPlayerState.h"
+#include "Characters/UDFCharacterMovementComponent.h"
+#include "GAS/DFGameplayTags.h"
+#include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Camera/CameraComponent.h"
@@ -18,7 +21,8 @@
 #include "GameplayTagContainer.h"
 #include "Components/CapsuleComponent.h"
 
-ADFPlayerCharacter::ADFPlayerCharacter()
+ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UDFCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
 {
 	PrimaryActorTick.bCanEverTick = false;
 
@@ -127,7 +131,16 @@ void ADFPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	{
 		RegisterAbilityInputFromConfig(EIC);
 	}
-	else
+	if (IA_Sprint)
+	{
+		EIC->BindAction(IA_Sprint, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_SprintStart);
+		EIC->BindAction(IA_Sprint, ETriggerEvent::Completed, this, &ADFPlayerCharacter::Input_SprintEnd);
+	}
+	if (IA_Dodge)
+	{
+		EIC->BindAction(IA_Dodge, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_Dodge);
+	}
+	if (!InputConfig)
 	{
 		if (IA_Attack)
 		{
@@ -317,6 +330,36 @@ void ADFPlayerCharacter::Input_Ability4()
 void ADFPlayerCharacter::Input_Interact()
 {
 	// Hook for interaction traces / abilities — keep gameplay in C++ or forward to a subsystem
+}
+
+void ADFPlayerCharacter::Input_SprintStart()
+{
+	TryActivateByGameplayTagName(FName("Ability.Movement.Sprint"));
+}
+
+void ADFPlayerCharacter::Input_SprintEnd()
+{
+	CancelAbilitiesByGameplayTagName(FName("Ability.Movement.Sprint"));
+}
+
+void ADFPlayerCharacter::Input_Dodge()
+{
+	TryActivateByGameplayTagName(FName("Ability.Movement.Dodge"));
+}
+
+void ADFPlayerCharacter::CancelAbilitiesByGameplayTagName(const FName& TagName)
+{
+	if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponent())
+	{
+		const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TagName, false);
+		if (!Tag.IsValid())
+		{
+			return;
+		}
+		FGameplayTagContainer T;
+		T.AddTag(Tag);
+		ASC->CancelAbilities(&T, nullptr, nullptr);
+	}
 }
 
 void ADFPlayerCharacter::TryActivateByGameplayTagName(const FName& TagName)

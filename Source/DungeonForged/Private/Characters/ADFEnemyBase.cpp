@@ -14,6 +14,7 @@
 #include "BehaviorTree/BehaviorTreeComponent.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SceneComponent.h"
 #include "Components/WidgetComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -42,24 +43,38 @@ ADFEnemyBase::ADFEnemyBase()
 	BehaviorTreeComponent = CreateDefaultSubobject<UBehaviorTreeComponent>(TEXT("BehaviorTreeComponent"));
 
 	AIPerception = CreateDefaultSubobject<UAIPerceptionComponent>(TEXT("AIPerception"));
-	UAISenseConfig_Sight* const Sight = CreateDefaultSubobject<UAISenseConfig_Sight>(TEXT("SightConfig"));
-	if (Sight)
+	// CreateDefaultSubobject must be called on the object under construction (this pawn), not on AIPerception — otherwise
+	// FObjectInitializer::Obj != this and the engine fatals in UObject::CreateDefaultSubobject.
+	SightSenseConfig = CreateDefaultSubobject<UAISenseConfig_Sight>(TEXT("SightSenseConfig"));
+	if (SightSenseConfig)
 	{
-		Sight->SightRadius = 2000.f;
-		Sight->LoseSightRadius = 2500.f;
-		Sight->PeripheralVisionAngleDegrees = 60.f;
-		Sight->DetectionByAffiliation.bDetectEnemies = true;
-		Sight->DetectionByAffiliation.bDetectNeutrals = true;
-		Sight->DetectionByAffiliation.bDetectFriendlies = false;
+		SightSenseConfig->SightRadius = 2000.f;
+		SightSenseConfig->LoseSightRadius = 2500.f;
+		SightSenseConfig->PeripheralVisionAngleDegrees = 60.f;
+		SightSenseConfig->DetectionByAffiliation.bDetectEnemies = true;
+		SightSenseConfig->DetectionByAffiliation.bDetectNeutrals = true;
+		SightSenseConfig->DetectionByAffiliation.bDetectFriendlies = false;
+		AIPerception->ConfigureSense(*SightSenseConfig);
 	}
-	AIPerception->ConfigureSense(*Sight);
 	AIPerception->SetDominantSense(UAISense_Sight::StaticClass());
 
 	HealthBar = CreateDefaultSubobject<UWidgetComponent>(TEXT("HealthBar"));
-	HealthBar->SetupAttachment(GetMesh());
+	// USceneComponent default subobjects must be attached in the constructor or CDO / Blueprint reinstancing can crash.
+	HealthBar->SetupAttachment(GetRootComponent());
 	HealthBar->SetWidgetSpace(EWidgetSpace::Screen);
 	HealthBar->SetDrawAtDesiredSize(true);
-	HealthBar->SetRelativeLocation(FVector(0.f, 0.f, 100.f));
+}
+
+void ADFEnemyBase::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+	// Re-attach to skeletal mesh when available (BP may have swapped the mesh; ctor only used capsule root).
+	if (HealthBar && GetMesh())
+	{
+		HealthBar->AttachToComponent(
+			GetMesh(), FAttachmentTransformRules::KeepRelativeTransform);
+		HealthBar->SetRelativeLocation(FVector(0.f, 0.f, 100.f));
+	}
 }
 
 UAbilitySystemComponent* ADFEnemyBase::GetAbilitySystemComponent() const
