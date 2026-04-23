@@ -41,6 +41,23 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Ability_Passive_ManaRegen;
 	static FGameplayTag Ability_Movement_Sprint;
 	static FGameplayTag Ability_Movement_Dodge;
+	// Warrior
+	static FGameplayTag Ability_Warrior_ShieldBash;
+	static FGameplayTag Ability_Warrior_WarCry;
+	static FGameplayTag Ability_Warrior_Whirlwind;
+	static FGameplayTag Ability_Warrior_IronSkin;
+	static FGameplayTag Ability_Warrior_Charge;
+	static FGameplayTag Ability_Warrior_Execute;
+	/** Failsafe when activation blocked by range (e.g. charge). */
+	static FGameplayTag Ability_Failed_Range;
+	static FGameplayTag Event_Ability_Whirlwind_Tick;
+	static FGameplayTag Event_Warrior_ShieldBash_Trace;
+	static FGameplayTag Event_Warrior_Execute_Trace;
+	/** For AI: war cry played (flee / react). */
+	static FGameplayTag Event_Warrior_WarCry;
+	/** Off-hand must be shield. */
+	static FGameplayTag Equipment_OffHand_Shield;
+	static FGameplayTag State_Spinning;
 
 	//~ State
 	static FGameplayTag State_Dead;

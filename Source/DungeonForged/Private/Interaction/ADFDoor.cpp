@@ -1,6 +1,6 @@
 // Source/DungeonForged/Private/Interaction/ADFDoor.cpp
-#include "Curves/CurveFloat.h"
 #include "Interaction/ADFDoor.h"
+#include "Curves/CurveFloat.h"
 #include "Interaction/UDFInteractionEventBus.h"
 #include "Components/TimelineComponent.h"
 #include "Engine/Engine.h"
