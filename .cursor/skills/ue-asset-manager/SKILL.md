@@ -6,7 +6,7 @@ description: >
   async loading, Asset Bundles, UPrimaryDataAsset, FPrimaryAssetId, soft references,
   cooking/chunking de assets, ou qualquer fluxo de carregamento assíncrono de assets no UE5.
   Inclui padrões de código, configurações de DefaultEngine.ini e boas práticas.
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Unreal Engine 5.4 — AssetManager
@@ -48,26 +48,61 @@ FPrimaryAssetId    →  Type:Name  →  "Weapon:BattleAxe_Tier2"
 
 ## Setup Inicial
 
-### 1. Configurar DefaultEngine.ini
+### 1. Nome da classe em `.ini` e soft paths (`/Script/...`)
 
-Para usar uma subclasse customizada:
+Em strings de config (`DefaultEngine.ini`, `AssetBaseClass` em `AssetManagerSettings`, etc.), o par **Módulo + nome** usa o **nome refletido** usado no registry de classes, **não** o identificador C++ com prefixo `U`/`A` nesses caminhos.
+
+| C++ | Em `/Script/Modulo.___` (config) |
+|-----|----------------------------------|
+| `UAssetManager` | `AssetManager` (veja o engine: `BaseEngine` usa `/Script/Engine.AssetManager`) |
+| `UMeuAssetManager` | `MeuAssetManager` |
+| `AEnemyCharacter` | `EnemyCharacter` |
+
+**Erro comum:** usar `...UMeuAssetManager` no `.ini`. O lookup pode falhar, o engine cai no `UAssetManager` padrão ou, dependendo do timing do boot, falhas/`CastChecked` no teu `Get()`.
+
+Exemplos:
+
+```ini
+; Engine default (não subclasse)
+AssetManagerClassName=/Script/Engine.AssetManager
+
+; Subclasse C++: class UMeuAssetManager
+AssetManagerClassName=/Script/MeuJogo.MeuAssetManager
+```
+
+No **C++** continua `class UMeuAssetManager` — só a **string** no `.ini` omite o `U` neste padrão.
+
+**Checklist**
+
+| Verificação | Ação |
+|-------------|------|
+| Nome no `.ini` | Nome após o módulo = **sem** `U`/`A` (ex.: `DFAssetManager` se a classe for `UDFAssetManager`) |
+| `CastChecked<UMeuAssetManager>(&UAssetManager::Get())` | Só é válido se `AssetManagerClassName` apontar corretamente para a subclasse; caso contrário o singleton não é a tua classe |
+| Ainda com crash / classe errada | Fechar editor, apagar `Binaries/` e `Intermediate/`, recompilar; opcional: `UE_LOG` em `StartInitialLoading` para confirmar a instância |
+| Comentário vs `.ini` | Se o comentário diz "usar default", não deixe linha ativa a apontar para subclasse custom — ou alinhe o comentário |
+
+### 2. Configurar DefaultEngine.ini (subclasse)
+
+Para usar uma subclasse customizada (além do padrão do engine):
 
 ```ini
 [/Script/Engine.Engine]
-AssetManagerClassName=/Script/MeuJogo.UMeuAssetManager
+AssetManagerClassName=/Script/MeuJogo.MeuAssetManager
 ```
 
-Se não precisar de comportamento customizado, pule essa etapa — o `UAssetManager` padrão já está ativo.
+Se não precisar de comportamento customizado, use o manager do engine (ou remova/omit a linha conforme a versão) — o padrão é equivalente a referenciar `UAssetManager` via `AssetManager` acima.
 
-### 2. Registrar Primary Asset Types em Project Settings
+### 3. Registrar Primary Asset Types em Project Settings
 
 Em `Project Settings → Asset Manager`:
 
 ```ini
 ; DefaultGame.ini (gerado pela UI)
 [/Script/Engine.AssetManagerSettings]
-+PrimaryAssetTypesToScan=(PrimaryAssetType="Item",AssetBaseClass=/Script/MeuJogo.UMeuItem,bHasBlueprintClasses=False,bIsEditorOnly=False,Directories=((Path="/Game/Items")),SpecificAssets=,Rules=(Priority=-1,ChunkId=-1,bApplyRecursively=True,CookRule=Unknown))
++PrimaryAssetTypesToScan=(PrimaryAssetType="Item",AssetBaseClass=/Script/MeuJogo.MeuItem,bHasBlueprintClasses=False,bIsEditorOnly=False,Directories=((Path="/Game/Items")),SpecificAssets=,Rules=(Priority=-1,ChunkId=-1,bApplyRecursively=True,CookRule=Unknown))
 ```
+
+(`UMeuItem` no C++ → `MeuItem` no path.)
 
 ---
 
@@ -152,15 +187,16 @@ public:
 ```cpp
 // MeuAssetManager.cpp
 #include "MeuAssetManager.h"
+#include "Engine/AssetManager.h"
 #include "AbilitySystemGlobals.h"
 
 const FPrimaryAssetType UMeuAssetManager::ItemType = TEXT("Item");
 
 UMeuAssetManager& UMeuAssetManager::Get()
 {
-    UMeuAssetManager* Manager = Cast<UMeuAssetManager>(GEngine->AssetManager);
-    check(Manager);
-    return *Manager;
+    // Requer DefaultEngine: AssetManagerClassName=/Script/MeuJogo.MeuAssetManager
+    // (nome sem "U" no .ini; ver secção "Nome da classe em .ini" acima).
+    return *CastChecked<UMeuAssetManager>(&UAssetManager::Get());
 }
 
 void UMeuAssetManager::StartInitialLoading()
@@ -283,6 +319,7 @@ Manager.LoadPrimaryAsset(ItemId, { TEXT("Game") }, Callback);
 - Chamar `LoadSynchronous()` na game thread principal em runtime
 - Duplicar `PrimaryAssetType:PrimaryAssetName` no projeto
 - Esquecer de registrar o tipo no `DefaultGame.ini` / Project Settings
+- Usar o prefixo `U`/`A` no nome após `/Script/Modulo.` em `.ini` (ex.: `UMeuAssetManager` em vez de `MeuAssetManager`) — o lookup da classe custom pode falhar
 
 ---
 
