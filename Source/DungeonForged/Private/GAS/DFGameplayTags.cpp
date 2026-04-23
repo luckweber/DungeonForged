@@ -5,6 +5,7 @@
 #define DF_TAG(Member) FDFGameplayTags::Member = M.AddNativeGameplayTag
 
 FGameplayTag FDFGameplayTags::Ability_Parent;
+FGameplayTag FDFGameplayTags::Ability_Attack;
 FGameplayTag FDFGameplayTags::Ability_Fire;
 FGameplayTag FDFGameplayTags::Ability_Ice;
 FGameplayTag FDFGameplayTags::Ability_Attack_Melee;
@@ -37,6 +38,13 @@ FGameplayTag FDFGameplayTags::Ability_Mage_ArcaneBarrage;
 FGameplayTag FDFGameplayTags::Ability_Mage_TimeWarp;
 FGameplayTag FDFGameplayTags::Ability_Mage_ManaShield;
 FGameplayTag FDFGameplayTags::Ability_Mage_Teleport;
+FGameplayTag FDFGameplayTags::Ability_Rogue;
+FGameplayTag FDFGameplayTags::Ability_Rogue_Backstab;
+FGameplayTag FDFGameplayTags::Ability_Rogue_FanOfKnives;
+FGameplayTag FDFGameplayTags::Ability_Rogue_ShadowStep;
+FGameplayTag FDFGameplayTags::Ability_Rogue_Eviscerate;
+FGameplayTag FDFGameplayTags::Ability_Rogue_Vanish;
+FGameplayTag FDFGameplayTags::Ability_Rogue_SmokeScreen;
 FGameplayTag FDFGameplayTags::Ability_Cooldown;
 FGameplayTag FDFGameplayTags::Event_Ability_Mage_FrostTrace;
 FGameplayTag FDFGameplayTags::Event_Ability_Mage_ArcaneTrace;
@@ -64,8 +72,17 @@ FGameplayTag FDFGameplayTags::State_CCIgnore;
 FGameplayTag FDFGameplayTags::State_BossEnraged;
 FGameplayTag FDFGameplayTags::State_Spawned_Boss;
 FGameplayTag FDFGameplayTags::State_BossVulnerable;
+FGameplayTag FDFGameplayTags::State_Invisible;
+FGameplayTag FDFGameplayTags::State_Stealthed;
+FGameplayTag FDFGameplayTags::State_Concealed;
+FGameplayTag FDFGameplayTags::Buff_Rogue_Ambush;
+FGameplayTag FDFGameplayTags::Buff_Rogue_KillingSpree;
 FGameplayTag FDFGameplayTags::Event_Boss_DoorLock;
 FGameplayTag FDFGameplayTags::Event_Boss_IntroComplete;
+FGameplayTag FDFGameplayTags::Event_Stealth_Entered;
+FGameplayTag FDFGameplayTags::Event_Rogue_Backstab_Trace;
+FGameplayTag FDFGameplayTags::Event_Rogue_FanOfKnives_Trace;
+FGameplayTag FDFGameplayTags::Event_Rogue_Eviscerate_Trace;
 FGameplayTag FDFGameplayTags::Effect_Damage_Physical;
 FGameplayTag FDFGameplayTags::Effect_Damage_Magic;
 FGameplayTag FDFGameplayTags::Effect_Damage_True;
@@ -78,6 +95,7 @@ FGameplayTag FDFGameplayTags::Effect_Buff_Shield;
 FGameplayTag FDFGameplayTags::Effect_Debuff_Slow;
 FGameplayTag FDFGameplayTags::Effect_Debuff_Weaken;
 FGameplayTag FDFGameplayTags::Effect_Debuff_ArmorBreak;
+FGameplayTag FDFGameplayTags::Effect_Debuff_Blinded;
 FGameplayTag FDFGameplayTags::Event_Ability_Fire_Launch;
 FGameplayTag FDFGameplayTags::Event_Ability_Melee_Hit;
 FGameplayTag FDFGameplayTags::Event_Ability_Montage_End;
@@ -123,6 +141,7 @@ void FDFGameplayTags::RegisterGameplayTags()
 	UGameplayTagsManager& M = UGameplayTagsManager::Get();
 
 	DF_TAG(Ability_Parent)(FName("Ability"), FString("Root tag for all abilities (cancel / filter)."));
+	DF_TAG(Ability_Attack)(FName("Ability.Attack"), FString("Parent of melee/ranged basic attacks and strike abilities."));
 	DF_TAG(Ability_Fire)(FName("Ability.Fire"), FString("Fire magic ability subtree."));
 	DF_TAG(Ability_Ice)(FName("Ability.Ice"), FString("Ice magic ability subtree."));
 	DF_TAG(Ability_Attack_Melee)(FName("Ability.Attack.Melee"), FString("Melee auto-attack or weapon swing."));
@@ -156,6 +175,13 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(Ability_Mage_TimeWarp)(FName("Ability.Mage.TimeWarp"), FString("Mage: reset cooldowns + haste window."));
 	DF_TAG(Ability_Mage_ManaShield)(FName("Ability.Mage.ManaShield"), FString("Mage: mana absorbs damage."));
 	DF_TAG(Ability_Mage_Teleport)(FName("Ability.Mage.Teleport"), FString("Mage: blink / spellsteal bump."));
+	DF_TAG(Ability_Rogue)(FName("Ability.Rogue"), FString("Rogue / Assassin class abilities."));
+	DF_TAG(Ability_Rogue_Backstab)(FName("Ability.Rogue.Backstab"), FString("Rogue: positional backstab (builder)."));
+	DF_TAG(Ability_Rogue_FanOfKnives)(FName("Ability.Rogue.FanOfKnives"), FString("Rogue: 360° knife volley (AoE)."));
+	DF_TAG(Ability_Rogue_ShadowStep)(FName("Ability.Rogue.ShadowStep"), FString("Rogue: blink behind target."));
+	DF_TAG(Ability_Rogue_Eviscerate)(FName("Ability.Rogue.Eviscerate"), FString("Rogue: finisher, consumes combo points."));
+	DF_TAG(Ability_Rogue_Vanish)(FName("Ability.Rogue.Vanish"), FString("Rogue: long combat stealth break."));
+	DF_TAG(Ability_Rogue_SmokeScreen)(FName("Ability.Rogue.SmokeScreen"), FString("Rogue: thrown smoke cloud."));
 	DF_TAG(Ability_Cooldown)(FName("Ability.Cooldown"), FString("On cooldown GameplayEffect asset tags; children per skill."));
 	DF_TAG(Event_Ability_Mage_FrostTrace)(FName("Event.Ability.Mage.Frost.Trace"), FString("Frost bolt release (anim notify)."));
 	DF_TAG(Event_Ability_Mage_ArcaneTrace)(FName("Event.Ability.Mage.Arcane.Trace"), FString("Arcane barrage missiles spawn."));
@@ -184,10 +210,20 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(State_BossEnraged)(FName("State.BossEnraged"), FString("Boss enrage / soft taunt for UI and AI."));
 	DF_TAG(State_Spawned_Boss)(FName("State.Spawned.Boss"), FString("Minion from a boss encounter."));
 	DF_TAG(State_BossVulnerable)(FName("State.BossVulnerable"), FString("Stumble / long recovery window."));
+	DF_TAG(State_Invisible)(FName("State.Invisible"), FString("Not rendered / untarget for some systems."));
+	DF_TAG(State_Stealthed)(FName("State.Stealthed"), FString("Stealth movement / opener rules."));
+	DF_TAG(State_Concealed)(FName("State.Concealed"), FString("In smoke or heavy concealment."));
+	DF_TAG(Buff_Rogue_Ambush)(FName("Buff.Rogue.Ambush"), FString("Next ambush hit from vanish: bonus damage + combo."));
+	DF_TAG(Buff_Rogue_KillingSpree)(FName("Buff.Rogue.KillingSpree"), FString("5-CP Eviscerate proc: haste/agi window."));
 
 	DF_TAG(Event_Boss_DoorLock)(FName("Event.Boss.DoorLock"), FString("Lock arena exit doors — subscribe in BP/Actor."));
 
 	DF_TAG(Event_Boss_IntroComplete)(FName("Event.Boss.IntroComplete"), FString("Boss intro cinematic finished."));
+
+	DF_TAG(Event_Stealth_Entered)(FName("Event.Stealth.Entered"), FString("Player entered full stealth (AI/FX)."));
+	DF_TAG(Event_Rogue_Backstab_Trace)(FName("Event.Rogue.Backstab.Trace"), FString("Backstab hit frame (AN_TraceStart)."));
+	DF_TAG(Event_Rogue_FanOfKnives_Trace)(FName("Event.Rogue.FanOfKnives.Trace"), FString("Fan of Knives release frame."));
+	DF_TAG(Event_Rogue_Eviscerate_Trace)(FName("Event.Rogue.Eviscerate.Trace"), FString("Eviscerate hit frame."));
 
 	DF_TAG(Effect_Damage_Physical)(FName("Effect.Damage.Physical"), FString("Physical damage effect (asset tag)."));
 	DF_TAG(Effect_Damage_Magic)(FName("Effect.Damage.Magic"), FString("Magic damage effect (asset tag)."));
@@ -201,6 +237,7 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(Effect_Debuff_Slow)(FName("Effect.Debuff.Slow"), FString("Movement slow."));
 	DF_TAG(Effect_Debuff_Weaken)(FName("Effect.Debuff.Weaken"), FString("Reduced outgoing damage or stats."));
 	DF_TAG(Effect_Debuff_ArmorBreak)(FName("Effect.Debuff.ArmorBreak"), FString("Reduced mitigation."));
+	DF_TAG(Effect_Debuff_Blinded)(FName("Effect.Debuff.Blinded"), FString("Severe aim/sight debuff."));
 
 	DF_TAG(Event_Ability_Fire_Launch)(FName("Event.Ability.Fire.Launch"), FString("Anim notify: fire projectile release."));
 	DF_TAG(Event_Ability_Melee_Hit)(FName("Event.Ability.Melee.Hit"), FString("Melee impact / damage window."));

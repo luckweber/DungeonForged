@@ -14,6 +14,7 @@ class UDFAttributeSet;
 class UDFLockOnComponent;
 class UDFCameraComponent;
 class UDFComboComponent;
+class UDFComboPointsComponent;
 class UDFInteractionComponent;
 class UDFMeleeTraceComponent;
 class UInputAction;
@@ -96,6 +97,10 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	TObjectPtr<UDFComboComponent> Combo;
+
+	/** GAS: builder/finisher combo points (Rogue, etc.). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|GAS")
+	TObjectPtr<UDFComboPointsComponent> ComboPoints;
 
 	/** Traces and sphere overlap: interact with IDFInteractable. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Interaction")

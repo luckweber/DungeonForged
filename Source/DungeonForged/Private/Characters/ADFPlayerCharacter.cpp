@@ -10,6 +10,7 @@
 #include "Camera/UDFCameraComponent.h"
 #include "Camera/UDFLockOnComponent.h"
 #include "Combat/UDFComboComponent.h"
+#include "Combat/UDFComboPointsComponent.h"
 #include "Combat/UDFMeleeTraceComponent.h"
 #include "Interaction/UDFInteractionComponent.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -44,6 +45,7 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 
 	MeleeTrace = CreateDefaultSubobject<UDFMeleeTraceComponent>(TEXT("MeleeTrace"));
 	Combo = CreateDefaultSubobject<UDFComboComponent>(TEXT("Combo"));
+	ComboPoints = CreateDefaultSubobject<UDFComboPointsComponent>(TEXT("ComboPoints"));
 	Interaction = CreateDefaultSubobject<UDFInteractionComponent>(TEXT("InteractionComponent"));
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));

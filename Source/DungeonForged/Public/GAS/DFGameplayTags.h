@@ -23,6 +23,8 @@ struct DUNGEONFORGED_API FDFGameplayTags
 
 	//~ Ability (hierarchical roots; used for block/cancel queries)
 	static FGameplayTag Ability_Parent;
+	/** Parent of Ability.Attack.Melee / Ranged; matches "Ability.Attack.*". */
+	static FGameplayTag Ability_Attack;
 	static FGameplayTag Ability_Fire;
 	static FGameplayTag Ability_Ice;
 	static FGameplayTag Ability_Attack_Melee;
@@ -58,6 +60,14 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Ability_Mage_TimeWarp;
 	static FGameplayTag Ability_Mage_ManaShield;
 	static FGameplayTag Ability_Mage_Teleport;
+	// Rogue
+	static FGameplayTag Ability_Rogue;
+	static FGameplayTag Ability_Rogue_Backstab;
+	static FGameplayTag Ability_Rogue_FanOfKnives;
+	static FGameplayTag Ability_Rogue_ShadowStep;
+	static FGameplayTag Ability_Rogue_Eviscerate;
+	static FGameplayTag Ability_Rogue_Vanish;
+	static FGameplayTag Ability_Rogue_SmokeScreen;
 	/** Parent tag for cooldown GEs; used by TimeWarp purge. */
 	static FGameplayTag Ability_Cooldown;
 	static FGameplayTag Event_Ability_Mage_FrostTrace;
@@ -92,12 +102,23 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	/** Set on minions spawned by a boss encounter. */
 	static FGameplayTag State_Spawned_Boss;
 	static FGameplayTag State_BossVulnerable;
+	static FGameplayTag State_Invisible;
+	static FGameplayTag State_Stealthed;
+	static FGameplayTag State_Concealed;
+	static FGameplayTag Buff_Rogue_Ambush;
+	static FGameplayTag Buff_Rogue_KillingSpree;
 
 	//~ Event
 	/** Listeners: lock arena doors, play NavMesh blockers, etc. */
 	static FGameplayTag Event_Boss_DoorLock;
 	/** Cinematic or trigger finished; restore gameplay. */
 	static FGameplayTag Event_Boss_IntroComplete;
+	/** Stealth / vanish: AI and audio listen for full stealth entry. */
+	static FGameplayTag Event_Stealth_Entered;
+	/** AN_TraceStart-style sync; Backstab, Fan of Knives, Eviscerate. */
+	static FGameplayTag Event_Rogue_Backstab_Trace;
+	static FGameplayTag Event_Rogue_FanOfKnives_Trace;
+	static FGameplayTag Event_Rogue_Eviscerate_Trace;
 	static FGameplayTag Event_Ability_Fire_Launch;
 	static FGameplayTag Event_Ability_Melee_Hit;
 	static FGameplayTag Event_Ability_Montage_End;
@@ -115,6 +136,7 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Effect_Debuff_Slow;
 	static FGameplayTag Effect_Debuff_Weaken;
 	static FGameplayTag Effect_Debuff_ArmorBreak;
+	static FGameplayTag Effect_Debuff_Blinded;
 
 	//~ Data (SetByCaller)
 	static FGameplayTag Data_Damage;

@@ -8,7 +8,11 @@
 UGE_DoT_Bleed::UGE_DoT_Bleed()
 {
 	DurationPolicy = EGameplayEffectDurationType::HasDuration;
-	DurationMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(4.f));
+	{
+		FSetByCallerFloat Sbc;
+		Sbc.DataTag = FDFGameplayTags::Data_Duration;
+		DurationMagnitude = FGameplayEffectModifierMagnitude(Sbc);
+	}
 	Period = FScalableFloat(0.5f);
 
 	FGameplayModifierInfo Mod;

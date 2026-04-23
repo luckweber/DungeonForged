@@ -8,11 +8,15 @@
 UGE_DoT_Poison::UGE_DoT_Poison()
 {
 	DurationPolicy = EGameplayEffectDurationType::HasDuration;
-	DurationMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(5.f));
+	{
+		FSetByCallerFloat Sbc;
+		Sbc.DataTag = FDFGameplayTags::Data_Duration;
+		DurationMagnitude = FGameplayEffectModifierMagnitude(Sbc);
+	}
 	Period = FScalableFloat(1.f);
 
-	StackingType = EGameplayEffectStackingType::AggregateByTarget;
-	StackLimitCount = 1;
+	StackingType = EGameplayEffectStackingType::AggregateBySource;
+	StackLimitCount = 12;
 	StackDurationRefreshPolicy = EGameplayEffectStackingDurationPolicy::RefreshOnSuccessfulApplication;
 
 	FGameplayModifierInfo Mod;
