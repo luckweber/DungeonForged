@@ -100,6 +100,11 @@ public:
 	FGameplayAttributeData CooldownReduction;
 	ATTRIBUTE_ACCESSORS(UDFAttributeSet, CooldownReduction)
 
+	/** Additive spell amp (0 = none, 0.3 = +30% magic damage from TimeWarp, etc.). */
+	UPROPERTY(BlueprintReadOnly, Category = "DF|Attributes|Secondary", ReplicatedUsing = OnRep_SpellDamageAmp)
+	FGameplayAttributeData SpellDamageAmp;
+	ATTRIBUTE_ACCESSORS(UDFAttributeSet, SpellDamageAmp)
+
 	UPROPERTY(BlueprintReadOnly, Category = "DF|Attributes|Movement", ReplicatedUsing = OnRep_MovementSpeedMultiplier)
 	FGameplayAttributeData MovementSpeedMultiplier;
 	ATTRIBUTE_ACCESSORS(UDFAttributeSet, MovementSpeedMultiplier)
@@ -144,6 +149,8 @@ protected:
 	void OnRep_CritMultiplier(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
 	void OnRep_CooldownReduction(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_SpellDamageAmp(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
 	void OnRep_MovementSpeedMultiplier(const FGameplayAttributeData& OldValue);
 	UFUNCTION()

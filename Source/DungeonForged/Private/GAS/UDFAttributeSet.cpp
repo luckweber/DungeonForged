@@ -1,6 +1,7 @@
 // Source/DungeonForged/Private/GAS/UDFAttributeSet.cpp
 
 #include "GAS/UDFAttributeSet.h"
+#include "GAS/DFGameplayTags.h"
 #include "AbilitySystemComponent.h"
 #include "GameplayEffectTypes.h"
 #include "Net/UnrealNetwork.h"
@@ -26,6 +27,7 @@ UDFAttributeSet::UDFAttributeSet()
 	InitCritChance(0.05f);
 	InitCritMultiplier(2.0f);
 	InitCooldownReduction(0.f);
+	InitSpellDamageAmp(0.f);
 	InitMovementSpeedMultiplier(1.f);
 	InitSprintStaminaDrain(20.f);
 }
@@ -48,6 +50,7 @@ void UDFAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, CritChance, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, CritMultiplier, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, CooldownReduction, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, SpellDamageAmp, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, MovementSpeedMultiplier, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, SprintStaminaDrain, COND_None, REPNOTIFY_Always);
 }
@@ -96,6 +99,10 @@ void UDFAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 	else if (Attribute == GetCritMultiplierAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 1.f);
+	}
+	else if (Attribute == GetSpellDamageAmpAttribute())
+	{
+		NewValue = FMath::Clamp(NewValue, 0.f, 3.f);
 	}
 	else if (Attribute == GetMovementSpeedMultiplierAttribute())
 	{
@@ -148,13 +155,41 @@ void UDFAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 	// Out-of-health is detected here and in PostAttributeChange so direct sets and GEs are both covered
 	if (Data.EvaluatedData.Attribute == GetHealthAttribute())
 	{
+		if (UAbilitySystemComponent* const ASC = GetOwningAbilitySystemComponent())
+		{
+			const float Mag = Data.EvaluatedData.Magnitude;
+			if (Mag < 0.f && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_ManaShieldActive))
+			{
+				const float Dmg = -Mag;
+				const float CurrentMana = ASC->GetNumericAttribute(GetManaAttribute());
+				const float ManaPortion = 0.7f * Dmg;
+				const float ManaToDrain = FMath::Min(CurrentMana, ManaPortion);
+				const float HLoss = 0.3f * Dmg + FMath::Max(0.f, ManaPortion - CurrentMana);
+				if (Dmg > KINDA_SMALL_NUMBER)
+				{
+					const float HealthNow = GetHealth();
+					const float NewHealth = FMath::Clamp(HealthNow + (Dmg - HLoss), 0.f, GetMaxHealth());
+					ASC->SetNumericAttributeBase(GetHealthAttribute(), NewHealth);
+					if (ManaToDrain > KINDA_SMALL_NUMBER)
+					{
+						ASC->ApplyModToAttribute(GetManaAttribute(), EGameplayModOp::Additive, -ManaToDrain);
+					}
+					if (ASC->GetNumericAttribute(GetManaAttribute()) <= KINDA_SMALL_NUMBER)
+					{
+						FGameplayTagContainer T;
+						T.AddTag(FDFGameplayTags::State_ManaShieldActive);
+						ASC->RemoveActiveEffectsWithGrantedTags(T);
+					}
+				}
+			}
+		}
 		// Final clamp in case a GE bypasses PreAttributeChange edge cases
-		if (UAbilitySystemComponent* ASC = GetOwningAbilitySystemComponent())
+		if (UAbilitySystemComponent* const ASC2 = GetOwningAbilitySystemComponent())
 		{
 			const float Clamped = FMath::Clamp(GetHealth(), 0.f, GetMaxHealth());
 			if (!FMath::IsNearlyEqual(Clamped, GetHealth()))
 			{
-				ASC->SetNumericAttributeBase(GetHealthAttribute(), Clamped);
+				ASC2->SetNumericAttributeBase(GetHealthAttribute(), Clamped);
 			}
 		}
 		HandleOutOfHealth();
@@ -266,6 +301,10 @@ void UDFAttributeSet::OnRep_CritMultiplier(const FGameplayAttributeData& OldValu
 void UDFAttributeSet::OnRep_CooldownReduction(const FGameplayAttributeData& OldValue)
 {
 	GAMEPLAYATTRIBUTE_REPNOTIFY(UDFAttributeSet, CooldownReduction, OldValue);
+}
+void UDFAttributeSet::OnRep_SpellDamageAmp(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UDFAttributeSet, SpellDamageAmp, OldValue);
 }
 void UDFAttributeSet::OnRep_MovementSpeedMultiplier(const FGameplayAttributeData& OldValue)
 {

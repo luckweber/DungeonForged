@@ -15,6 +15,7 @@ UDFDamageCalculation::UDFDamageCalculation()
 	, ArmorCapture(UDFAttributeSet::GetArmorAttribute(), EGameplayEffectAttributeCaptureSource::Target, true)
 	, CritChanceCapture(UDFAttributeSet::GetCritChanceAttribute(), EGameplayEffectAttributeCaptureSource::Source, true)
 	, CritMultCapture(UDFAttributeSet::GetCritMultiplierAttribute(), EGameplayEffectAttributeCaptureSource::Source, true)
+	, SpellDamageAmpCapture(UDFAttributeSet::GetSpellDamageAmpAttribute(), EGameplayEffectAttributeCaptureSource::Source, true)
 {
 	RelevantAttributesToCapture.Add(IntelligenceCapture);
 	RelevantAttributesToCapture.Add(StrengthCapture);
@@ -22,6 +23,7 @@ UDFDamageCalculation::UDFDamageCalculation()
 	RelevantAttributesToCapture.Add(ArmorCapture);
 	RelevantAttributesToCapture.Add(CritChanceCapture);
 	RelevantAttributesToCapture.Add(CritMultCapture);
+	RelevantAttributesToCapture.Add(SpellDamageAmpCapture);
 }
 
 void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExecutionParameters& ExecutionParams,
@@ -56,6 +58,9 @@ void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExe
 	float CritMult = 2.f;
 	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(CritMultCapture, EvalParams, CritMult);
 
+	float SpellAmp = 0.f;
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(SpellDamageAmpCapture, EvalParams, SpellAmp);
+
 	const FGameplayTag DataDamageTag = FDFGameplayTags::ResolveDataDamageTag();
 	const float SetByCallerBase = DataDamageTag.IsValid()
 		? Spec.GetSetByCallerMagnitude(DataDamageTag, false, 0.f)
@@ -73,7 +78,7 @@ void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExe
 	}
 	else if (bMagic)
 	{
-		PreMitigation = (SetByCallerBase + Intel * 0.5f) * (1.f - FMath::Clamp(MR, 0.f, 100.f) / 100.f);
+		PreMitigation = (SetByCallerBase + Intel * 0.5f) * (1.f + FMath::Max(0.f, SpellAmp)) * (1.f - FMath::Clamp(MR, 0.f, 100.f) / 100.f);
 	}
 	else
 	{

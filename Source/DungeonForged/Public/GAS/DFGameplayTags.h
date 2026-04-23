@@ -50,6 +50,21 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Ability_Warrior_Execute;
 	/** Failsafe when activation blocked by range (e.g. charge). */
 	static FGameplayTag Ability_Failed_Range;
+	// Mage
+	static FGameplayTag Ability_Mage;
+	static FGameplayTag Ability_Mage_FrostBolt;
+	static FGameplayTag Ability_Mage_BlizzardStorm;
+	static FGameplayTag Ability_Mage_ArcaneBarrage;
+	static FGameplayTag Ability_Mage_TimeWarp;
+	static FGameplayTag Ability_Mage_ManaShield;
+	static FGameplayTag Ability_Mage_Teleport;
+	/** Parent tag for cooldown GEs; used by TimeWarp purge. */
+	static FGameplayTag Ability_Cooldown;
+	static FGameplayTag Event_Ability_Mage_FrostTrace;
+	static FGameplayTag Event_Ability_Mage_ArcaneTrace;
+	static FGameplayTag State_ManaShieldActive;
+	static FGameplayTag Effect_DoT_Frost;
+	static FGameplayTag Buff_Mage_TimeWarpHaste;
 	static FGameplayTag Event_Ability_Whirlwind_Tick;
 	static FGameplayTag Event_Warrior_ShieldBash_Trace;
 	static FGameplayTag Event_Warrior_Execute_Trace;

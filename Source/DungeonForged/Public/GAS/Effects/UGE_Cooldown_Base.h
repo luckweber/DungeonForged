@@ -15,4 +15,7 @@ class DUNGEONFORGED_API UGE_Cooldown_Base : public UDFGameplayEffect
 	GENERATED_BODY()
 public:
 	UGE_Cooldown_Base();
+
+protected:
+	virtual void ConfigureEffectCDO() override;
 };
