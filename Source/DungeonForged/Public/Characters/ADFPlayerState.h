@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "DFDataTableStructs.h"
+#include "UI/UDFAbilitySelectionSubsystem.h"
 #include "GameFramework/PlayerState.h"
 #include "AbilitySystemInterface.h"
 #include "ADFPlayerState.generated.h"
@@ -40,4 +41,15 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "GAS")
 	void InitializeAttributesFromDataTable(UDataTable* AttributeTable, FName RowName);
+
+	/** Server rolled choices on floor clear; client opens the full-screen offer. */
+	UFUNCTION(Client, Reliable, Category = "DF|Rogue")
+	void Client_OpenAbilitySelectionScreen(int32 FloorCleared, const TArray<FDFAbilityRolledChoice>& OfferChoices, int32 SkipGold, int32 OfferId, float OptionalTimerSeconds);
+
+	UFUNCTION(Client, Reliable, Category = "DF|Rogue")
+	void Client_ResumeAfterAbilitySelection();
+
+	/** Commit pick or skip. First valid resolution per `UDFDungeonManager::ActiveFloorOfferId` wins; others get resume only. */
+	UFUNCTION(Server, Reliable, Category = "DF|Rogue")
+	void Server_FinishAbilitySelection(int32 OfferId, bool bSkipped, FName SelectedRowName);
 };

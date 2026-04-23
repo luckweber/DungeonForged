@@ -48,6 +48,14 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Dungeon")
 	bool bFloorCleared = false;
 
+	/** Bumped on each between-floor offer; only one `Server_FinishAbilitySelection` per id advances the run. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Dungeon|Rogue")
+	int32 ActiveFloorOfferId = 0;
+
+	/** Set true on server once an offer is resolved (or auto-advanced with no offers). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Dungeon|Rogue")
+	bool bFloorOfferResolved = false;
+
 	UFUNCTION(BlueprintCallable, Category = "DF|Dungeon")
 	void StartFloor(int32 FloorNumber);
 

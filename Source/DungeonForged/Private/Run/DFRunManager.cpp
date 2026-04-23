@@ -264,8 +264,9 @@ void UDFRunManager::GrantAbilitiesForCurrentRun(ADFPlayerState* PlayerState)
 
 	ASC->ClearAllAbilities();
 
-	for (const FName AbilityName : RunState.GrantedAbilities)
+	for (int32 Idx = 0; Idx < RunState.GrantedAbilities.Num(); ++Idx)
 	{
+		const FName AbilityName = RunState.GrantedAbilities[Idx];
 		if (AbilityName.IsNone())
 		{
 			continue;
@@ -276,7 +277,8 @@ void UDFRunManager::GrantAbilitiesForCurrentRun(ADFPlayerState* PlayerState)
 			UE_LOG(LogDFRun, Warning, TEXT("GrantAbilitiesForCurrentRun: missing or invalid row %s"), *AbilityName.ToString());
 			continue;
 		}
-		const FGameplayAbilitySpec Spec(Row->AbilityClass, Row->AbilityLevel, INDEX_NONE, PlayerState);
+		const int32 InId = FMath::Min(Idx, 3);
+		const FGameplayAbilitySpec Spec(Row->AbilityClass, Row->AbilityLevel, InId, PlayerState);
 		ASC->GiveAbility(Spec);
 	}
 }

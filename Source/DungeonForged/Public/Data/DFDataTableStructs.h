@@ -68,6 +68,17 @@ struct DUNGEONFORGED_API FDFAbilityTableRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Abilities|UI")
 	FText Description;
+
+	/** Rarity is used for between-floor 1-of-3 roll weighting (see UDFAbilitySelectionSubsystem). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Abilities|UI")
+	EItemRarity Rarity = EItemRarity::Common;
+
+	/** Optional text for the selection card (GAS cost/cooldown can be separate). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Abilities|UI")
+	FText DisplayCooldown = FText::GetEmpty();
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Abilities|UI")
+	FText DisplayCost = FText::GetEmpty();
 };
 
 /** One GameplayEffect that initializes base attributes (e.g. modifiers on UDFAttributeSet); used with InitializeAttributesFromDataTable. */

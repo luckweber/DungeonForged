@@ -123,6 +123,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Run")
 	void ApplyRunStateToPlayer(ADFPlayerCharacter* Player);
 
+	/** Rebuild ASC abilities from `RunState.GrantedAbilities` (e.g. after a between-floor pick). */
+	UFUNCTION(BlueprintCallable, Category = "Run")
+	void GrantAbilitiesForCurrentRun(ADFPlayerState* PlayerState);
+
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Run")
 	bool IsRunInProgress() const { return bRunInProgress; }
 
@@ -132,7 +136,6 @@ protected:
 
 private:
 	void ShowDeathScreenCallback();
-	void GrantAbilitiesForCurrentRun(ADFPlayerState* PlayerState);
 	const FDFClassTableRow* FindClassRow(FName ClassName) const;
 	void ApplyClassToAttributes(class UAbilitySystemComponent* ASC, const FDFClassTableRow& ClassRow) const;
 	void RestoreInventoryFromRunState(UDFInventoryComponent* Inv) const;

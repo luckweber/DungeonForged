@@ -1,10 +1,14 @@
 // Source/DungeonForged/Private/ADFDungeonManager.cpp
 
 #include "ADFDungeonManager.h"
+#include "Characters/ADFPlayerState.h"
 #include "Characters/ADFEnemyBase.h"
+#include "UI/UDFAbilitySelectionSubsystem.h"
 #include "Data/PCGPointData.h"
+#include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/PlayerController.h"
 #include "PCGComponent.h"
 #include "PCGData.h"
 #include "TimerManager.h"
@@ -349,6 +353,42 @@ void UDFDungeonManager::PerformFloorCleared()
 	bFloorCleared = true;
 	OnFloorCleared_OpenExitAndLoot_Implementation();
 	OnFloorCleared.Broadcast();
+
+	// Server-only: roll 1-of-3 and send the same set to all clients. Empty pool → next floor, no UI.
+	if (UWorld* const W = GetWorld())
+	{
+		bFloorOfferResolved = false;
+		++ActiveFloorOfferId;
+		if (UDFAbilitySelectionSubsystem* const Sub = W->GetSubsystem<UDFAbilitySelectionSubsystem>())
+		{
+			const TArray<FDFAbilityRolledChoice> Choices = Sub->RollAbilityChoices(3);
+			const int32 FloorForUi = CurrentFloor;
+			const int32 SkipG = Sub->SkipGoldReward;
+			if (Choices.Num() == 0)
+			{
+				bFloorOfferResolved = true;
+				AdvanceToNextFloor();
+			}
+			else
+			{
+				for (FConstPlayerControllerIterator It = W->GetPlayerControllerIterator(); It; ++It)
+				{
+					if (APlayerController* const Pc = It->Get())
+					{
+						if (ADFPlayerState* const PState = Pc->GetPlayerState<ADFPlayerState>())
+						{
+							PState->Client_OpenAbilitySelectionScreen(FloorForUi, Choices, SkipG, ActiveFloorOfferId, 30.f);
+						}
+					}
+				}
+			}
+		}
+		else
+		{
+			bFloorOfferResolved = true;
+			AdvanceToNextFloor();
+		}
+	}
 }
 
 void UDFDungeonManager::AdvanceToNextFloor()
