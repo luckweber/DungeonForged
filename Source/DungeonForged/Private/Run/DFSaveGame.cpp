@@ -3,6 +3,11 @@
 #include "Run/DFSaveGame.h"
 #include "Kismet/GameplayStatics.h"
 
+namespace
+{
+	constexpr int32 GDFSaveLatestVersion = 1;
+}
+
 UDFSaveGame* UDFSaveGame::Load()
 {
 	if (UGameplayStatics::DoesSaveGameExist(UDFSaveGame::GetSlotName(), UDFSaveGame::UserIndex))
@@ -10,6 +15,10 @@ UDFSaveGame* UDFSaveGame::Load()
 		USaveGame* Loaded = UGameplayStatics::LoadGameFromSlot(UDFSaveGame::GetSlotName(), UDFSaveGame::UserIndex);
 		if (UDFSaveGame* CastSave = Cast<UDFSaveGame>(Loaded))
 		{
+			if (CastSave->SaveVersion < GDFSaveLatestVersion)
+			{
+				CastSave->SaveVersion = GDFSaveLatestVersion;
+			}
 			return CastSave;
 		}
 	}

@@ -6,8 +6,8 @@
 #include "DFAssetManager.generated.h"
 
 /**
- * Optional custom asset manager (primary assets, bundles). Enable via AssetManagerClassName in DefaultEngine.ini when needed.
- * GAS is initialized in UDungeonForgedGameInstance::Init, not here.
+ * Project asset manager: FDFGameplayTags::RegisterGameplayTags in StartInitialLoading, then primary-asset work.
+ * UAbilitySystemGlobals::InitGlobalData remains in UDungeonForgedGameInstance::Init.
  */
 UCLASS()
 class DUNGEONFORGED_API UDFAssetManager : public UAssetManager

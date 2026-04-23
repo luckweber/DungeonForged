@@ -1,6 +1,6 @@
 // Source/DungeonForged/Private/GAS/DFAbility_Fireball.cpp
 #include "GAS/DFAbility_Fireball.h"
-#include "GAS/DFNativeGameplayTags.h"
+#include "GAS/DFGameplayTags.h"
 #include "Combat/DFFireballProjectile.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
@@ -21,7 +21,7 @@ void UDFAbility_Fireball::PostInitProperties()
 	Super::PostInitProperties();
 	if (HasAnyFlags(RF_ClassDefaultObject))
 	{
-		AbilityTags.AddTag(TAG_DF_Ability_Fire_Fireball);
+		AbilityTags.AddTag(FDFGameplayTags::Ability_Fire_Fireball);
 	}
 }
 
@@ -53,7 +53,7 @@ void UDFAbility_Fireball::ActivateAbility(const FGameplayAbilitySpecHandle Handl
 	MontageTask->ReadyForActivation();
 
 	UAbilityTask_WaitGameplayEvent* const EventTask = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(
-		this, TAG_DF_Event_Ability_Fire_Launch, nullptr, true, true);
+		this, FDFGameplayTags::Event_Ability_Fire_Launch, nullptr, true, true);
 	if (!EventTask)
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);

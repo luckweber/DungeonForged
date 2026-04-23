@@ -1,10 +1,11 @@
 // Source/DungeonForged/Private/GAS/DFDamageCalculation.cpp
 #include "GAS/DFDamageCalculation.h"
-#include "GAS/DFNativeGameplayTags.h"
+#include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "AbilitySystemComponent.h"
 #include "GameplayEffect.h"
 #include "GameplayEffectTypes.h"
+#include "GameplayTagContainer.h"
 
 UDFDamageCalculation::UDFDamageCalculation()
 	: UGameplayEffectExecutionCalculation()
@@ -51,7 +52,10 @@ void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExe
 	float CritMult = 2.f;
 	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(CritMultCapture, EvalParams, CritMult);
 
-	const float SetByCallerBase = Spec.GetSetByCallerMagnitude(TAG_DF_Data_Damage, false, 0.f);
+	const FGameplayTag DataDamageTag = FDFGameplayTags::ResolveDataDamageTag();
+	const float SetByCallerBase = DataDamageTag.IsValid()
+		? Spec.GetSetByCallerMagnitude(DataDamageTag, false, 0.f)
+		: 0.f;
 
 	float PreMitigation = (SetByCallerBase + Intel * 0.5f) * (1.f - FMath::Clamp(MR, 0.f, 100.f) / 100.f);
 	PreMitigation = FMath::Max(0.f, PreMitigation);

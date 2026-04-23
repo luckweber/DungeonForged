@@ -13,7 +13,6 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "AbilitySystemComponent.h"
 #include "HAL/PlatformTime.h"
-
 DEFINE_LOG_CATEGORY_STATIC(LogDFRun, Log, All);
 
 void UDFRunManager::Deinitialize()
@@ -41,8 +40,12 @@ void UDFRunManager::StartNewRun(FName ClassName)
 	}
 
 	RunState = FDFRunState();
+	RunState.CurrentFloor = 1;
 	RunState.SelectedClass = ClassName;
+	RunState.EquippedItems.Reset();
 	RunState.GrantedAbilities = ClassDef->StartingAbilities;
+	RunState.Gold = 0;
+	RunState.Score = 0;
 	RunState.RunStartTime = static_cast<float>(FPlatformTime::Seconds());
 	bRunInProgress = true;
 
@@ -157,6 +160,61 @@ void UDFRunManager::AddAbilityReward(const FName AbilityRow)
 		return;
 	}
 	AddUniqueName(RunState.GrantedAbilities, AbilityRow);
+}
+
+void UDFRunManager::GetRandomAbilityOfferCandidates(const int32 InCount, TArray<FName>& OutRowNames) const
+{
+	OutRowNames.Reset();
+	if (!AbilityDataTable || InCount <= 0)
+	{
+		return;
+	}
+	TArray<FName> Pool;
+	AbilityDataTable->GetRowMap().GenerateKeyArray(Pool);
+	for (int32 i = Pool.Num() - 1; i >= 0; --i)
+	{
+		if (RunState.GrantedAbilities.Contains(Pool[i]))
+		{
+			Pool.RemoveAt(i);
+		}
+	}
+	for (int32 i = Pool.Num() - 1; i > 0; --i)
+	{
+		const int32 j = FMath::RandRange(0, i);
+		Pool.Swap(i, j);
+	}
+	const int32 N = FMath::Min(InCount, Pool.Num());
+	for (int32 i = 0; i < N; ++i)
+	{
+		OutRowNames.Add(Pool[i]);
+	}
+}
+
+void UDFRunManager::AdvanceFloor(const int32 FloorDelta)
+{
+	if (!bRunInProgress || FloorDelta == 0)
+	{
+		return;
+	}
+	RunState.CurrentFloor = FMath::Max(1, RunState.CurrentFloor + FloorDelta);
+}
+
+void UDFRunManager::AddRunGold(const int32 Delta)
+{
+	if (!bRunInProgress)
+	{
+		return;
+	}
+	RunState.Gold = FMath::Max(0, RunState.Gold + Delta);
+}
+
+void UDFRunManager::AddRunScore(const int32 Delta)
+{
+	if (!bRunInProgress)
+	{
+		return;
+	}
+	RunState.Score = FMath::Max(0, RunState.Score + Delta);
 }
 
 void UDFRunManager::AddUniqueName(TArray<FName>& ToArray, const FName Name) const

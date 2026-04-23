@@ -3,7 +3,7 @@
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
-#include "GAS/DFNativeGameplayTags.h"
+#include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Components/SphereComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
@@ -90,7 +90,11 @@ void ADFFireballProjectile::ApplyFireDamageTo(AActor* Target, const FHitResult& 
 	FGameplayEffectSpecHandle Spec = SourceASC->MakeOutgoingSpec(FireDamageEffect, 1.f, Ctx);
 	if (Spec.IsValid() && Spec.Data)
 	{
-		Spec.Data->SetSetByCallerMagnitude(TAG_DF_Data_Damage, SetByCallerMagnitude);
+		const FGameplayTag DataTag = FDFGameplayTags::ResolveDataDamageTag();
+		if (DataTag.IsValid())
+		{
+			Spec.Data->SetSetByCallerMagnitude(DataTag, SetByCallerMagnitude);
+		}
 		SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data, TargetASC);
 	}
 	if (FireDoTEffect)

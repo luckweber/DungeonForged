@@ -5,7 +5,10 @@
 #include "GameFramework/SaveGame.h"
 #include "DFSaveGame.generated.h"
 
-/** Persistent meta-progression (not per-run). */
+/**
+ * Persistent meta-progression (high score, unlocks, run stats). Uses UPROPERTY(SaveGame) + UGameplayStatics slot API.
+ * @see ue-serialization-savegames
+ */
 UCLASS(BlueprintType)
 class DUNGEONFORGED_API UDFSaveGame : public USaveGame
 {

@@ -1,7 +1,8 @@
 // Source/DungeonForged/Private/DFAssetManager.cpp
-// UDFAssetManager: primary-asset / streaming only. GAS init is in UDungeonForgedGameInstance::Init.
+// UDFAssetManager: tag registration + primary assets. GAS InitGlobalData is in UDungeonForgedGameInstance::Init.
 #include "DFAssetManager.h"
 #include "Engine/AssetManager.h"
+#include "GAS/DFGameplayTags.h"
 
 UDFAssetManager& UDFAssetManager::Get()
 {
@@ -12,6 +13,6 @@ UDFAssetManager& UDFAssetManager::Get()
 
 void UDFAssetManager::StartInitialLoading()
 {
-	// GAS + tags: see UDungeonForgedGameInstance::Init (avoids InitGlobalData during early asset manager boot — that timing caused crashes).
 	Super::StartInitialLoading();
+	FDFGameplayTags::RegisterGameplayTags();
 }

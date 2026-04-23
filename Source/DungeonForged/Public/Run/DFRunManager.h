@@ -15,7 +15,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDFRunFailed);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDFShowDeathScreen);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDFRunCompleted, int32, FinalScore);
 
-/** In-memory roguelike run; not serialized to disk (meta is in UDFSaveGame). */
+/**
+ * In-memory roguelike run; not serialized to disk (meta is in UDFSaveGame).
+ */
 USTRUCT(BlueprintType)
 struct DUNGEONFORGED_API FDFRunState
 {
@@ -45,6 +47,7 @@ struct DUNGEONFORGED_API FDFRunState
 	float RunStartTime = 0.f;
 };
 
+/** GameInstance subsystem: run state, DT_Classes / DT_Abilities, meta save @see UDFSaveGame. */
 UCLASS()
 class DUNGEONFORGED_API UDFRunManager : public UGameInstanceSubsystem
 {
@@ -101,6 +104,20 @@ public:
 	/** After the player picks one of the random offers, add that ability row for the run. */
 	UFUNCTION(BlueprintCallable, Category = "Run")
 	void AddAbilityReward(FName AbilityRow);
+
+	/** Build up to InCount row names from AbilityDataTable, excluding already-granted; shuffled (e.g. pick 1 of 3 between floors). */
+	UFUNCTION(BlueprintCallable, Category = "Run")
+	void GetRandomAbilityOfferCandidates(int32 InCount, TArray<FName>& OutRowNames) const;
+
+	/** Increase CurrentFloor (e.g. after floor clear or portal). */
+	UFUNCTION(BlueprintCallable, Category = "Run")
+	void AdvanceFloor(int32 FloorDelta = 1);
+
+	UFUNCTION(BlueprintCallable, Category = "Run")
+	void AddRunGold(int32 Delta);
+
+	UFUNCTION(BlueprintCallable, Category = "Run")
+	void AddRunScore(int32 Delta);
 
 	/** Call after the pawn/ASC is ready (e.g. after level travel) — server / authority only. */
 	UFUNCTION(BlueprintCallable, Category = "Run")
