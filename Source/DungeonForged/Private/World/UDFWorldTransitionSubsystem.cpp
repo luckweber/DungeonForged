@@ -7,7 +7,7 @@
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 
-void UDFWorldTransitionSubsystem::TravelToNexus(const ERunNexusTravelReason /*Reason*/)
+void UDFWorldTransitionSubsystem::TravelToNexus(const ERunNexusTravelReason Reason)
 {
 	UGameInstance* const GI = GetGameInstance();
 	if (!GI)
@@ -18,6 +18,10 @@ void UDFWorldTransitionSubsystem::TravelToNexus(const ERunNexusTravelReason /*Re
 	if (!W || W->GetNetMode() == NM_Client)
 	{
 		return;
+	}
+	if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
+	{
+		RM->SetNexusArrivalReason(Reason);
 	}
 
 	FString URL = NexusMapPath;
@@ -33,6 +37,33 @@ void UDFWorldTransitionSubsystem::TravelToNexus(const ERunNexusTravelReason /*Re
 		return;
 	}
 	W->ServerTravel(URL, false);
+}
+
+void UDFWorldTransitionSubsystem::TravelToRun(const FName SelectedClassRow)
+{
+	UGameInstance* const GI = GetGameInstance();
+	if (!GI)
+	{
+		return;
+	}
+	UWorld* const W = GI->GetWorld();
+	if (!W || W->GetNetMode() == NM_Client)
+	{
+		return;
+	}
+	if (SelectedClassRow.IsNone())
+	{
+		return;
+	}
+	if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
+	{
+		RM->SetPendingRunArrival(EDFRunTravelReason::NewRun, SelectedClassRow);
+	}
+	if (DungeonRunMapPath.IsEmpty())
+	{
+		return;
+	}
+	W->ServerTravel(DungeonRunMapPath, false);
 }
 
 void UDFWorldTransitionSubsystem::TravelToNextFloor(const int32 NextFloor)

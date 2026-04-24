@@ -29,6 +29,22 @@ void UDFRunManager::Deinitialize()
 	Super::Deinitialize();
 }
 
+void UDFRunManager::SetNexusArrivalReason(const ERunNexusTravelReason InReason)
+{
+	bNexusArrivalSet = true;
+	LastNexusArrivalReason = InReason;
+}
+
+ERunNexusTravelReason UDFRunManager::GetNexusArrivalReason() const
+{
+	return bNexusArrivalSet ? LastNexusArrivalReason : ERunNexusTravelReason::FirstLaunch;
+}
+
+void UDFRunManager::ClearNexusArrivalContext()
+{
+	bNexusArrivalSet = false;
+}
+
 void UDFRunManager::SetPendingRunArrival(const EDFRunTravelReason InReason, const FName InClassForNewRun)
 {
 	PendingArrivalReason = InReason;

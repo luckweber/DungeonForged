@@ -5,7 +5,7 @@
 
 namespace
 {
-	constexpr int32 GDFSaveLatestVersion = 2;
+	constexpr int32 GDFSaveLatestVersion = 3;
 }
 
 UDFSaveGame* UDFSaveGame::Load()
@@ -23,6 +23,7 @@ UDFSaveGame* UDFSaveGame::Load()
 				// v2 default VoiceVolume; struct ctor covers new fields.
 				CastSave->SavedKeyBindings.Empty();
 			}
+			// v3: Nexus meta (MetaXP, PendingUnlocks, RunHistory) — UPROPERTY defaults apply for new fields.
 			if (CastSave->SaveVersion < GDFSaveLatestVersion)
 			{
 				CastSave->SaveVersion = GDFSaveLatestVersion;

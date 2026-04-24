@@ -5,6 +5,7 @@
 #include "Localization/DFAccessibilityData.h"
 #include "Localization/DFLocalizationTypes.h"
 #include "GameFramework/SaveGame.h"
+#include "GameModes/Nexus/DFNexusTypes.h"
 #include "DFSaveGame.generated.h"
 
 /**
@@ -19,7 +20,7 @@ class DUNGEONFORGED_API UDFSaveGame : public USaveGame
 public:
 	/** Bumped when fields change; used for future migrations. */
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta")
-	int32 SaveVersion = 2;
+	int32 SaveVersion = 3;
 
 	/** @see UDFLocalizationSubsystem */
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Settings|Localization")
@@ -52,6 +53,45 @@ public:
 	/** Row names in DT_Abilities that are permanently unlocked (meta). */
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Unlocks")
 	TArray<FName> UnlockedAbilities;
+
+	/** Nexus meta progression (mirrors @ref ADFNexusGameState on load). */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Nexus")
+	int32 MetaXP = 0;
+
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Nexus")
+	int32 MetaLevel = 1;
+
+	/** NPC @c NPCId values that are visible in the Nexus. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Nexus")
+	TArray<FName> UnlockedNPCs;
+
+	/** Completed meta upgrade row names (Blacksmith, Merchant, etc.). */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Nexus")
+	TArray<FName> CompletedUpgrades;
+
+	/** Toast / queue: applied on next Nexus visit. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Nexus")
+	TArray<FDFPendingUnlockEntry> PendingUnlocks;
+
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Nexus")
+	TArray<FDFRunHistoryEntry> RunHistory;
+
+	/** Lifetime meta stats (Chronicler). */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Nexus")
+	int32 LifetimeKills = 0;
+
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Nexus")
+	int32 LifetimeDeaths = 0;
+
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Nexus")
+	float TotalPlayTimeSeconds = 0.f;
+
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Nexus")
+	int32 TotalGoldEarnedMeta = 0;
+
+	/** Merchant stock refresh counter (every 3 runs). */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Nexus")
+	int32 MerchantRestockRunCounter = 0;
 
 	/** Synchronous load from the primary meta slot, or a new object if missing / invalid. */
 	UFUNCTION(BlueprintCallable, Category = "DF|Meta|Save")

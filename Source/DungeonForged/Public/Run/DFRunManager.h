@@ -116,6 +116,20 @@ public:
 
 	//~ --- Arrival (Nexus / between-floor travel) @see EDFRunTravelReason, ADFRunGameMode ---
 
+	/**
+	 * Set before @c UDFWorldTransitionSubsystem::TravelToNexus; consumed by @c ADFNexusGameMode
+	 * for spawn and presentation. Cleared after the Nexus GameMode uses it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Run|Nexus")
+	void SetNexusArrivalReason(ERunNexusTravelReason InReason);
+
+	/** Default @c ERunNexusTravelReason::FirstLaunch if @c SetNexusArrivalReason was not used for this visit. */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Run|Nexus")
+	ERunNexusTravelReason GetNexusArrivalReason() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Run|Nexus")
+	void ClearNexusArrivalContext();
+
 	/** Call from Nexus (before @c OpenLevel / @c ServerTravel) or when queueing a floor transition. */
 	UFUNCTION(BlueprintCallable, Category = "Run|Travel")
 	void SetPendingRunArrival(EDFRunTravelReason InReason, FName InClassForNewRun = NAME_None);
@@ -233,6 +247,9 @@ private:
 
 	EDFRunTravelReason PendingArrivalReason = EDFRunTravelReason::None;
 	FName PendingClassForArrival = NAME_None;
+
+	uint8 bNexusArrivalSet : 1 = false;
+	ERunNexusTravelReason LastNexusArrivalReason = ERunNexusTravelReason::FirstLaunch;
 
 	uint8 bRunInProgress : 1 = false;
 

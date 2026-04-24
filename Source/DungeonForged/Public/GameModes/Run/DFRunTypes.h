@@ -36,7 +36,11 @@ enum class ERunNexusTravelReason : uint8
 {
 	Victory = 0,
 	Defeat = 1,
-	Abandon = 2
+	Abandon = 2,
+	/** First-time or direct map load (hub entrance spawn). */
+	FirstLaunch = 3,
+	/** Travel from main menu / editor test (entrance). */
+	MenuEntry = 4
 };
 
 /** Snapshot for end-of-run UI and meta reporting. */

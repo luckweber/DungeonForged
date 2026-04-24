@@ -32,6 +32,13 @@ public:
 	void TravelToNexus(ERunNexusTravelReason Reason);
 
 	/**
+	 * Server / authority: start a new dungeon run (class already chosen in Nexus).
+	 * Sets @c EDFRunTravelReason::NewRun on @c UDFRunManager and @c ServerTravels to @c DungeonRunMapPath.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DF|World")
+	void TravelToRun(FName SelectedClassRow);
+
+	/**
 	 * Server / authority: move to the next floor — either in-place (dungeon manager) or @c ServerTravel
 	 * to @c DungeonRunMapPath.
 	 */
