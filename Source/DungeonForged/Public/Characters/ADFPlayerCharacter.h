@@ -142,9 +142,7 @@ protected:
 	void CancelAbilitiesByGameplayTagName(const FName& TagName);
 	void TryActivateAbilitySlot(int32 Slot1Based);
 
-	/** Clamps controller look pitch to [-60, 60] after pitch input. */
-	void ApplyLookPitchClamp();
-
+	/** MMO-style look: one SetControlRotation with pitch clamp (avoids AddPitch/AddYaw + second clamp). */
 	static constexpr float MinLookPitch = -60.f;
 	static constexpr float MaxLookPitch = 60.f;
 

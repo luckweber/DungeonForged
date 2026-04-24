@@ -31,12 +31,12 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.f);
 
 	bUseControllerRotationPitch = false;
-	bUseControllerRotationYaw = false;
+	bUseControllerRotationYaw = true;
 	bUseControllerRotationRoll = false;
 
 	if (UCharacterMovementComponent* Move = GetCharacterMovement())
 	{
-		Move->bOrientRotationToMovement = true;
+		Move->bOrientRotationToMovement = false;
 	}
 
 	CameraBoom = CreateDefaultSubobject<UDFCameraComponent>(TEXT("CameraBoom"));
@@ -50,6 +50,7 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
+	FollowCamera->bUsePawnControlRotation = false;
 }
 
 UAbilitySystemComponent* ADFPlayerCharacter::GetAbilitySystemComponent() const
@@ -260,20 +261,15 @@ void ADFPlayerCharacter::Input_Move(const FInputActionValue& Value)
 void ADFPlayerCharacter::Input_Look(const FInputActionValue& Value)
 {
 	const FVector2D Axis = Value.Get<FVector2D>();
-	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	if (Axis.IsNearlyZero())
 	{
-		PC->AddPitchInput(Axis.Y);
-		PC->AddYawInput(Axis.X);
-		ApplyLookPitchClamp();
+		return;
 	}
-}
-
-void ADFPlayerCharacter::ApplyLookPitchClamp()
-{
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
 		FRotator R = PC->GetControlRotation();
-		R.Pitch = FMath::Clamp(R.Pitch, MinLookPitch, MaxLookPitch);
+		R.Pitch = FMath::Clamp(R.Pitch + Axis.Y, MinLookPitch, MaxLookPitch);
+		R.Yaw += Axis.X;
 		PC->SetControlRotation(R);
 	}
 }
