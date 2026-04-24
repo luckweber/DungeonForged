@@ -9,6 +9,7 @@
 #include "InputAction.h"
 #include "Audio/UDFAudioComponent.h"
 #include "Equipment/DFEquipmentTypes.h"
+#include "FX/UDFCombatFeedbackTypes.h"
 #include "ADFPlayerCharacter.generated.h"
 
 class UCameraComponent;
@@ -27,6 +28,7 @@ class UDFShopWidget;
 class UDFTrapDetectionComponent;
 class UDFEquipmentComponent;
 class UDFPreviewCaptureComponent;
+class UDFScreenEffectsComponent;
 class USkeletalMeshComponent;
 
 UCLASS(Blueprintable)
@@ -122,6 +124,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Audio")
 	TObjectPtr<UDFAudioComponent> DFAudio;
 
+	/** Local screen post-process, hit-reaction, death vignette, berserk, etc. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|FX")
+	TObjectPtr<UDFScreenEffectsComponent> ScreenEffects = nullptr;
+
 	/** Paper-doll / GAS: slot-based equipping, modular meshes, leader-pose. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Equipment")
 	TObjectPtr<UDFEquipmentComponent> Equipment = nullptr;
@@ -179,6 +185,13 @@ public:
 	/** Called from UDFShopWidget when the panel is removed. */
 	UFUNCTION(BlueprintCallable, Category = "DF|UI|Shop")
 	void ClearActiveShopWidget();
+
+	/**
+	 * Victim-only (server → owning client): hit stop + local screen/shake. Runs on the pawn that was hit
+	 * (not the instigator) so other players do not get global time dilation.
+	 */
+	UFUNCTION(Client, Unreliable)
+	void Client_HitFeedback(EDFHitFeedbackBand Band, float DamagePercent, AActor* InstigatorActor);
 
 	UFUNCTION(BlueprintPure, Category = "DF|Equipment")
 	UDFEquipmentComponent* GetDFEquipment() const { return Equipment; }

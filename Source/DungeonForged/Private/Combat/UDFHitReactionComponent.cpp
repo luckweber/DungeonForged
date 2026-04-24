@@ -1,7 +1,10 @@
 // Source/DungeonForged/Private/Combat/UDFHitReactionComponent.cpp
 #include "Combat/UDFHitReactionComponent.h"
+#include "Characters/ADFPlayerCharacter.h"
 #include "Engine/Engine.h"
+#include "FX/UDFCombatFeedbackTypes.h"
 #include "GAS/DFGameplayTags.h"
+#include "GAS/UDFAttributeSet.h"
 #include "UI/Combat/DFCombatTextTypes.h"
 #include "UI/Combat/UDFCombatTextSubsystem.h"
 #include "AbilitySystemBlueprintLibrary.h"
@@ -84,6 +87,30 @@ void UDFHitReactionComponent::OnHitReceived(
 	if (StaggerStunGameplayEffect && (!bIsKnockback) && (DamageAmount >= StaggerThreshold))
 	{
 		TryApplyStaggerStun(Instigator);
+	}
+
+	if (ADFPlayerCharacter* const Victim = Cast<ADFPlayerCharacter>(GetOwner()))
+	{
+		float MaxH = 1.f;
+		if (UAbilitySystemComponent* const ASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(GetOwner()))
+		{
+			MaxH = FMath::Max(1.f, ASC->GetNumericAttribute(UDFAttributeSet::GetMaxHealthAttribute()));
+		}
+		const float Pct = MaxH > 0.f ? (DamageAmount / MaxH) : 0.f;
+		EDFHitFeedbackBand Band = EDFHitFeedbackBand::Light;
+		if (bIsKnockback)
+		{
+			Band = EDFHitFeedbackBand::Knockback;
+		}
+		else if (Pct > 0.3f)
+		{
+			Band = EDFHitFeedbackBand::Critical;
+		}
+		else if (DamageAmount >= StaggerThreshold)
+		{
+			Band = EDFHitFeedbackBand::Heavy;
+		}
+		Victim->Client_HitFeedback(Band, Pct, Instigator);
 	}
 
 	const bool bUseImpact = !HitLocation.IsNearlyZero(1.f);

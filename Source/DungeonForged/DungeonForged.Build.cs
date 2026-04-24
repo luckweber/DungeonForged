@@ -49,6 +49,9 @@ public class DungeonForged : ModuleRules
 			// FX
 			"Niagara",
 
+			// Legacy oscillation camera shakes (ULegacyCameraShake)
+			"GameplayCameras",
+
 			// Cinematics (MovieScene: UMovieSceneSequencePlayer::Play, etc.)
 			"MovieScene",
 			"LevelSequence",

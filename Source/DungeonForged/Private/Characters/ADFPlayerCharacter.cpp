@@ -30,6 +30,8 @@
 #include "UI/UDFShopWidget.h"
 #include "Equipment/UDFEquipmentComponent.h"
 #include "Equipment/UDFPreviewCaptureComponent.h"
+#include "FX/UDFHitStopSubsystem.h"
+#include "FX/UDFScreenEffectsComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDFPlayer, Log, All);
@@ -65,6 +67,8 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 	TrapDetection = CreateDefaultSubobject<UDFTrapDetectionComponent>(TEXT("TrapDetection"));
 	DFAudio = CreateDefaultSubobject<UDFAudioComponent>(TEXT("DFAudio"));
 	DFAudio->SetupAttachment(RootComponent);
+
+	ScreenEffects = CreateDefaultSubobject<UDFScreenEffectsComponent>(TEXT("ScreenEffects"));
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
@@ -430,6 +434,10 @@ void ADFPlayerCharacter::InitializeGAS()
 			}
 		}
 	}
+	if (IsLocallyControlled() && !IsRunningDedicatedServer() && AttributeSet && ScreenEffects)
+	{
+		ScreenEffects->OnGASReady(AttributeSet);
+	}
 }
 
 void ADFPlayerCharacter::Input_Move(const FInputActionValue& Value)
@@ -649,4 +657,35 @@ void ADFPlayerCharacter::ServerMerchantReroll_Implementation(ADFMerchantActor* S
 void ADFPlayerCharacter::ClearActiveShopWidget()
 {
 	ActiveShopWidget = nullptr;
+}
+
+void ADFPlayerCharacter::Client_HitFeedback_Implementation(
+	const EDFHitFeedbackBand Band,
+	const float DamagePercent,
+	AActor* const InstigatorActor)
+{
+	if (IsRunningDedicatedServer())
+	{
+		return;
+	}
+	if (UWorld* const W = GetWorld())
+	{
+		if (UDFHitStopSubsystem* const HS = W->GetSubsystem<UDFHitStopSubsystem>())
+		{
+			AActor* const Ex = IsValid(InstigatorActor) ? InstigatorActor : nullptr;
+			switch (Band)
+			{
+			case EDFHitFeedbackBand::Light: HS->LightHit(Ex); break;
+			case EDFHitFeedbackBand::Heavy: HS->HeavyHit(Ex); break;
+			case EDFHitFeedbackBand::Critical: HS->CriticalHit(Ex); break;
+			case EDFHitFeedbackBand::Knockback: HS->BossSlam(Ex); break;
+			default: break;
+			}
+		}
+	}
+	if (IsLocallyControlled() && ScreenEffects)
+	{
+		ScreenEffects->ApplyHitFromCombat(
+			Band, DamagePercent, InstigatorActor, GetController<APlayerController>());
+	}
 }
