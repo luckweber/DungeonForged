@@ -376,6 +376,7 @@ void UDFDungeonManager::OnEnemyKilled(AActor* Enemy)
 	{
 		return;
 	}
+	OnRunEnemyKilled.Broadcast(Enemy);
 	UnregisterEnemy(Enemy);
 	if (EnemiesRemaining <= 0)
 	{

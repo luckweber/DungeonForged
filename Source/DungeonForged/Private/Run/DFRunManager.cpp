@@ -2,6 +2,8 @@
 
 #include "Run/DFRunManager.h"
 #include "Run/DFSaveGame.h"
+#include "ADFDungeonManager.h"
+#include "GameModes/Run/ADFRunGameState.h"
 #include "Events/UDFRandomEventSubsystem.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Characters/ADFPlayerState.h"
@@ -25,6 +27,44 @@ void UDFRunManager::Deinitialize()
 		World->GetTimerManager().ClearTimer(DeathScreenTimerHandle);
 	}
 	Super::Deinitialize();
+}
+
+void UDFRunManager::SetPendingRunArrival(const EDFRunTravelReason InReason, const FName InClassForNewRun)
+{
+	PendingArrivalReason = InReason;
+	PendingClassForArrival = (InReason == EDFRunTravelReason::NewRun) ? InClassForNewRun : NAME_None;
+}
+
+void UDFRunManager::ClearRunArrivalContext()
+{
+	PendingArrivalReason = EDFRunTravelReason::None;
+	PendingClassForArrival = NAME_None;
+}
+
+void UDFRunManager::CaptureRunState()
+{
+	UWorld* const W = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr;
+	if (!W || W->GetNetMode() == NM_Client)
+	{
+		return;
+	}
+	if (UGameInstance* const GI = GetGameInstance())
+	{
+		if (UDFDungeonManager* const DM = GI->GetSubsystem<UDFDungeonManager>())
+		{
+			RunState.CurrentFloor = FMath::Max(1, DM->CurrentFloor);
+		}
+	}
+}
+
+void UDFRunManager::RestoreRunState(ADFPlayerCharacter* const Player)
+{
+	ApplyRunStateToPlayer(Player);
+}
+
+const FDFClassTableRow* UDFRunManager::FindClassTableRow(const FName ClassRowName) const
+{
+	return FindClassRow(ClassRowName);
 }
 
 void UDFRunManager::StartNewRun(FName ClassName)
@@ -81,7 +121,7 @@ void UDFRunManager::StartNewRun(FName ClassName)
 	}
 }
 
-void UDFRunManager::OnPlayerDied()
+void UDFRunManager::OnPlayerDied(bool const bQueueDefaultDeathScreen)
 {
 	if (!bRunInProgress)
 	{
@@ -106,7 +146,7 @@ void UDFRunManager::OnPlayerDied()
 
 	OnRunFailed.Broadcast();
 
-	if (World)
+	if (World && bQueueDefaultDeathScreen)
 	{
 		World->GetTimerManager().SetTimer(
 			DeathScreenTimerHandle,
@@ -220,7 +260,19 @@ void UDFRunManager::AddRunGold(const int32 Delta)
 	{
 		return;
 	}
+	const int32 OldGold = RunState.Gold;
 	RunState.Gold = FMath::Max(0, RunState.Gold + Delta);
+	const int32 GoldDelta = RunState.Gold - OldGold;
+	if (GoldDelta != 0)
+	{
+		if (UWorld* const W2 = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr)
+		{
+			if (ADFRunGameState* const RGS = W2->GetGameState<ADFRunGameState>())
+			{
+				RGS->AddGold(GoldDelta);
+			}
+		}
+	}
 	SyncReplicatedRunGoldToPlayerStates();
 	OnGoldChanged.Broadcast(RunState.Gold);
 }

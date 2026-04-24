@@ -3,6 +3,7 @@
 
 #include "CoreMinimal.h"
 #include "Data/DFDataTableStructs.h"
+#include "GameModes/Run/DFRunTypes.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "DFRunManager.generated.h"
 
@@ -102,13 +103,47 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Run")
 	void StartNewRun(FName ClassName);
 
-	/** Meta: high score, TotalRuns, broadcast fail + delayed death screen. */
-	UFUNCTION(BlueprintCallable, Category = "Run")
-	void OnPlayerDied();
+	/**
+	 * Meta: high score, TotalRuns, broadcast fail + optional delayed death screen delegate.
+	 * @param bQueueDefaultDeathScreen If false, @c OnShowDeathScreen is not scheduled (e.g. @c ADFRunGameMode handles defeat UI).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Run", meta = (AdvancedDisplay = "bQueueDefaultDeathScreen"))
+	void OnPlayerDied(bool bQueueDefaultDeathScreen = true);
 
 	/** Finalize score, meta unlocks, save; broadcasts OnRunCompleted. */
 	UFUNCTION(BlueprintCallable, Category = "Run")
 	void OnRunCompleted();
+
+	//~ --- Arrival (Nexus / between-floor travel) @see EDFRunTravelReason, ADFRunGameMode ---
+
+	/** Call from Nexus (before @c OpenLevel / @c ServerTravel) or when queueing a floor transition. */
+	UFUNCTION(BlueprintCallable, Category = "Run|Travel")
+	void SetPendingRunArrival(EDFRunTravelReason InReason, FName InClassForNewRun = NAME_None);
+
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Run|Travel")
+	EDFRunTravelReason GetArrivalReason() const { return PendingArrivalReason; }
+
+	/** Only meaningful when @a GetArrivalReason() is @c NewRun. */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Run|Travel")
+	FName GetPendingClassName() const { return PendingClassForArrival; }
+
+	/** Clears arrival fields after the run GameMode has applied them. */
+	UFUNCTION(BlueprintCallable, Category = "Run|Travel")
+	void ClearRunArrivalContext();
+
+	/**
+	 * Syncs in-memory @c RunState from authoritatives (dungeon floor, optional GameState mirrors).
+	 * Call before between-floor travel or nexus return if you have modified floor outside the manager.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Run|State")
+	void CaptureRunState();
+
+	/** Server: applies @c RunState to the pawn (GAS, mesh, inventory) — e.g. after "Next floor" load. */
+	UFUNCTION(BlueprintCallable, Category = "Run|State")
+	void RestoreRunState(ADFPlayerCharacter* Player);
+
+	/** @c FindClassRow for DT_Classes; C++ (Blueprint cannot return table row pointer). */
+	const FDFClassTableRow* FindClassTableRow(FName ClassRowName) const;
 
 	/** C++: reference to the live in-memory run; valid until the run ends or StartNewRun. */
 	const FDFRunState& GetCurrentRunState() const { return RunState; }
@@ -183,6 +218,10 @@ protected:
 
 private:
 	void ShowDeathScreenCallback();
+
+	/**
+	 * @deprecated Prefer @a FindClassTableRow (public). Kept for internal use.
+	 */
 	const FDFClassTableRow* FindClassRow(FName ClassName) const;
 	void ApplyClassToAttributes(class UAbilitySystemComponent* ASC, const FDFClassTableRow& ClassRow) const;
 	void RestoreInventoryFromRunState(UDFInventoryComponent* Inv) const;
@@ -191,6 +230,9 @@ private:
 
 	UPROPERTY(Transient)
 	FDFRunState RunState;
+
+	EDFRunTravelReason PendingArrivalReason = EDFRunTravelReason::None;
+	FName PendingClassForArrival = NAME_None;
 
 	uint8 bRunInProgress : 1 = false;
 

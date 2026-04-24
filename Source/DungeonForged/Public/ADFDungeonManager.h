@@ -18,6 +18,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnFloorCleared);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnBossSpawned, FName, BossRowName);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRunCompleted);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPlayerDied, AActor*, Player);
+/** Authority: a tracked floor enemy was killed (before last-enemy / floor-cleared). For run stats / @ref ADFRunGameState::IncrementKills. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRunEnemyKilled, AActor*, Enemy);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDFMinimapRoom, ADFMinimapRoom*, InRoom);
 
 UCLASS(BlueprintType)
@@ -124,6 +126,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Dungeon|Spawning")
 	TArray<FTransform> SpawnPointsPreview;
+
+	UPROPERTY(BlueprintAssignable, Category = "DF|Dungeon|Events")
+	FOnRunEnemyKilled OnRunEnemyKilled;
 
 	UPROPERTY(BlueprintAssignable, Category = "DF|Dungeon|Events")
 	FOnFloorCleared OnFloorCleared;
