@@ -13,6 +13,7 @@
 #include "PCGComponent.h"
 #include "PCGData.h"
 #include "TimerManager.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 
 void UDFDungeonManager::Deinitialize()
 {
@@ -111,6 +112,7 @@ void UDFDungeonManager::PlaceRoomTemplates_Implementation()
 
 void UDFDungeonManager::GenerateDungeon()
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR(TEXT("DungeonForged.GenerateDungeon"));
 	if (!IsAuthorityWorld())
 	{
 		return;

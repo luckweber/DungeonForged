@@ -14,6 +14,7 @@
 #include "GameplayEffectTypes.h"
 #include "Net/UnrealNetwork.h"
 #include "GameplayEffectExtension.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 
 namespace
 {
@@ -261,6 +262,7 @@ void UDFAttributeSet::PostAttributeChange(const FGameplayAttribute& Attribute, f
 
 void UDFAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR(TEXT("DungeonForged.AttributeExecution"));
 	Super::PostGameplayEffectExecute(Data);
 
 	// GAS: instant/duration changes are applied; react after evaluation (damage, buffs, etc.)

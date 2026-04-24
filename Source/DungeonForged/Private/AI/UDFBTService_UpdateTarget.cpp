@@ -11,6 +11,7 @@
 #include "CollisionQueryParams.h"
 #include "WorldCollision.h"
 #include "GameFramework/PlayerController.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 #include <limits>
 
 UDFBTService_UpdateTarget::UDFBTService_UpdateTarget()
@@ -24,6 +25,7 @@ UDFBTService_UpdateTarget::UDFBTService_UpdateTarget()
 void UDFBTService_UpdateTarget::TickNode(
 	UBehaviorTreeComponent& OwnerComp, uint8* /*NodeMemory*/, const float /*DeltaSeconds*/)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR(TEXT("DungeonForged.AIUpdateTarget"));
 	AAIController* const AI = OwnerComp.GetAIOwner();
 	UBlackboardComponent* const BB = OwnerComp.GetBlackboardComponent();
 	ADFEnemyBase* const Self = AI ? Cast<ADFEnemyBase>(AI->GetPawn()) : nullptr;

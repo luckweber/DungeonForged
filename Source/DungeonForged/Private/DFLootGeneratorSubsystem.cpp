@@ -1,6 +1,7 @@
 // Source/DungeonForged/Private/DFLootGeneratorSubsystem.cpp
 
 #include "DFLootGeneratorSubsystem.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "Data/DFDataTableStructs.h"
 #include "DFLootDrop.h"
 #include "Engine/World.h"
@@ -74,6 +75,7 @@ float UDFLootGeneratorSubsystem::GetRarityMult(EItemRarity R) const
 
 void UDFLootGeneratorSubsystem::RollLoot(const FDFEnemyTableRow& EnemyData, FVector SpawnLocation, FVector Impulse)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR(TEXT("DungeonForged.RollLoot"));
 	UWorld* const World = GetWorld();
 	if (!World)
 	{

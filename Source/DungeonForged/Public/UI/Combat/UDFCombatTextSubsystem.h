@@ -35,8 +35,12 @@ public:
 	/** Called by widget when anim/timer ends. */
 	void ReturnToPool(UDFCombatTextWidget* Widget);
 
-protected:
+	/** Pre-creates up to `PoolSize` widgets (used by UDFPerformanceSubsystem and first spawn). */
+	UFUNCTION(BlueprintCallable, Category = "DF|CombatText")
 	void EnsurePooledWidgets();
+
+	int32 GetPooledWidgetCount() const { return Pooled.Num(); }
+	int32 GetInUseWidgetCount() const { return InUse.Num(); }
 
 private:
 	TArray<TObjectPtr<UDFCombatTextWidget>> Pooled;
