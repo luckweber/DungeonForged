@@ -1,26 +1,49 @@
 // Source/DungeonForged/Private/Equipment/UDFCharacterScreenWidget.cpp
 #include "Equipment/UDFCharacterScreenWidget.h"
-#include "Equipment/UDFPreviewCaptureComponent.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Components/Image.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "Engine/World.h"
+#include "GameFramework/PlayerController.h"
 #include "Styling/SlateBrush.h"
 
 void UDFCharacterScreenWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+
+	UWorld* const World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	TSubclassOf<ADFEquipmentPreviewActor> ClassToSpawn = PreviewActorClass;
+	if (!ClassToSpawn)
+	{
+		ClassToSpawn = ADFEquipmentPreviewActor::StaticClass();
+	}
+
+	const FVector HiddenLocation(0.f, 99999.f, 0.f);
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	PreviewActor = World->SpawnActor<ADFEquipmentPreviewActor>(ClassToSpawn, HiddenLocation, FRotator::ZeroRotator, Params);
+	if (!PreviewActor)
+	{
+		return;
+	}
+
 	if (ADFPlayerCharacter* const C = GetDFPlayerCharacter())
 	{
-		if (UDFPreviewCaptureComponent* const Cap = C->GetEquipmentPreview())
-		{
-			if (PaperDollRenderTarget)
-			{
-				Cap->SetRenderTargetForCapture(PaperDollRenderTarget);
-			}
-			Cap->SetPreviewTarget(C);
-			Cap->SetPreviewActive(true);
-		}
+		PreviewActor->SyncMeshFromCharacter(C);
 	}
+
+	if (PaperDollRenderTarget)
+	{
+		PreviewActor->InitializePreview(PaperDollRenderTarget);
+	}
+	PreviewActor->SetPreviewActive(true);
+
 	if (PaperDollImage && PaperDollRenderTarget)
 	{
 		FSlateBrush B;
@@ -34,25 +57,31 @@ void UDFCharacterScreenWidget::NativeConstruct()
 
 void UDFCharacterScreenWidget::NativeDestruct()
 {
-	if (ADFPlayerCharacter* const C = GetDFPlayerCharacter())
+	if (PreviewActor)
 	{
-		if (UDFPreviewCaptureComponent* const Cap = C->GetEquipmentPreview())
-		{
-			Cap->SetPreviewActive(false);
-		}
+		PreviewActor->SetPreviewActive(false);
+		PreviewActor->Destroy();
+		PreviewActor = nullptr;
 	}
 	Super::NativeDestruct();
 }
 
-void UDFCharacterScreenWidget::AddPreviewYawFromMousePixelDelta(const float MouseDeltaXPixels)
+void UDFCharacterScreenWidget::RefreshPaperDollFromOwner()
 {
-	ADFPlayerCharacter* const C = GetDFPlayerCharacter();
-	if (!C)
+	if (!PreviewActor)
 	{
 		return;
 	}
-	if (UDFPreviewCaptureComponent* const Cap = C->GetEquipmentPreview())
+	if (ADFPlayerCharacter* const C = GetDFPlayerCharacter())
 	{
-		Cap->AddOrbitDeltaYaw(MouseDeltaXPixels * MouseOrbitScale);
+		PreviewActor->SyncMeshFromCharacter(C);
+	}
+}
+
+void UDFCharacterScreenWidget::AddPreviewYawFromMousePixelDelta(const float MouseDeltaXPixels)
+{
+	if (PreviewActor)
+	{
+		PreviewActor->AddOrbitDeltaYaw(MouseDeltaXPixels * MouseOrbitScale);
 	}
 }

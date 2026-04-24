@@ -29,7 +29,6 @@
 #include "Merchant/ADFMerchantActor.h"
 #include "UI/UDFShopWidget.h"
 #include "Equipment/UDFEquipmentComponent.h"
-#include "Equipment/UDFPreviewCaptureComponent.h"
 #include "FX/UDFHitStopSubsystem.h"
 #include "FX/UDFScreenEffectsComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -78,10 +77,6 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 	if (Mesh_Base)
 	{
 		Equipment = CreateDefaultSubobject<UDFEquipmentComponent>(TEXT("Equipment"));
-		EquipmentPreview = CreateDefaultSubobject<UDFPreviewCaptureComponent>(TEXT("DFEquipmentPreview"));
-		EquipmentPreview->SetupAttachment(Mesh_Base);
-		EquipmentPreview->SetRelativeLocation(FVector(0.f, 0.f, 0.f));
-		EquipmentPreview->SetUsingAbsoluteRotation(true);
 
 		Mesh_Helmet = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Mesh_Helmet"));
 		Mesh_Chest = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Mesh_Chest"));

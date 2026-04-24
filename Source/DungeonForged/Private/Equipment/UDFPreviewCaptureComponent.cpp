@@ -20,13 +20,14 @@ void UDFPreviewCaptureComponent::EnsureRuntimeSceneCapture()
 	{
 		return;
 	}
-	AActor* const Owner = GetOwner();
-	if (!Owner || Owner->HasAnyFlags(RF_ClassDefaultObject))
+
+	UWorld* const World = GetWorld();
+	if (!World || !World->IsGameWorld())
 	{
 		return;
 	}
-	UWorld* const World = GetWorld() ? GetWorld() : Owner->GetWorld();
-	if (!World)
+	AActor* const Owner = GetOwner();
+	if (!Owner || Owner->HasAnyFlags(RF_ClassDefaultObject))
 	{
 		return;
 	}
@@ -54,23 +55,14 @@ void UDFPreviewCaptureComponent::EnsureRuntimeSceneCapture()
 void UDFPreviewCaptureComponent::OnRegister()
 {
 	Super::OnRegister();
-	EnsureRuntimeSceneCapture();
+	// Do not call EnsureRuntimeSceneCapture here: OnRegister runs in the Blueprint editor and would
+	// create/register USceneCaptureComponent2D during registration (expensive stall).
 	ApplyOrbit();
-	if (SceneCapture)
-	{
-		SceneCapture->ProjectionType = ECameraProjectionMode::Orthographic;
-		SceneCapture->OrthoWidth = OrthoWidth;
-		if (RenderTarget)
-		{
-			SceneCapture->TextureTarget = RenderTarget;
-		}
-	}
 }
 
 void UDFPreviewCaptureComponent::BeginPlay()
 {
 	Super::BeginPlay();
-	// In case OnRegister had no world yet, create capture for paper-doll before UI opens.
 	EnsureRuntimeSceneCapture();
 	if (SceneCapture)
 	{

@@ -27,7 +27,6 @@ class ADFMerchantActor;
 class UDFShopWidget;
 class UDFTrapDetectionComponent;
 class UDFEquipmentComponent;
-class UDFPreviewCaptureComponent;
 class UDFScreenEffectsComponent;
 class USkeletalMeshComponent;
 
@@ -132,10 +131,6 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Equipment")
 	TObjectPtr<UDFEquipmentComponent> Equipment = nullptr;
 
-	/** Scene capture for WBP character screen; attach in BP if you want a custom offset. */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Equipment|UI")
-	TObjectPtr<UDFPreviewCaptureComponent> EquipmentPreview = nullptr;
-
 	/** Same as GetMesh() after construction. Body drives leader pose for slave armor pieces. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
 	TObjectPtr<USkeletalMeshComponent> Mesh_Base = nullptr;
@@ -195,9 +190,6 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "DF|Equipment")
 	UDFEquipmentComponent* GetDFEquipment() const { return Equipment; }
-
-	UFUNCTION(BlueprintPure, Category = "DF|Equipment|UI")
-	UDFPreviewCaptureComponent* GetEquipmentPreview() const { return EquipmentPreview; }
 
 protected:
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
