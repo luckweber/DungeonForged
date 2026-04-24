@@ -3,6 +3,7 @@
 
 #include "CoreMinimal.h"
 #include "UI/UDFUserWidgetBase.h"
+#include "UI/Status/UDFStatusEffectBarWidget.h"
 #include "UDFInGameHUDWidget.generated.h"
 
 class UTextBlock;
@@ -32,6 +33,10 @@ protected:
 
 	UPROPERTY(Transient, meta = (BindWidgetAnim))
 	TObjectPtr<UWidgetAnimation> GoldChangePulseAnim = nullptr;
+
+	/** WBP: optional player buff / debuff status rows (Binds in Designer if present). */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UDFStatusEffectBarWidget> DFStatusEffectBar = nullptr;
 
 	int32 LastGoldShown = 0;
 };

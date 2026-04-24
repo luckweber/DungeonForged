@@ -7,6 +7,7 @@
 #include "GameplayEffectTypes.h"
 #include "AbilitySystemInterface.h"
 #include "GenericTeamAgentInterface.h"
+#include "UI/Status/UDFStatusLibrary.h"
 #include "ADFEnemyBase.generated.h"
 
 class AActor;
@@ -87,8 +88,20 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "UI")
 	TObjectPtr<UWidgetComponent> HealthBar;
 
+	/** 3x debuff row above the health bar; optional. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "UI|Status")
+	TObjectPtr<UWidgetComponent> DebuffStatusBar;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI")
 	TSubclassOf<UUserWidget> HealthBarWidgetClass;
+
+	/** Binds to UDFEnemyDebuffStatusBarWidget. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI|Status")
+	TSubclassOf<UUserWidget> DebuffStatusBarWidgetClass;
+
+	/** If null, status icons use C++ built-in data from UDFStatusLibrary::GetStatusData. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI|Status")
+	TObjectPtr<UDFStatusLibrary> EnemyDebuffStatusLibrary;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy")
 	TObjectPtr<UAnimMontage> DeathMontage;

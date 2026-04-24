@@ -28,6 +28,8 @@
 #include "GameplayEffectTypes.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "TimerManager.h"
+#include "UI/Status/UDFEnemyDebuffStatusBarWidget.h"
+#include "GameFramework/PlayerController.h"
 
 namespace
 {
@@ -75,6 +77,12 @@ ADFEnemyBase::ADFEnemyBase()
 	HealthBar->SetupAttachment(GetRootComponent());
 	HealthBar->SetWidgetSpace(EWidgetSpace::Screen);
 	HealthBar->SetDrawAtDesiredSize(true);
+
+	DebuffStatusBar = CreateDefaultSubobject<UWidgetComponent>(TEXT("DebuffStatusBar"));
+	DebuffStatusBar->SetupAttachment(HealthBar);
+	DebuffStatusBar->SetWidgetSpace(EWidgetSpace::Screen);
+	DebuffStatusBar->SetDrawAtDesiredSize(true);
+	DebuffStatusBar->SetRelativeLocation(FVector(0.f, 0.f, 12.f));
 }
 
 void ADFEnemyBase::PostInitializeComponents()
@@ -144,6 +152,26 @@ void ADFEnemyBase::BeginPlay()
 	{
 		HealthBar->SetWidgetClass(HealthBarWidgetClass);
 		HealthBar->InitWidget();
+	}
+	if (DebuffStatusBar && DebuffStatusBarWidgetClass)
+	{
+		DebuffStatusBar->SetWidgetClass(DebuffStatusBarWidgetClass);
+		DebuffStatusBar->InitWidget();
+		if (UDFEnemyDebuffStatusBarWidget* const DBar = Cast<UDFEnemyDebuffStatusBarWidget>(DebuffStatusBar->GetUserWidgetObject()))
+		{
+			UAbilitySystemComponent* LocalAsc = nullptr;
+			if (UWorld* const W = GetWorld())
+			{
+				if (APlayerController* const PC = W->GetFirstPlayerController())
+				{
+					if (ADFPlayerState* const PS = PC->GetPlayerState<ADFPlayerState>())
+					{
+						LocalAsc = PS->GetAbilitySystemComponent();
+					}
+				}
+			}
+			DBar->SetupObservedEnemy(this, EnemyDebuffStatusLibrary, LocalAsc);
+		}
 	}
 }
 
