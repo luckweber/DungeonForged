@@ -51,6 +51,8 @@
  * `ADFEnemyBase`
  * - `DOREPLIFETIME(ADFEnemyBase, bHasDied)` — all clients: death VFX, minimap, AI teardown visibility.
  *   (Project uses `bHasDied` as the server-set death flag; “bIsDead” in design docs = this.)
+ * - `DOREPLIFETIME(ADFEnemyBase, ReplicatedDataTableMaxWalkSpeed)` — when `FDFEnemyTableRow::MaxWalkSpeed` is > 0; `OnRep` updates
+ *   `UCharacterMovementComponent::MaxWalkSpeed` on simulating clients.
  *
  * `ADFBossBase` (subclass of `ADFEnemyBase`)
  * - `DOREPLIFETIME(ADFBossBase, CurrentPhase)`

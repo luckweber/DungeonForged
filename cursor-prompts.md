@@ -244,6 +244,7 @@ Create all DataTable row structs for DungeonForged in C++:
    - TSubclassOf<AActor> EnemyClass
    - FText EnemyName
    - float BaseHealth, BaseDamage, BaseArmor
+   - float MaxWalkSpeed (0 = do not override Character/Blueprint `Max Walk Speed`; >0 applied in `InitializeFromDataTable` + replicated to clients)
    - float ExperienceReward
    - TArray<FName> LootTableRows (from DT_Items)
    - TArray<FGameplayTag> GrantedAbilities
@@ -328,6 +329,7 @@ Create ADFEnemyBase in C++ for UE 5.4:
 InitializeFromDataTable(UDataTable* EnemyTable, FName RowName):
 - Read FDFEnemyTableRow
 - Apply base stats using startup GameplayEffect
+- If `MaxWalkSpeed` > 0, set `UCharacterMovementComponent::MaxWalkSpeed` and replicate to clients (e.g. `ReplicatedDataTableMaxWalkSpeed` + `OnRep_`)
 - Grant abilities from row's GrantedAbilities tags
 
 AI Integration:

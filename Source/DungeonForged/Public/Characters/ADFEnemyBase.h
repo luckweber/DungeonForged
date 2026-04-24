@@ -136,7 +136,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AI|Behavior")
 	UBlackboardComponent* GetBehaviorTreeBlackboard() const;
 
-	/** Behavior tree from last data-driven init; ADFAIController::OnPossess runs it. */
+	/** Behavior tree from last data-driven init; started in @c ADFAIController::OnPossess or after @a InitializeFromDataTable. */
 	UFUNCTION(BlueprintPure, Category = "AI|Behavior")
 	UBehaviorTree* GetAIBehaviorTreeAsset() const { return CachedAIBehaviorTree; }
 
@@ -169,6 +169,10 @@ protected:
 	UFUNCTION()
 	void OnRep_bHasDied();
 
+	/** Applies @a ReplicatedDataTableMaxWalkSpeed to movement (all roles; clients get value via replication from server `InitializeFromDataTable`). */
+	UFUNCTION()
+	void OnRep_ReplicatedDataTableMaxWalkSpeed();
+
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastOnDeath(AActor* Killer);
 
@@ -180,8 +184,15 @@ protected:
 	void OnDestroyAfterDeath();
 
 	void ApplyBaseStatsFromRow(const FDFEnemyTableRow& Row);
+	void ApplyMovementConfigFromRow(const FDFEnemyTableRow& Row);
 	void ApplyAIConfigFromRow(const FDFEnemyTableRow& Row);
 	void GrantAbilitiesForRow(const FDFEnemyTableRow& Row);
+
+	/**
+	 * Starts @a CachedAIBehaviorTree on the AI controller if both exist.
+	 * Needed when @a InitializeFromDataTable runs after @c OnPossess (typical: spawn then init from DT).
+	 */
+	void TryStartBehaviorTreeFromCache();
 
 	/** Stops the brain, movement, and AI controller input. */
 	void DisableEnemyActions();
@@ -194,6 +205,13 @@ protected:
 	/** Replicated to all clients for co-op VFX and UI. Server sets in `HandleServerDeath`. */
 	UPROPERTY(Transient, ReplicatedUsing = OnRep_bHasDied, BlueprintReadOnly, Category = "DF|Combat")
 	bool bHasDied = false;
+
+	/**
+	 * > 0: walk speed from `FDFEnemyTableRow::MaxWalkSpeed` (server `InitializeFromDataTable`). Used so clients
+	 * match server movement tuning; 0 = do not override Character defaults from row.
+	 */
+	UPROPERTY(Transient, ReplicatedUsing = OnRep_ReplicatedDataTableMaxWalkSpeed, BlueprintReadOnly, Category = "DF|Enemy|Movement")
+	float ReplicatedDataTableMaxWalkSpeed = 0.f;
 
 	/** Filled in InitializeFromDataTable for loot. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|Enemy")

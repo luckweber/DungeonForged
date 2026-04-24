@@ -81,6 +81,8 @@ Note: use RemoveGameplayEffectByTag before applying new level GE
 In ADFEnemyBase::OnDeath():
 - Get instigator PlayerState → GetLevelingComponent()->AddXP(EnemyRow.ExperienceReward)
 - XP scales: EnemyRow.ExperienceReward * (1 + FloorNumber * 0.1) ← floor bonus
+In ADFEnemyBase::InitializeFromDataTable (server):
+- FDFEnemyTableRow::MaxWalkSpeed: if > 0, set `UCharacterMovementComponent::MaxWalkSpeed` and replicate (e.g. `ReplicatedDataTableMaxWalkSpeed`); if 0, keep Character/BP default
 
 ─── WBP_LevelUpScreen ─────────────────────────────────────────
 UDFLevelUpWidget extends UDFUserWidgetBase:
@@ -1341,7 +1343,8 @@ UDFInventoryComponent:
 - DOREPLIFETIME_CONDITION(UDFInventoryComponent, Items, COND_OwnerOnly)
 
 ADFEnemyBase:
-- DOREPLIFETIME(ADFEnemyBase, bIsDead) ← all clients need this
+- DOREPLIFETIME(ADFEnemyBase, bHasDied) — death VFX / teardown (not `bIsDead`)
+- DOREPLIFETIME(ADFEnemyBase, ReplicatedDataTableMaxWalkSpeed) — `FDFEnemyTableRow::MaxWalkSpeed` when > 0 (movement sync on sim proxies)
 
 ADFDungeonManager:
 - DOREPLIFETIME(ADFDungeonManager, CurrentFloor)

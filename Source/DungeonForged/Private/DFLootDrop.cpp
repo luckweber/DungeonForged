@@ -23,7 +23,8 @@ ADFLootDrop::ADFLootDrop()
 
 	ItemMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ItemMesh"));
 	SetRootComponent(ItemMesh);
-	ItemMesh->SetSimulatePhysics(true);
+	// Sim on an empty/placeholder mesh, or on net clients, triggers "incompatible collision" with physics.
+	ItemMesh->SetSimulatePhysics(false);
 	ItemMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	ItemMesh->SetCollisionObjectType(ECC_PhysicsBody);
 	ItemMesh->SetCollisionResponseToAllChannels(ECR_Block);
@@ -106,7 +107,19 @@ void ADFLootDrop::ApplyVisualsFromDataTable()
 	{
 		if (UStaticMesh* M = Row->ItemMesh.Get())
 		{
+			// Reapply collision and physics after mesh change (asset can reset or lack simple collision for sim).
+			ItemMesh->SetSimulatePhysics(false);
 			ItemMesh->SetStaticMesh(M);
+			ItemMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+			ItemMesh->SetCollisionObjectType(ECC_PhysicsBody);
+			ItemMesh->SetCollisionResponseToAllChannels(ECR_Block);
+			ItemMesh->SetNotifyRigidBodyCollision(true);
+			ItemMesh->RecreatePhysicsState();
+			// Server simulates; clients follow replicated root transform (bReplicateMovement).
+			if (HasAuthority())
+			{
+				ItemMesh->SetSimulatePhysics(true);
+			}
 		}
 		ApplyRarityEmissive();
 	}

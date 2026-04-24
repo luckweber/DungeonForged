@@ -202,6 +202,13 @@ struct DUNGEONFORGED_API FDFEnemyTableRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy")
 	EEnemyTier Tier = EEnemyTier::Normal;
 
+	/**
+	 * When > 0, `ADFEnemyBase::InitializeFromDataTable` sets `UCharacterMovementComponent::MaxWalkSpeed`
+	 * and replicates it to simulating clients. When 0, Character / Blueprint `Max Walk Speed` defaults are left unchanged.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Movement", meta = (ClampMin = "0.0"))
+	float MaxWalkSpeed = 0.f;
+
 	/** Used by ADFEnemyBase::BeginPlay to run the brain (set AutoPossessAI = PlacedInWorldOrSpawned and use AAIController). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI")
 	TObjectPtr<UBehaviorTree> AIBehaviorTree;

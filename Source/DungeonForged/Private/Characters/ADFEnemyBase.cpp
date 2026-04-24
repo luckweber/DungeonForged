@@ -110,10 +110,22 @@ void ADFEnemyBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(ADFEnemyBase, bHasDied);
+	DOREPLIFETIME(ADFEnemyBase, ReplicatedDataTableMaxWalkSpeed);
 }
 
 void ADFEnemyBase::OnRep_bHasDied()
 {
+}
+
+void ADFEnemyBase::OnRep_ReplicatedDataTableMaxWalkSpeed()
+{
+	if (UCharacterMovementComponent* const Move = GetCharacterMovement())
+	{
+		if (ReplicatedDataTableMaxWalkSpeed > 0.f)
+		{
+			Move->MaxWalkSpeed = ReplicatedDataTableMaxWalkSpeed;
+		}
+	}
 }
 
 FGenericTeamId ADFEnemyBase::GetGenericTeamId() const
@@ -259,6 +271,7 @@ void ADFEnemyBase::InitializeFromDataTable(UDataTable* EnemyTable, FName RowName
 
 	AbilitySystemComponent->InitAbilityActorInfo(this, this);
 	ApplyBaseStatsFromRow(*Row);
+	ApplyMovementConfigFromRow(*Row);
 
 	if (OptionalInitGameplayEffect)
 	{
@@ -289,6 +302,39 @@ void ADFEnemyBase::InitializeFromDataTable(UDataTable* EnemyTable, FName RowName
 	if (HasActorBegunPlay())
 	{
 		InitAbilityAndBindHealth();
+	}
+
+	// Possess/OnPossess often runs before this init; CachedAIBehaviorTree was null there — start BT now.
+	TryStartBehaviorTreeFromCache();
+}
+
+void ADFEnemyBase::TryStartBehaviorTreeFromCache()
+{
+	if (!CachedAIBehaviorTree)
+	{
+		return;
+	}
+	if (AAIController* const AIC = Cast<AAIController>(GetController()))
+	{
+		AIC->RunBehaviorTree(CachedAIBehaviorTree);
+	}
+}
+
+void ADFEnemyBase::ApplyMovementConfigFromRow(const FDFEnemyTableRow& Row)
+{
+	if (Row.MaxWalkSpeed <= 0.f)
+	{
+		return;
+	}
+	UCharacterMovementComponent* const Move = GetCharacterMovement();
+	if (!Move)
+	{
+		return;
+	}
+	Move->MaxWalkSpeed = Row.MaxWalkSpeed;
+	if (HasAuthority())
+	{
+		ReplicatedDataTableMaxWalkSpeed = Row.MaxWalkSpeed;
 	}
 }
 
