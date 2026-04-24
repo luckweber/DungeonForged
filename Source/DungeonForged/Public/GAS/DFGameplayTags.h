@@ -173,6 +173,12 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Effect_Damage_Physical;
 	static FGameplayTag Effect_Damage_Magic;
 	static FGameplayTag Effect_Damage_True;
+	/** Set on damage execution context when a crit is rolled. */
+	static FGameplayTag Effect_Critical;
+	/** SetByCaller: 1.0 if crit, 0 otherwise (read in AttributeSet for combat text). */
+	static FGameplayTag Data_CriticalHit;
+	/** For combat text "BLOCK" when the target is actively guarding (e.g. shield up). */
+	static FGameplayTag State_Combat_Block;
 	static FGameplayTag Effect_DoT_Fire;
 	static FGameplayTag Effect_DoT_Poison;
 	static FGameplayTag Effect_DoT_Bleed;
@@ -183,6 +189,8 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Effect_Debuff_Weaken;
 	static FGameplayTag Effect_Debuff_ArmorBreak;
 	static FGameplayTag Effect_Debuff_Blinded;
+	/** Replaces single active level-stat-scaling GameplayEffect (infinite) per level. */
+	static FGameplayTag Effect_Buff_LevelStatScaling;
 
 	//~ Data (SetByCaller)
 	static FGameplayTag Data_Damage;
@@ -192,6 +200,15 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Data_Cooldown;
 	static FGameplayTag Data_Magnitude;
 	static FGameplayTag Data_Knockback;
+	/** UGE_LevelUp_StatScaling: additive to MaxHealth from level curve. */
+	static FGameplayTag Data_LevelUp_MaxHealthAdd;
+	static FGameplayTag Data_LevelUp_MaxManaAdd;
+	static FGameplayTag Data_LevelUp_StrengthAdd;
+	static FGameplayTag Data_LevelUp_IntelligenceAdd;
+	static FGameplayTag Data_LevelUp_AgilityAdd;
+
+	//~ Character / progression (native Character.Level.1..N also registered in RegisterGameplayTags)
+	static FGameplayTag Character_Level;
 
 	//~ UI
 	static FGameplayTag UI_MenuOpen;

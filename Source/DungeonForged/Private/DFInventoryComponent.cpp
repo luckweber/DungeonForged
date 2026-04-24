@@ -1,17 +1,43 @@
 // Source/DungeonForged/Private/DFInventoryComponent.cpp
 
 #include "DFInventoryComponent.h"
+#include "Engine/Engine.h"
+#include "Data/DFDataTableStructs.h"
+#include "UI/Combat/UDFCombatTextSubsystem.h"
+#include "GameFramework/PlayerState.h"
+#include "Kismet/GameplayStatics.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
-#include "GameFramework/PlayerState.h"
 #include "GameFramework/Pawn.h"
 #include "GameplayEffect.h"
 #include "GameplayEffectTypes.h"
-#include "Data/DFDataTableStructs.h"
 #include "DFLootDrop.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "Net/UnrealNetwork.h"
+
+namespace
+{
+void TryGoldCombatText(AActor* const Owner, FDFItemTableRow const& Row, int32 const Gained)
+{
+	if (Gained < 1 || Row.ItemType != EItemType::Currency)
+	{
+		return;
+	}
+	if (IsRunningDedicatedServer() || !Owner)
+	{
+		return;
+	}
+	if (UWorld* const W = Owner->GetWorld())
+	{
+		if (UDFCombatTextSubsystem* const Ctx = W->GetSubsystem<UDFCombatTextSubsystem>())
+		{
+			const FVector L = Owner->GetActorLocation() + FVector(0.f, 0.f, 90.f);
+			Ctx->SpawnText(L, static_cast<float>(Gained), ECombatTextType::GoldGain);
+		}
+	}
+}
+} // namespace
 
 UDFInventoryComponent::UDFInventoryComponent()
 {
@@ -85,6 +111,7 @@ bool UDFInventoryComponent::AddItem(FName RowName, int32 Quantity)
 		return false;
 	}
 	int32 QtyLeft = Quantity;
+	int32 Gained = 0;
 	const int32 MaxStack = FMath::Max(1, Row->MaxStack);
 
 	// fill existing stacks
@@ -101,9 +128,11 @@ bool UDFInventoryComponent::AddItem(FName RowName, int32 Quantity)
 		}
 		const int32 ToAdd = FMath::Min(Room, QtyLeft);
 		S.Quantity += ToAdd;
+		Gained += ToAdd;
 		QtyLeft -= ToAdd;
 		if (QtyLeft <= 0)
 		{
+			TryGoldCombatText(GetOwner(), *Row, Gained);
 			OnInventoryChanged.Broadcast();
 			return true;
 		}
@@ -113,6 +142,7 @@ bool UDFInventoryComponent::AddItem(FName RowName, int32 Quantity)
 	{
 		if (Items.Num() >= MaxSlots)
 		{
+			TryGoldCombatText(GetOwner(), *Row, Gained);
 			return QtyLeft < Quantity; // partial success
 		}
 		const int32 ToAdd = FMath::Min(MaxStack, QtyLeft);
@@ -121,8 +151,10 @@ bool UDFInventoryComponent::AddItem(FName RowName, int32 Quantity)
 		N.Quantity = ToAdd;
 		N.bIsEquipped = false;
 		Items.Add(N);
+		Gained += ToAdd;
 		QtyLeft -= ToAdd;
 	}
+	TryGoldCombatText(GetOwner(), *Row, Gained);
 	OnInventoryChanged.Broadcast();
 	return true;
 }

@@ -1,7 +1,11 @@
 // Source/DungeonForged/Private/GAS/UDFAttributeSet.cpp
 
 #include "GAS/UDFAttributeSet.h"
+#include "Characters/ADFEnemyBase.h"
+#include "Engine/Engine.h"
 #include "GAS/DFGameplayTags.h"
+#include "UI/Combat/DFCombatTextTypes.h"
+#include "UI/Combat/UDFCombatTextSubsystem.h"
 #include "GAS/Effects/UGE_Buff_Shield.h"
 #include "GAS/Effects/UGE_Cooldown_Universal_SecondWind.h"
 #include "GAS/UDFPassivesGASEvents.h"
@@ -10,6 +14,89 @@
 #include "GameplayEffectTypes.h"
 #include "Net/UnrealNetwork.h"
 #include "GameplayEffectExtension.h"
+
+namespace
+{
+void TrySpawnDFCombatText(UDFAttributeSet& Self, FGameplayEffectModCallbackData const& Data)
+{
+	if (IsRunningDedicatedServer())
+	{
+		return;
+	}
+	const FGameplayAttribute& A = Data.EvaluatedData.Attribute;
+	const float Mag = Data.EvaluatedData.Magnitude;
+	if (A != Self.GetHealthAttribute() && !(A == Self.GetManaAttribute() && Mag > KINDA_SMALL_NUMBER))
+	{
+		return;
+	}
+	UAbilitySystemComponent* const ASC = Self.GetOwningAbilitySystemComponent();
+	AActor* const O = ASC ? ASC->GetOwner() : nullptr;
+	if (!O)
+	{
+		return;
+	}
+	UWorld* const W = O->GetWorld();
+	if (!W)
+	{
+		return;
+	}
+	UDFCombatTextSubsystem* const Ctx = W->GetSubsystem<UDFCombatTextSubsystem>();
+	if (!Ctx)
+	{
+		return;
+	}
+	const FVector Loc = O->GetActorLocation() + FVector(0.f, 0.f, 70.f);
+	static const FGameplayTagContainer GEmpty;
+	const FGameplayTagContainer& Ass =
+		Data.EffectSpec.Def ? Data.EffectSpec.Def->GetAssetTags() : GEmpty;
+	if (A == Self.GetHealthAttribute())
+	{
+		if (Mag < -KINDA_SMALL_NUMBER)
+		{
+			const float D = -Mag;
+			const bool bCrit = FDFGameplayTags::Data_CriticalHit.IsValid()
+				&& Data.EffectSpec.GetSetByCallerMagnitude(
+					   FDFGameplayTags::Data_CriticalHit, false, 0.f)
+				> 0.5f;
+			ECombatTextType T;
+			if (bCrit)
+			{
+				T = ECombatTextType::Damage_Critical;
+			}
+			else if (Ass.HasTag(FDFGameplayTags::Effect_DoT_Fire) || Ass.HasTag(FDFGameplayTags::Effect_DoT_Poison)
+				|| Ass.HasTag(FDFGameplayTags::Effect_DoT_Bleed) || Ass.HasTag(FDFGameplayTags::Effect_DoT_Frost))
+			{
+				T = ECombatTextType::Damage_DoT;
+			}
+			else if (Ass.HasTag(FDFGameplayTags::Effect_Damage_True))
+			{
+				T = ECombatTextType::Damage_True;
+			}
+			else if (Ass.HasTag(FDFGameplayTags::Effect_Damage_Physical))
+			{
+				T = ECombatTextType::Damage_Physical;
+			}
+			else if (Ass.HasTag(FDFGameplayTags::Effect_Damage_Magic))
+			{
+				T = ECombatTextType::Damage_Magic;
+			}
+			else
+			{
+				T = ECombatTextType::Damage_Magic;
+			}
+			Ctx->SpawnText(Loc, D, T);
+		}
+		else if (Mag > KINDA_SMALL_NUMBER)
+		{
+			Ctx->SpawnText(Loc, Mag, ECombatTextType::Heal);
+		}
+	}
+	else if (A == Self.GetManaAttribute() && Mag > KINDA_SMALL_NUMBER)
+	{
+		Ctx->SpawnText(Loc, Mag, ECombatTextType::Mana_Restore);
+	}
+}
+} // namespace
 
 UDFAttributeSet::UDFAttributeSet()
 {
@@ -179,12 +266,19 @@ void UDFAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 	// GAS: instant/duration changes are applied; react after evaluation (damage, buffs, etc.)
 	// Out-of-health is detected here and in PostAttributeChange so direct sets and GEs are both covered
 	if (Data.EvaluatedData.Attribute == GetHealthAttribute())
-	{
+		{
 		if (UAbilitySystemComponent* const ASC = GetOwningAbilitySystemComponent())
 		{
 			const float Mag = Data.EvaluatedData.Magnitude;
 			if (Mag < 0.f)
 			{
+				if (ASC->GetOwner())
+				{
+					if (ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(ASC->GetOwner()))
+					{
+						Enemy->RegisterDamageFromContext(Data.EffectSpec.GetContext());
+					}
+				}
 				UDFPassivesGASEvents::DispatchHitReceived(ASC, Data.EffectSpec, -Mag);
 			}
 			if (Mag < 0.f && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_ManaShieldActive))
@@ -223,6 +317,7 @@ void UDFAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 		}
 		HandleOutOfHealth();
 	}
+	TrySpawnDFCombatText(*this, Data);
 }
 
 void UDFAttributeSet::ClampAttributePair(

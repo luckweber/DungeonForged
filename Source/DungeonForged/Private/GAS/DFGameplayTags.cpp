@@ -122,6 +122,9 @@ FGameplayTag FDFGameplayTags::Event_Rogue_Eviscerate_Trace;
 FGameplayTag FDFGameplayTags::Effect_Damage_Physical;
 FGameplayTag FDFGameplayTags::Effect_Damage_Magic;
 FGameplayTag FDFGameplayTags::Effect_Damage_True;
+FGameplayTag FDFGameplayTags::Effect_Critical;
+FGameplayTag FDFGameplayTags::Data_CriticalHit;
+FGameplayTag FDFGameplayTags::State_Combat_Block;
 FGameplayTag FDFGameplayTags::Effect_DoT_Fire;
 FGameplayTag FDFGameplayTags::Effect_DoT_Poison;
 FGameplayTag FDFGameplayTags::Effect_DoT_Bleed;
@@ -145,6 +148,13 @@ FGameplayTag FDFGameplayTags::Data_Cost;
 FGameplayTag FDFGameplayTags::Data_Cooldown;
 FGameplayTag FDFGameplayTags::Data_Magnitude;
 FGameplayTag FDFGameplayTags::Data_Knockback;
+FGameplayTag FDFGameplayTags::Effect_Buff_LevelStatScaling;
+FGameplayTag FDFGameplayTags::Data_LevelUp_MaxHealthAdd;
+FGameplayTag FDFGameplayTags::Data_LevelUp_MaxManaAdd;
+FGameplayTag FDFGameplayTags::Data_LevelUp_StrengthAdd;
+FGameplayTag FDFGameplayTags::Data_LevelUp_IntelligenceAdd;
+FGameplayTag FDFGameplayTags::Data_LevelUp_AgilityAdd;
+FGameplayTag FDFGameplayTags::Character_Level;
 FGameplayTag FDFGameplayTags::UI_MenuOpen;
 FGameplayTag FDFGameplayTags::UI_InventoryOpen;
 FGameplayTag FDFGameplayTags::UI_AbilityMenuOpen;
@@ -303,6 +313,10 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(Effect_Damage_Physical)(FName("Effect.Damage.Physical"), FString("Physical damage effect (asset tag)."));
 	DF_TAG(Effect_Damage_Magic)(FName("Effect.Damage.Magic"), FString("Magic damage effect (asset tag)."));
 	DF_TAG(Effect_Damage_True)(FName("Effect.Damage.True"), FString("True damage effect (asset tag)."));
+	DF_TAG(Effect_Critical)(FName("Effect.Critical"), FString("This damage instance is a critical hit (execution + combat text)."));
+	DF_TAG(Data_CriticalHit)(FName("Data.CriticalHit"), FString("SetByCaller 1.0/0.0 set by UDFDamageCalculation (crit)."));
+	DF_TAG(State_Combat_Block)(FName("State.Combat.Block"), FString("Target is blocking; floating text shows BLOCK on hit."));
+
 	DF_TAG(Effect_DoT_Fire)(FName("Effect.DoT.Fire"), FString("Damage over time — fire."));
 	DF_TAG(Effect_DoT_Poison)(FName("Effect.DoT.Poison"), FString("DoT — poison."));
 	DF_TAG(Effect_DoT_Bleed)(FName("Effect.DoT.Bleed"), FString("DoT — bleed."));
@@ -328,6 +342,20 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(Data_Cooldown)(FName("Data.Cooldown"), FString("SetByCaller — cooldown seconds."));
 	DF_TAG(Data_Magnitude)(FName("Data.Magnitude"), FString("SetByCaller — generic magnitude (buff/debuff)."));
 	DF_TAG(Data_Knockback)(FName("Data.Knockback"), FString("SetByCaller — melee knockback / impulse scale."));
+
+	DF_TAG(Effect_Buff_LevelStatScaling)(FName("Effect.Buff.LevelStatScaling"), FString("Infinite per-level max-vitals and primary stat bonus (replaced on level up)."));
+	DF_TAG(Data_LevelUp_MaxHealthAdd)(FName("Data.LevelUp.MaxHealthAdd"), FString("SetByCaller — additive max health from level table."));
+	DF_TAG(Data_LevelUp_MaxManaAdd)(FName("Data.LevelUp.MaxManaAdd"), FString("SetByCaller — additive max mana from level table."));
+	DF_TAG(Data_LevelUp_StrengthAdd)(FName("Data.LevelUp.StrengthAdd"), FString("SetByCaller — additive strength from level table."));
+	DF_TAG(Data_LevelUp_IntelligenceAdd)(FName("Data.LevelUp.IntelligenceAdd"), FString("SetByCaller — additive intelligence from level table."));
+	DF_TAG(Data_LevelUp_AgilityAdd)(FName("Data.LevelUp.AgilityAdd"), FString("SetByCaller — additive agility from level table."));
+	DF_TAG(Character_Level)(FName("Character.Level"), FString("Level tier tags: Character.Level.N for exact level."));
+	for (int32 L = 1; L <= 30; ++L)
+	{
+		M.AddNativeGameplayTag(
+			FName(*FString::Printf(TEXT("Character.Level.%d"), L)),
+			FString::Printf(TEXT("Character has reached at least level %d."), L));
+	}
 
 	DF_TAG(UI_MenuOpen)(FName("UI.MenuOpen"), FString("Pause / main menu visible."));
 	DF_TAG(UI_InventoryOpen)(FName("UI.InventoryOpen"), FString("Inventory screen up."));

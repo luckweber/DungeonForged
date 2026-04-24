@@ -35,6 +35,7 @@ enum class EItemType : uint8
 	Ring       UMETA(DisplayName = "Ring"),
 	Amulet     UMETA(DisplayName = "Amulet"),
 	Consumable UMETA(DisplayName = "Consumable"),
+	Currency   UMETA(DisplayName = "Currency (Gold)"),
 };
 
 UENUM(BlueprintType)

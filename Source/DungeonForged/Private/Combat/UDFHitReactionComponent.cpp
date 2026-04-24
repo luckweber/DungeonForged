@@ -1,5 +1,9 @@
 // Source/DungeonForged/Private/Combat/UDFHitReactionComponent.cpp
 #include "Combat/UDFHitReactionComponent.h"
+#include "Engine/Engine.h"
+#include "GAS/DFGameplayTags.h"
+#include "UI/Combat/DFCombatTextTypes.h"
+#include "UI/Combat/UDFCombatTextSubsystem.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "NiagaraFunctionLibrary.h"
@@ -97,6 +101,33 @@ void UDFHitReactionComponent::OnHitReceived(
 	}
 	const FRotator FacingVfx = bUseImpact ? FRotator((-HitNormal).Rotation())
 		: FRotator(Dir.Rotation().Pitch, Dir.Rotation().Yaw, 0.f);
+	if (!IsRunningDedicatedServer())
+	{
+		if (UWorld* const W = GetWorld())
+		{
+			if (UAbilitySystemComponent* const TASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(GetOwner()))
+			{
+				if (TASC->HasMatchingGameplayTag(FDFGameplayTags::State_Invulnerable)
+					&& FDFGameplayTags::State_Invulnerable.IsValid())
+				{
+					if (UDFCombatTextSubsystem* const Cts = W->GetSubsystem<UDFCombatTextSubsystem>())
+					{
+						Cts->SpawnTextString(
+							VfxPos + FVector(0.f, 0.f, 40.f), TEXT("IMMUNE"), ECombatTextType::Immune);
+					}
+				}
+				else if (TASC->HasMatchingGameplayTag(FDFGameplayTags::State_Combat_Block)
+					&& FDFGameplayTags::State_Combat_Block.IsValid())
+				{
+					if (UDFCombatTextSubsystem* const Cts = W->GetSubsystem<UDFCombatTextSubsystem>())
+					{
+						Cts->SpawnTextString(
+							VfxPos + FVector(0.f, 0.f, 40.f), TEXT("BLOCK"), ECombatTextType::Block);
+					}
+				}
+			}
+		}
+	}
 	SpawnHitVFX(VfxPos, FacingVfx);
 	SpawnHitDecal(VfxPos, bUseImpact ? FRotator((-HitNormal).Rotation()) : FacingVfx);
 }

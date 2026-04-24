@@ -12,6 +12,7 @@
 class UAbilitySystemComponent;
 class UDataTable;
 class UDFAttributeSet;
+class UDFLevelingComponent;
 
 UCLASS()
 class DUNGEONFORGED_API ADFPlayerState : public APlayerState, public IAbilitySystemInterface
@@ -28,6 +29,12 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GAS")
 	TObjectPtr<UDFAttributeSet> AttributeSet;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Progression")
+	TObjectPtr<UDFLevelingComponent> LevelingComponent;
+
+	UFUNCTION(BlueprintPure, Category = "DF|Progression")
+	UDFLevelingComponent* GetLevelingComponent() const { return LevelingComponent; }
 
 	virtual void BeginPlay() override;
 

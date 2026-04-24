@@ -1,6 +1,7 @@
 // Source/DungeonForged/Private/Characters/ADFPlayerState.cpp
 
 #include "Characters/ADFPlayerState.h"
+#include "Progression/UDFLevelingComponent.h"
 #include "ADFDungeonManager.h"
 #include "AbilitySystemComponent.h"
 #include "Characters/ADFPlayerCharacter.h"
@@ -20,6 +21,7 @@ ADFPlayerState::ADFPlayerState()
 
 	AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
 	AttributeSet = CreateDefaultSubobject<UDFAttributeSet>(TEXT("AttributeSet"));
+	LevelingComponent = CreateDefaultSubobject<UDFLevelingComponent>(TEXT("LevelingComponent"));
 
 	AbilitySystemComponent->SetIsReplicated(true);
 	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);

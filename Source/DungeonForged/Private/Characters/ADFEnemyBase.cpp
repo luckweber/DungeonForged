@@ -2,8 +2,11 @@
 
 #include "Characters/ADFEnemyBase.h"
 #include "AI/ADFAIController.h"
+#include "ADFDungeonManager.h"
+#include "Characters/ADFPlayerState.h"
 #include "Data/DFDataTableStructs.h"
 #include "DFLootGeneratorSubsystem.h"
+#include "Progression/UDFLevelingComponent.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Combat/UDFHitReactionComponent.h"
 #include "Abilities/GameplayAbility.h"
@@ -17,10 +20,37 @@
 #include "Components/SceneComponent.h"
 #include "Components/WidgetComponent.h"
 #include "Engine/World.h"
+#include "GameFramework/Controller.h"
+#include "GameFramework/PlayerState.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Engine/GameInstance.h"
 #include "GameplayEffectTypes.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "TimerManager.h"
+
+namespace
+{
+ADFPlayerState* ResolveKillerPlayerState(AActor* const Killer)
+{
+	if (!Killer)
+	{
+		return nullptr;
+	}
+	if (APlayerState* const PS = Cast<APlayerState>(Killer))
+	{
+		return Cast<ADFPlayerState>(PS);
+	}
+	if (const APawn* const P = Cast<APawn>(Killer))
+	{
+		return P->GetPlayerState<ADFPlayerState>();
+	}
+	if (const AController* const C = Cast<AController>(Killer))
+	{
+		return C->GetPlayerState<ADFPlayerState>();
+	}
+	return nullptr;
+}
+} // namespace
 
 ADFEnemyBase::ADFEnemyBase()
 {
@@ -158,7 +188,10 @@ void ADFEnemyBase::OnHealthOrMaxChanged(float Current, float Max)
 	}
 	if (HasAuthority())
 	{
-		HandleServerDeath(GetInstigator() ? GetInstigator() : nullptr);
+		AActor* const Killer = LastDamageAttacker.IsValid()
+			? LastDamageAttacker.Get()
+			: (GetInstigator() ? GetInstigator() : nullptr);
+		HandleServerDeath(Killer);
 	}
 }
 
@@ -196,6 +229,7 @@ void ADFEnemyBase::InitializeFromDataTable(UDataTable* EnemyTable, FName RowName
 
 	GrantAbilitiesForRow(*Row);
 	ApplyAIConfigFromRow(*Row);
+	LastDamageAttacker.Reset();
 
 	if (HasActorBegunPlay())
 	{
@@ -265,6 +299,23 @@ UBlackboardComponent* ADFEnemyBase::GetBehaviorTreeBlackboard() const
 	return AI ? AI->GetBlackboardComponent() : nullptr;
 }
 
+void ADFEnemyBase::RegisterDamageFromContext(const FGameplayEffectContextHandle& Ctx)
+{
+	if (!HasAuthority() || !Ctx.IsValid())
+	{
+		return;
+	}
+	AActor* K = Ctx.GetEffectCauser();
+	if (!K)
+	{
+		K = Ctx.GetInstigator();
+	}
+	if (K)
+	{
+		LastDamageAttacker = K;
+	}
+}
+
 void ADFEnemyBase::HandleServerDeath(AActor* Killer)
 {
 	if (bHasDied)
@@ -272,6 +323,32 @@ void ADFEnemyBase::HandleServerDeath(AActor* Killer)
 		return;
 	}
 	bHasDied = true;
+	if (HasAuthority() && CachedExperienceReward > 0.f)
+	{
+		if (ADFPlayerState* const PState = ResolveKillerPlayerState(Killer))
+		{
+			if (UDFLevelingComponent* const Lv = PState->GetLevelingComponent())
+			{
+				int32 Floor = 0;
+				if (UWorld* const W = GetWorld())
+				{
+					if (UGameInstance* const GI = W->GetGameInstance())
+					{
+						if (UDFDungeonManager* const Dm = GI->GetSubsystem<UDFDungeonManager>())
+						{
+							Floor = Dm->CurrentFloor;
+						}
+					}
+				}
+				const int32 XpAward = FMath::RoundToInt(
+					CachedExperienceReward * (1.f + 0.1f * static_cast<float>(Floor)));
+				if (XpAward > 0)
+				{
+					Lv->AddXP(XpAward);
+				}
+			}
+		}
+	}
 	OnEnemyDied.Broadcast(this, Killer, CachedExperienceReward);
 	SpawnDeathLoot();
 	MulticastOnDeath(Killer);

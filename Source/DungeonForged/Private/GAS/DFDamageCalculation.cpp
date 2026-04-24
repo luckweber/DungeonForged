@@ -92,6 +92,11 @@ void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExe
 	{
 		PreMitigation *= FMath::Max(1.f, CritMult);
 	}
+	FGameplayEffectSpec& MutSpec = const_cast<FGameplayEffectSpec&>(Spec);
+	if (FDFGameplayTags::Data_CriticalHit.IsValid())
+	{
+		MutSpec.SetSetByCallerMagnitude(FDFGameplayTags::Data_CriticalHit, bCrit ? 1.f : 0.f);
+	}
 
 	OutExecutionOutput.AddOutputModifier(FGameplayModifierEvaluatedData(UDFAttributeSet::GetHealthAttribute(),
 		EGameplayModOp::Additive, -PreMitigation));

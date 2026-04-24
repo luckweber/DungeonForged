@@ -1654,6 +1654,536 @@ Output all .h and .cpp with correct Public/Private paths.
 
 ---
 
+## ══════════════════════════════════════════════
+## 🎮 ESTRUTURA DE MUNDO & GAMEMODES
+## ══════════════════════════════════════════════
+
+## ════════════════════════════════════════
+## ⚔️ PROMPT 46 — RUN GAMEMODE & GAMESTATE
+## ════════════════════════════════════════
+
+```
+@ue-gameplay-framework
+@ue-gameplay-abilities
+@ue-gameplay-tags
+@ue-ui-umg-slate
+@ue-networking-replication
+@ue-serialization-savegames
+
+Create the Run GameMode and GameState for DungeonForged UE 5.4.
+This is the GameMode active DURING a dungeon run (not the Nexus hub).
+Path convention:
+  .h  → Source/DungeonForged/Public/GameModes/Run/<FileName>.h
+  .cpp → Source/DungeonForged/Private/GameModes/Run/<FileName>.cpp
+Always write the full path as a comment at the top of each file.
+
+─── ADFRunGameMode extends AGameModeBase ──────────────────────
+
+Properties:
+- TSubclassOf<ADFPlayerCharacter>  DefaultPlayerClass
+- TSubclassOf<ADFRunGameState>     GameStateClass
+- TSubclassOf<ADFRunHUD>           HUDClass
+- TSubclassOf<ADFRunPlayerController> PlayerControllerClass
+- UDataTable* DungeonFloorTable    ← DT_Dungeon
+- float RunTimeLimit = 0.f         ← 0 = no time limit
+
+Initialization flow:
+- InitGame: initialize UDFRunManager via GameInstance
+- PostLogin(APlayerController* PC):
+  → Get ETravelReason from UDFRunManager::GetArrivalReason()
+  → If NewRun: InitializePlayerFromClass(PC, PendingClass)
+  → If NextFloor: UDFRunManager::RestoreRunState(Player)
+  → Call ADFDungeonManager::StartFloor(CurrentFloor)
+- InitializePlayerFromClass(APlayerController* PC, FName ClassName):
+  → Read FDFClassTableRow from DT_Classes
+  → Apply FDFClassTableRow.BaseAttributeValues via GE_ClassBaseStats (Instant)
+  → Grant FDFClassTableRow.StartingAbilities to ASC
+  → Swap player mesh to ClassRow.CharacterMesh
+  → Set UDFRunManager::SelectedClass
+
+Victory / Defeat conditions:
+- OnFloorCleared (bound to ADFDungeonManager::OnFloorCleared):
+  → If CurrentFloor == MaxFloor (10): TriggerVictory()
+  → Else: TriggerBetweenFloorSequence()
+- OnPlayerDied (bound to UDFAttributeSet death delegate):
+  → WaitDelay(3s — death animation)
+  → TriggerDefeat()
+- TriggerVictory():
+  → SetGlobalTimeDilation(0.3) — slow motion celebration
+  → Broadcast GameState->SetPhase(Victory)
+  → Open WBP_VictoryScreen (ZOrder=20)
+  → WaitDelay(5s) → UDFWorldTransitionSubsystem::TravelToNexus(Victory)
+- TriggerDefeat():
+  → Broadcast GameState->SetPhase(Defeat)
+  → Open WBP_DefeatScreen
+  → WaitDelay(5s) → UDFWorldTransitionSubsystem::TravelToNexus(Defeat)
+
+Between-floor sequence:
+1. GameState->SetPhase(BetweenFloors)
+2. UDFRunManager::CaptureRunState()
+3. SetGlobalTimeDilation(0)
+4. Show WBP_LevelUpScreen (if pending points)
+5. Show WBP_AbilitySelection (Prompt 23)
+6. Roll UDFRandomEventSubsystem::ShouldTriggerEvent() → show WBP_RandomEvent
+7. Show WBP_FloorTransition card ("ANDAR 4")
+8. UDFWorldTransitionSubsystem::TravelToNextFloor(CurrentFloor + 1)
+
+─── ADFRunGameState extends AGameStateBase ────────────────────
+
+Replicated:
+- int32 CurrentFloor
+- float ElapsedRunTime
+- int32 TotalKills
+- int32 TotalGoldCollected
+- ERunPhase CurrentPhase
+  (Enum: PreRun, InCombat, BetweenFloors, BossEncounter, Victory, Defeat)
+
+Functions:
+- IncrementKills(): TotalKills++, broadcast OnKillsChanged
+- AddGold(int32 Amount): TotalGoldCollected += Amount
+- SetPhase(ERunPhase Phase): CurrentPhase = Phase, broadcast OnPhaseChanged
+- GetRunSummary(): FDFRunSummary
+  → FloorReached, Kills, Gold, Time, ClassName, AbilitiesCollected
+
+─── ADFRunPlayerController extends APlayerController ──────────
+- SetupInputModeGameplay(): Enhanced Input, hide cursor
+- SetupInputModeUI(): show cursor, pause game
+- ToggleInventory(): SetupInputModeUI + WBP_CharacterScreen
+- OnPause(): WBP_PauseMenu
+
+─── ADFRunHUD extends AHUD ────────────────────────────────────
+Widgets:
+- WBP_HUD (health/mana/stamina, ability slots, XP bar, gold)
+- WBP_Minimap (corner)
+- WBP_StatusEffectBar (buffs/debuffs)
+- WBP_BossHealthBar (boss floors only)
+- WBP_LockOnIndicator (when locked on)
+- WBP_FloorCounter (top center: "Andar 3 / 10")
+- WBP_KillCounter ("47 abates")
+
+- OnPhaseChanged(ERunPhase Phase):
+  → BetweenFloors: hide combat widgets
+  → BossEncounter: ShowBossHUD()
+  → InCombat: show all
+
+─── WBP_VictoryScreen ─────────────────────────────────────────
+- UTextBlock* TitleText          ← "VITÓRIA!" entrada animada
+- UTextBlock* TimeText           ← "Tempo: 23:47"
+- UTextBlock* KillsText          ← "Inimigos: 147"
+- UTextBlock* GoldText           ← "Ouro: 1.240"
+- UScrollBox* AbilitiesCollected ← ícones das abilities da run
+- UTextBlock* UnlocksEarned      ← "Nova classe: Paladino!"
+- UProgressBar* MetaXPBar        ← XP permanente ganho nessa run
+- UButton* ReturnNexus + UButton* PlayAgain
+- Spawn chuva de partículas douradas Niagara
+- UDFMusicManagerSubsystem::SetMusicState(Victory)
+
+─── WBP_DefeatScreen ──────────────────────────────────────────
+- UImage* BackgroundArt          ← arte escura desaturada
+- UTextBlock* TitleText          ← "VOCÊ MORREU"
+- UTextBlock* FloorText          ← "Chegou ao Andar 4"
+- UTextBlock* CauseText          ← "Derrotado por: {EnemyName}"
+- UProgressBar* MetaXPBar        ← XP permanente ganho mesmo na derrota
+- UTextBlock* TipText            ← dica aleatória de DT_Tips
+- UButton* ReturnNexus + UButton* PlayAgain
+- Post-process desaturado no background
+- UDFMusicManagerSubsystem::SetMusicState(Death)
+
+─── WBP_PauseMenu ─────────────────────────────────────────────
+- UButton* Resume
+- UButton* Options → WBP_OptionsScreen
+- UButton* AbandonRun → confirm dialog → TravelToNexus(Abandon)
+- Stats da run atual (andar, kills, gold, tempo)
+- Fundo com blur material
+
+Output all .h and .cpp files with correct Public/Private paths.
+```
+
+---
+
+## ════════════════════════════════════════
+## 🏛️ PROMPT 47 — NEXUS HUB (GAMEMODE + WORLD)
+## ════════════════════════════════════════
+
+```
+@ue-gameplay-framework
+@ue-gameplay-tags
+@ue-ui-umg-slate
+@ue-data-assets-tables
+@ue-serialization-savegames
+@ue-actor-component-archit...
+
+Create the Nexus Hub GameMode and world for DungeonForged UE 5.4.
+The Nexus is the safe hub between runs — no combat, persistent NPCs,
+permanent upgrades, class selection, and dungeon entry portal.
+Path convention:
+  .h  → Source/DungeonForged/Public/GameModes/Nexus/<FileName>.h
+  .cpp → Source/DungeonForged/Private/GameModes/Nexus/<FileName>.cpp
+Always write the full path as a comment at the top of each file.
+
+─── ADFNexusGameMode extends AGameModeBase ────────────────────
+
+Properties:
+- TSubclassOf<ADFNexusPlayerController> PlayerControllerClass
+- TSubclassOf<ADFNexusHUD>              HUDClass
+- TSubclassOf<APawn>                    NexusPawnClass
+
+Initialization:
+- PostLogin:
+  → Load UDFSaveGame via UDFRunManager
+  → Get ETravelReason from UDFRunManager::GetArrivalReason()
+  → Spawn player at correct spawn point:
+    NewRun/FirstLaunch: entrance spawnpoint
+    Victory: center plaza spawnpoint
+    Defeat/Abandon: entrance spawnpoint
+  → Play arrival animation/camera via ETravelReason
+  → ProcessPendingUnlocks(Save)
+- ProcessPendingUnlocks(UDFSaveGame* Save):
+  → For each entry in Save->PendingUnlocks:
+    UnlockClass: add to Save->UnlockedClasses, reveal NPC
+    UnlockNPC: set ADFNexusNPCBase::bIsUnlocked = true
+    UnlockUpgrade: mark in CompletedUpgrades
+  → Clear PendingUnlocks, SaveGame
+  → Queue WBP_UnlockNotification for each unlock
+
+─── ADFNexusGameState extends AGameStateBase ──────────────────
+
+Properties (loaded from SaveGame on init):
+- int32 TotalRunsCompleted
+- int32 TotalRunsWon
+- int32 MetaXP
+- int32 MetaLevel
+- TArray<FName> UnlockedClasses
+- TArray<FName> UnlockedNPCs
+- TArray<FName> CompletedUpgrades
+
+Functions:
+- AddMetaXP(int32 Amount): MetaXP += Amount, CheckMetaLevelUp(), SaveGame
+- CheckMetaLevelUp():
+  → Read DT_NexusLevels for next threshold
+  → If MetaXP >= required: MetaLevel++, broadcast OnMetaLevelUp
+    → ProcessPendingUnlocks triggered by level-up rewards
+
+─── ADFNexusPlayerController ──────────────────────────────────
+- Input mode: GameAndUI (cursor visible, character moves freely)
+- Bindings: IA_Move, IA_Look, IA_Interact only
+- No ability, dodge, sprint, combat input
+- IA_Interact → talk to nearest NPC or activate Portal
+
+─── ADFNexusHUD extends AHUD ──────────────────────────────────
+- WBP_NexusHUD (MetaXP bar, MetaLevel, run history stats, gold)
+- WBP_InteractionPrompt (Prompt 24)
+- WBP_UnlockNotification queue
+
+─── ADFNexusNPCBase extends ACharacter ────────────────────────
+
+Properties:
+- FText NPCName, NPCDescription
+- UAnimMontage* IdleMontage, TalkMontage
+- bool bIsUnlocked = false
+- FName UnlockConditionRow     ← from DT_NexusUnlockConditions
+- UWidgetComponent* NameplateWidget
+- TSubclassOf<UUserWidget> ServiceWidgetClass
+
+Functions:
+- BeginPlay: SetActorHiddenInGame(!bIsUnlocked)
+- OnInteract: face player, PlayMontage(TalkMontage), create ServiceWidget
+- CheckUnlockCondition(UDFSaveGame* Save): bool
+  → Reads condition: RunsCompleted >= N, WinsCompleted >= N, MetaLevel >= N
+
+NPC Implementations:
+
+1. ADFNexusNPC_Blacksmith (Ferreiro — sempre desbloqueado):
+   WBP_Blacksmith:
+   - Upgrade de dano de arma (permanente por run): gasta MetaXP + Gold
+   - Reforge de raridade de item: gamble com Gold para subir tier
+   - DataTable: DT_BlacksmithUpgrades (RowName, MetaXPCost, GoldCost, GE aplicado)
+
+2. ADFNexusNPC_Sage (Sábio — unlock: 3 runs completas):
+   WBP_AbilityShrine:
+   - Aprender habilidade passiva permanente (aparece em toda run)
+   - Desbloquear nova branch de habilidades no DT_Abilities
+   - DataTable: DT_SageUnlocks
+
+3. ADFNexusNPC_Alchemist (Alquimista — unlock: 1 vitória):
+   WBP_Alchemy:
+   - Criar poções permanentes (começa cada run com X cargas)
+   - Combinar itens para meta-upgrades
+   - DataTable: DT_AlchemyRecipes (ingredientes → resultado)
+
+4. ADFNexusNPC_Chronicler (Cronista — sempre desbloqueado):
+   WBP_RunHistory:
+   - Histórico de todas as runs (de UDFSaveGame::RunHistory)
+   - Bestiário (inimigos encontrados, fraquezas descobertas)
+   - Estatísticas totais: kills lifetime, mortes, tempo jogado, ouro total
+
+5. ADFNexusNPC_Merchant (Mercador Permanente — unlock: 5 runs):
+   WBP_NexusMerchant (reutiliza WBP_Shop do Prompt 33):
+   - Estoque refresca a cada 3 runs
+   - Aceita MetaXP OU Gold
+   - Vende itens passivos permanentes (persistem entre runs)
+
+─── ADFRunPortal extends ADFInteractableBase ──────────────────
+
+Properties:
+- UNiagaraComponent* PortalVFX    ← sempre ativo, swirling portal
+- UPointLightComponent* PortalLight (cor muda por MetaLevel)
+
+Interact_Implementation:
+1. Open WBP_ClassSelection (fullscreen)
+2. Player selects class + reviews meta-upgrades
+3. Confirm → UDFWorldTransitionSubsystem::TravelToRun(SelectedClass)
+
+─── WBP_ClassSelection ────────────────────────────────────────
+
+Layout:
+- Left: TileView de classes desbloqueadas (WBP_ClassCard por classe)
+- Center: SceneCapture 3D preview do personagem selecionado
+- Right: stats base + passivas da classe + abilities iniciais
+- Bottom: "Iniciar Run" (disabled até escolher) + "Ver Upgrades"
+
+WBP_ClassCard:
+- UImage* ClassArt
+- UTextBlock* ClassName + breve descrição
+- UProgressBar* Bars de stats (Força, Int, Agi, Defesa)
+- Lock overlay se não desbloqueada (mostra condição de unlock)
+
+─── WBP_NexusHUD ──────────────────────────────────────────────
+- UTextBlock* MetaLevelText     ← "Nexus Nv. 7"
+- UProgressBar* MetaXPBar
+- UTextBlock* RunStats          ← "Runs: 23 | Vitórias: 8"
+- Área de notificações (WBP_UnlockNotification)
+
+─── WBP_UnlockNotification ────────────────────────────────────
+- UImage* UnlockIcon
+- UTextBlock* Title             ← "Nova Classe Desbloqueada!"
+- UTextBlock* Name              ← "Paladino"
+- Slide-in da direita, auto-dismiss após 4s
+- Fila: mostra um por vez
+
+─── FDFNexusLevelRow : FTableRowBase ──────────────────────────
+File: Public/GameModes/Nexus/DFNexusLevelData.h
+- int32 NexusLevel
+- int32 MetaXPRequired
+- FText UnlockDescription
+- FName UnlockNPCRow
+- FName UnlockClassRow
+- TArray<FName> UnlockUpgradeRows
+
+Output all .h and .cpp files with correct Public/Private paths.
+```
+
+---
+
+## ════════════════════════════════════════
+## 🌀 PROMPT 48 — WORLD TRANSITION SYSTEM
+## ════════════════════════════════════════
+
+```
+@ue-gameplay-framework
+@ue-world-level-streaming
+@ue-serialization-savegames
+@ue-ui-umg-slate
+@ue-gameplay-tags
+@ue-async-threading
+
+Create the World Transition System for DungeonForged UE 5.4.
+Handles all travel between Nexus ↔ Run, floor-to-floor checkpoints,
+loading screens temáticas e preservação de estado via GameInstance.
+Path convention:
+  .h  → Source/DungeonForged/Public/World/<FileName>.h
+  .cpp → Source/DungeonForged/Private/World/<FileName>.cpp
+Always write the full path as a comment at the top of each file.
+
+─── ETravelReason (enum) ──────────────────────────────────────
+File: Public/World/DFWorldTypes.h
+Values: NewRun, NextFloor, Victory, Defeat, AbandonRun, FirstLaunch
+
+─── UDFWorldTransitionSubsystem extends UGameInstanceSubsystem ─
+
+Properties:
+- ETravelReason PendingReason
+- FName         PendingClass
+- bool          bIsTransitioning = false
+- FString       NexusMapName = "Nexus"
+- FString       RunMapName   = "DungeonRun"
+
+Functions:
+
+TravelToRun(FName SelectedClass):
+  → Guard: if bIsTransitioning return
+  → bIsTransitioning = true
+  → PendingReason = NewRun, PendingClass = SelectedClass
+  → UDFRunManager::CaptureRunState() (fresh state)
+  → SaveCheckpoint(RunStart)
+  → UDFLoadingScreenSubsystem::ShowLoadingScreen(NewRun)
+  → UGameplayStatics::OpenLevel(World, RunMapName)
+
+TravelToNextFloor(int32 NextFloor):
+  → PendingReason = NextFloor
+  → UDFRunManager::CaptureRunState()
+  → SaveCheckpoint(FloorComplete)
+  → UDFLoadingScreenSubsystem::ShowLoadingScreen(NextFloor)
+  → OpenLevel(RunMapName) ← mesma map, GameMode reinicia o floor
+
+TravelToNexus(ETravelReason Reason):
+  → PendingReason = Reason
+  → FinalizeRunData(Reason)
+  → SaveCheckpoint(RunEnd)
+  → UDFLoadingScreenSubsystem::ShowLoadingScreen(Reason)
+  → OpenLevel(NexusMapName)
+
+FinalizeRunData(ETravelReason Reason):
+  → Get FDFRunSummary from ADFRunGameState
+  → Compute MetaXP:
+    Victory:  500 + (Floor * 50) + (Kills * 2)
+    Defeat:   100 + (Floor * 20) + (Kills * 1)
+    Abandon:  25  + (Floor * 5)
+  → UDFSaveGame: increment TotalRuns, update BestFloor, BestKills, TotalTimePlayed
+  → Add earned MetaXP to Save->MetaXP
+  → If Victory: evaluate unlock conditions → append to PendingUnlocks
+  → Serialize and write SaveGame to disk
+
+SaveCheckpoint(ECheckpointType Type):
+  → Serialize UDFRunManager::CurrentRunState to UDFSaveGame::LastCheckpoint
+  → Allows resume if game crashes between floors
+
+─── UDFLoadingScreenSubsystem extends UGameInstanceSubsystem ──
+
+Properties:
+- TSubclassOf<UUserWidget> LoadingScreenClass
+- UUserWidget* ActiveLoadingScreen
+- float MinLoadingTime = 2.0f
+- float LoadingStartTime
+
+Functions:
+- ShowLoadingScreen(ETravelReason Reason):
+  → Create widget (ZOrder=100), configure by reason:
+    NewRun:    título "Gerando Dungeon..." + lore da classe + dica
+    NextFloor: título "Andar {N}..." + ícones dos inimigos do próximo andar
+    Victory:   título "Retornando ao Nexus..." + música de vitória
+    Defeat:    título "Retornando ao Nexus..." + música sombria + frase motivacional
+  → Fake progress bar: lerp 0→0.9 em 1.5s, snap 1.0 no PostLoadMap
+  → Register FCoreUObjectDelegates::PostLoadMapWithWorld → HideLoadingScreen
+
+- HideLoadingScreen():
+  → Enforce MinLoadingTime: WaitDelay se necessário
+  → Fade out 0.5s → RemoveFromParent
+  → bIsTransitioning = false
+
+─── WBP_LoadingScreen extends UUserWidget ─────────────────────
+
+Layout base (todos os tipos):
+- UImage* BackgroundArt        ← arte temática (dungeon/nexus) por Reason
+- UImage* LogoImage            ← logo DungeonForged
+- UTextBlock* LoadingTitle     ← "Gerando Dungeon..." / "VITÓRIA!" etc.
+- UTextBlock* FlavorText       ← lore da classe ou lore do dungeon
+- UProgressBar* LoadingBar     ← smooth fill com stutter realista aos 85%
+- UTextBlock* TipLabel + UTextBlock* TipText ← dica aleatória de DT_Tips
+
+Variante NextFloor (adicional):
+- UHorizontalBox* EnemyPreview ← 3 ícones de inimigos do próximo andar
+- UTextBlock* FloorNumber      ← "ANDAR 4 / 10"
+- UTextBlock* FloorDifficulty  ← "⚠ Andar Élite" / "💀 BOSS"
+- UProgressBar* RunProgress    ← barra de progresso geral da run
+
+Animações:
+- Entrada: fade in 0.3s
+- LoadingBar: fill suave, pausa em 85% (stutter realista)
+- Logo: breathing scale animation sutil
+- Saída: fade out 0.5s
+
+─── UDFRunManager — extensão para GameInstance ────────────────
+Extend UDFRunManager (Prompt 13):
+
+New Properties:
+- ETravelReason LastTravelReason
+- FName         PendingSelectedClass
+- FDFRunState   RestoredRunState    ← snapshot completo da run
+
+New Functions:
+- CaptureRunState():
+  → Serialize: CurrentFloor, Gold, XP, Level, EquippedItems,
+    GrantedAbilities, Health%, Mana%, ComboPoints, AbilityHistory
+- RestoreRunState(ADFPlayerCharacter* Player):
+  → Called by ADFRunGameMode::PostLogin on NextFloor travel
+  → Re-apply: Health/Mana via GE, gold via RunManager, re-grant abilities
+  → Skip restore if reason == NewRun
+- GetArrivalReason(): ETravelReason
+- SetPendingClass(FName ClassName)
+
+─── Map World Settings ────────────────────────────────────────
+Document as comments in UDFWorldTransitionSubsystem:
+
+Map "Nexus":
+  GameMode:             ADFNexusGameMode
+  DefaultPawnClass:     ADFNexusPawn (sem combate, animações relaxadas)
+  PlayerControllerClass: ADFNexusPlayerController
+  Sky:                  sempre entardecer (eternal golden hour)
+  Ambient:              MetaSound ambiente místico/tranquilo
+
+Map "DungeonRun":
+  GameMode:             ADFRunGameMode
+  DefaultPawnClass:     ADFPlayerCharacter
+  PlayerControllerClass: ADFRunPlayerController
+  NavMesh:              regenerado após PCG geração do dungeon
+  Sky:                  nenhum (dungeon subterrâneo, só luz artificial)
+  Ambient:              MetaSound dungeon (água pingando, ecos distantes)
+
+─── Fluxo Completo do Jogo (State Machine) ────────────────────
+Document as block comment in UDFWorldTransitionSubsystem.cpp:
+
+/*
+  PRIMEIRO LAUNCH
+        ↓
+  [Nexus — ETravelReason::FirstLaunch]
+  ADFNexusGameMode → Ferreiro + Cronista desbloqueados
+        ↓  (Portal → WBP_ClassSelection → Confirmar)
+  TravelToRun(ClassName) → LoadingScreen "Gerando Dungeon..."
+        ↓
+  [DungeonRun — Floor 1]
+  ADFRunGameMode::PostLogin → InitializePlayerFromClass
+        ↓
+  Combate → Loot → Floor Cleared
+        ↓
+  BetweenFloorSequence:
+    LevelUp → AbilitySelection → RandomEvent → FloorTransition card
+        ↓
+  TravelToNextFloor(2) → LoadingScreen "Andar 2..."
+        ↓
+  ... Andares 2-9 ...
+        ↓
+  [Floor 10 — Boss]
+  ADFBossTriggerVolume → Boss encounter
+        ↓
+  ┌─── Boss derrotado ────────────────┬─── Jogador morreu ───────────────┐
+  TriggerVictory()              TriggerDefeat()                AbandonRun()
+  WBP_VictoryScreen             WBP_DefeatScreen               WBP_PauseMenu
+  WaitDelay(5s)                 WaitDelay(5s)                  Confirm
+        ↓                             ↓                               ↓
+  FinalizeRunData(Victory)      FinalizeRunData(Defeat)    FinalizeRunData(Abandon)
+  MetaXP: 500 + bonuses         MetaXP: 100 + bonuses      MetaXP: 25 + bonuses
+  Check unlocks → Pending       Sem unlocks de vitória      Sem unlocks
+        ↓                             ↓                               ↓
+  LoadingScreen "Vitória!"      LoadingScreen "Retornando..." LoadingScreen
+        ↓                             ↓                               ↓
+  [Nexus — ETravelReason::Victory/Defeat/Abandon]
+  ADFNexusGameMode::PostLogin
+  → ProcessPendingUnlocks()
+  → SpawnAtCorrectPoint()
+  → WBP_UnlockNotification queue
+        ↓
+  Player explora Nexus:
+  Ferreiro → Sábio → Alquimista → Mercador → Cronista → Portal
+        ↓
+  Loop → Nova run
+*/
+
+Output all .h and .cpp files with correct Public/Private paths.
+```
+
+---
+
 ## 📊 ÍNDICE COMPLETO — PARTE 2
 
 | Prompt | Sistema | Prioridade | Pasta |
@@ -1673,14 +2203,19 @@ Output all .h and .cpp with correct Public/Private paths.
 | 43 | Networking & Replication | 🟢 Baixa | `Network/` |
 | 44 | Performance & Optimization | 🟢 Baixa | `Performance/` |
 | 45 | Localization & Accessibility | 🟢 Baixa | `Localization/` |
+| **46** | **Run GameMode & GameState** | **🔴 Alta** | `GameModes/Run/` |
+| **47** | **Nexus Hub GameMode + World** | **🔴 Alta** | `GameModes/Nexus/` |
+| **48** | **World Transition System** | **🔴 Alta** | `World/` |
 
-**Ordem recomendada — Parte 2:**
+**Ordem recomendada — Parte 2 completa:**
 ```
-31 → 32 → 33 → 34 → 38 → 35 → 36 → 37 → 39 → 40 → 41 → 42 → 43 → 44 → 45
+48 → 46 → 47 → 31 → 32 → 33 → 34 → 38 → 35 → 36 → 37 → 39 → 40 → 41 → 42 → 43 → 44 → 45
 ```
+> ⚠️ Prompts **46, 47, 48** devem ser executados **antes** de todos os outros da Parte 2,
+> pois definem a estrutura de GameMode que os sistemas dependem.
 
-> ⚠️ Sempre execute o **Prompt 0** (do arquivo Parte 1) antes de qualquer prompt deste arquivo.
+> ⚠️ Sempre execute o **Prompt 0** (arquivo Parte 1) antes de qualquer prompt deste arquivo.
 
 ---
 
-*DungeonForged — Cursor Prompts PARTE 2 | v1.0 | Prompts 31–45 | Alta + Média + Baixa Prioridade*
+*DungeonForged — Cursor Prompts PARTE 2 | v2.0 | Prompts 31–48 | GameModes + Alta + Média + Baixa*

@@ -4,6 +4,7 @@
 #include "CoreMinimal.h"
 #include "Data/DFDataTableStructs.h"
 #include "GameFramework/Character.h"
+#include "GameplayEffectTypes.h"
 #include "AbilitySystemInterface.h"
 #include "GenericTeamAgentInterface.h"
 #include "ADFEnemyBase.generated.h"
@@ -124,6 +125,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Enemy")
 	float GetCachedExperienceReward() const { return CachedExperienceReward; }
 
+	/**
+	 * Server: last damaging hit (GAS). Used to credit XP; not replicated.
+	 * Call from UDFAttributeSet on incoming health damage, or from tests.
+	 */
+	void RegisterDamageFromContext(const FGameplayEffectContextHandle& Ctx);
+
 protected:
 	void InitAbilityAndBindHealth();
 	void UnbindAttributeDelegates();
@@ -166,6 +173,9 @@ protected:
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|Enemy")
 	float CachedExperienceReward = 0.f;
+
+	/** Server-only: who last applied damage (effect causer / instigator). */
+	TWeakObjectPtr<AActor> LastDamageAttacker;
 
 	TObjectPtr<UBehaviorTree> CachedAIBehaviorTree = nullptr;
 	FGenericTeamId TeamId;
