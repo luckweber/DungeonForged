@@ -1,6 +1,7 @@
 // Source/DungeonForged/Private/ADFDungeonManager.cpp
 
 #include "ADFDungeonManager.h"
+#include "UI/Minimap/ADFMinimapRoom.h"
 #include "Characters/ADFPlayerState.h"
 #include "Characters/ADFEnemyBase.h"
 #include "UI/UDFAbilitySelectionSubsystem.h"
@@ -20,8 +21,56 @@ void UDFDungeonManager::Deinitialize()
 	{
 		W->GetTimerManager().ClearTimer(PCGFallbackTimer);
 	}
+	RegisteredMinimapRooms.Reset();
+	CurrentPlayerMinimapRoom = nullptr;
 	ClearFloorActors();
 	Super::Deinitialize();
+}
+
+void UDFDungeonManager::RegisterMinimapRoom(ADFMinimapRoom* const Room)
+{
+	if (Room)
+	{
+		RegisteredMinimapRooms.AddUnique(Room);
+	}
+}
+
+void UDFDungeonManager::UnregisterMinimapRoom(ADFMinimapRoom* const Room)
+{
+	if (Room)
+	{
+		RegisteredMinimapRooms.Remove(Room);
+	}
+	if (CurrentPlayerMinimapRoom == Room)
+	{
+		CurrentPlayerMinimapRoom = nullptr;
+	}
+}
+
+void UDFDungeonManager::NotifyMinimapRoomRevealed(ADFMinimapRoom* const Room)
+{
+	if (Room)
+	{
+		OnRoomRevealed.Broadcast(Room);
+	}
+}
+
+void UDFDungeonManager::NotifyMinimapRoomVisited(ADFMinimapRoom* const Room)
+{
+	if (Room)
+	{
+		OnRoomVisited.Broadcast(Room);
+	}
+}
+
+void UDFDungeonManager::SetPlayerCurrentMinimapRoom(ADFMinimapRoom* const Room)
+{
+	if (CurrentPlayerMinimapRoom == Room)
+	{
+		return;
+	}
+	CurrentPlayerMinimapRoom = Room;
+	OnPlayerMinimapRoomChanged.Broadcast(Room);
 }
 
 void UDFDungeonManager::StartFloor(int32 FloorNumber)

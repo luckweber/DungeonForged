@@ -28,6 +28,7 @@ class UDFShopWidget;
 class UDFTrapDetectionComponent;
 class UDFEquipmentComponent;
 class UDFScreenEffectsComponent;
+class UDFMinimapFogComponent;
 class USkeletalMeshComponent;
 
 UCLASS(Blueprintable)
@@ -126,6 +127,10 @@ public:
 	/** Local screen post-process, hit-reaction, death vignette, berserk, etc. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|FX")
 	TObjectPtr<UDFScreenEffectsComponent> ScreenEffects = nullptr;
+
+	/** Minimap fog-of-war: room overlap → reveal/visit, current room for icon pulse. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Minimap")
+	TObjectPtr<UDFMinimapFogComponent> MinimapFog = nullptr;
 
 	/** Paper-doll / GAS: slot-based equipping, modular meshes, leader-pose. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Equipment")

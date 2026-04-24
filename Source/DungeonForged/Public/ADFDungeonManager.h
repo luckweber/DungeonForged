@@ -6,6 +6,7 @@
 #include "CoreMinimal.h"
 #include "Data/DFDataTableStructs.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "UI/Minimap/ADFMinimapRoom.h"
 
 class AActor;
 class UDataTable;
@@ -17,6 +18,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnFloorCleared);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnBossSpawned, FName, BossRowName);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRunCompleted);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPlayerDied, AActor*, Player);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDFMinimapRoom, ADFMinimapRoom*, InRoom);
 
 UCLASS(BlueprintType)
 class DUNGEONFORGED_API UDFDungeonManager : public UGameInstanceSubsystem
@@ -58,6 +60,28 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "DF|Dungeon")
 	void StartFloor(int32 FloorNumber);
+
+	/** Minimap: register room actors; WBP_Minimap binds to `OnRoomRevealed` / `OnRoomVisited` / `OnPlayerMinimapRoomChanged`. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Minimap")
+	void RegisterMinimapRoom(ADFMinimapRoom* Room);
+
+	UFUNCTION(BlueprintCallable, Category = "DF|Minimap")
+	void UnregisterMinimapRoom(ADFMinimapRoom* Room);
+
+	/** Called from `ADFMinimapRoom::RevealRoom` (server/client local). */
+	UFUNCTION(BlueprintCallable, Category = "DF|Minimap")
+	void NotifyMinimapRoomRevealed(ADFMinimapRoom* Room);
+
+	/** Called from `ADFMinimapRoom::VisitRoom`. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Minimap")
+	void NotifyMinimapRoomVisited(ADFMinimapRoom* Room);
+
+	/** Called from `UDFMinimapFogComponent` so the current-room icon can pulse. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Minimap")
+	void SetPlayerCurrentMinimapRoom(ADFMinimapRoom* Room);
+
+	UFUNCTION(BlueprintPure, Category = "DF|Minimap")
+	ADFMinimapRoom* GetPlayerCurrentMinimapRoom() const { return CurrentPlayerMinimapRoom; }
 
 	UFUNCTION(BlueprintCallable, Category = "DF|Dungeon")
 	void GenerateDungeon();
@@ -113,6 +137,26 @@ public:
 	/** User naming: "OnRunFailed" in spec — C++ event type FOnPlayerDied, delegate instance OnRunFailed. */
 	UPROPERTY(BlueprintAssignable, Category = "DF|Dungeon|Events", meta = (DisplayName = "On Run Failed"))
 	FOnPlayerDied OnRunFailed;
+
+	/** Fires when a room is revealed (enter overlap or script). WBP_Minimap: add/update icon. */
+	UPROPERTY(BlueprintAssignable, Category = "DF|Minimap|Events")
+	FOnDFMinimapRoom OnRoomRevealed;
+
+	/** Fires when a room is marked visited (exit overlap or script). */
+	UPROPERTY(BlueprintAssignable, Category = "DF|Minimap|Events")
+	FOnDFMinimapRoom OnRoomVisited;
+
+	/** Fires when the local player's current `ADFMinimapRoom` changes (fog overlap). */
+	UPROPERTY(BlueprintAssignable, Category = "DF|Minimap|Events")
+	FOnDFMinimapRoom OnPlayerMinimapRoomChanged;
+
+	/** All `ADFMinimapRoom` that registered (BeginPlay). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Minimap")
+	TArray<TObjectPtr<ADFMinimapRoom>> RegisteredMinimapRooms;
+
+	/** Pawn's current room; driven by `UDFMinimapFogComponent`. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Minimap")
+	TObjectPtr<ADFMinimapRoom> CurrentPlayerMinimapRoom = nullptr;
 
 protected:
 	bool bWaitingForPCG = false;

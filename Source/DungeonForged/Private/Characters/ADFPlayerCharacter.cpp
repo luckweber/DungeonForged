@@ -31,6 +31,7 @@
 #include "Equipment/UDFEquipmentComponent.h"
 #include "FX/UDFHitStopSubsystem.h"
 #include "FX/UDFScreenEffectsComponent.h"
+#include "UI/Minimap/UDFMinimapFogComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDFPlayer, Log, All);
@@ -68,6 +69,9 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 	DFAudio->SetupAttachment(RootComponent);
 
 	ScreenEffects = CreateDefaultSubobject<UDFScreenEffectsComponent>(TEXT("ScreenEffects"));
+
+	MinimapFog = CreateDefaultSubobject<UDFMinimapFogComponent>(TEXT("MinimapFog"));
+	MinimapFog->SetupAttachment(RootComponent);
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
