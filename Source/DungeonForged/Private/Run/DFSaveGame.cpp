@@ -5,7 +5,7 @@
 
 namespace
 {
-	constexpr int32 GDFSaveLatestVersion = 1;
+	constexpr int32 GDFSaveLatestVersion = 2;
 }
 
 UDFSaveGame* UDFSaveGame::Load()
@@ -15,6 +15,14 @@ UDFSaveGame* UDFSaveGame::Load()
 		USaveGame* Loaded = UGameplayStatics::LoadGameFromSlot(UDFSaveGame::GetSlotName(), UDFSaveGame::UserIndex);
 		if (UDFSaveGame* CastSave = Cast<UDFSaveGame>(Loaded))
 		{
+			if (CastSave->SaveVersion < 2)
+			{
+				CastSave->PreferredLanguage = EDFLanguage::PortugueseBrazil;
+				CastSave->PreferredCultureCode = TEXT("pt-BR");
+				CastSave->AccessibilitySettings = FDFAccessibilitySettings();
+				// v2 default VoiceVolume; struct ctor covers new fields.
+				CastSave->SavedKeyBindings.Empty();
+			}
 			if (CastSave->SaveVersion < GDFSaveLatestVersion)
 			{
 				CastSave->SaveVersion = GDFSaveLatestVersion;

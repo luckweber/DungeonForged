@@ -10,9 +10,11 @@
 #include "GameFramework/PlayerController.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/Engine.h"
+#include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 #include "Components/SceneComponent.h"
+#include "Localization/UDFAccessibilitySubsystem.h"
 #include "Math/UnrealMathUtility.h"
 
 namespace
@@ -21,6 +23,22 @@ namespace
 	constexpr float kLowVigMin = 0.3f;
 	constexpr float kLowVigMax = 0.7f;
 	constexpr float kLowPulseSec = 1.5f;
+
+	float DF_VfxScaleFromWorld(UWorld* const W)
+	{
+		if (!W)
+		{
+			return 1.f;
+		}
+		if (UGameInstance* const GI = W->GetGameInstance())
+		{
+			if (const UDFAccessibilitySubsystem* A11y = GI->GetSubsystem<UDFAccessibilitySubsystem>())
+			{
+				return A11y->GetVFXIntensityScale();
+			}
+		}
+		return 1.f;
+	}
 }
 
 UDFScreenEffectsComponent::UDFScreenEffectsComponent()
@@ -369,8 +387,9 @@ void UDFScreenEffectsComponent::OnDeath()
 
 void UDFScreenEffectsComponent::TeleportOrBlink()
 {
-	FlashScreen(FLinearColor::White, 0.05f, 0.6f);
-	ChromaticAberrationPulse(0.2f, 0.5f);
+	const float S = DF_VfxScaleFromWorld(GetWorld());
+	FlashScreen(FLinearColor::White, 0.05f, 0.6f * S);
+	ChromaticAberrationPulse(0.2f, 0.5f * S);
 }
 
 void UDFScreenEffectsComponent::ApplyHitFromCombat(
@@ -379,6 +398,7 @@ void UDFScreenEffectsComponent::ApplyHitFromCombat(
 	AActor* const /*InstigatorActor*/,
 	APlayerController* const PC)
 {
+	const float S = DF_VfxScaleFromWorld(GetWorld());
 	switch (Band)
 	{
 	case EDFHitFeedbackBand::Light:
@@ -390,12 +410,12 @@ void UDFScreenEffectsComponent::ApplyHitFromCombat(
 		break;
 	case EDFHitFeedbackBand::Critical:
 		DamageReceived(DamagePercent);
-		ChromaticAberrationPulse(0.3f, FMath::Min(1.f, DamagePercent * 2.f));
+		ChromaticAberrationPulse(0.3f, FMath::Min(1.f, DamagePercent * 2.f) * S);
 		UDFCameraShakeFunctionLibrary::PlayHeavyHitOnOwner(this, PC);
 		break;
 	case EDFHitFeedbackBand::Knockback:
 		DamageReceived(DamagePercent);
-		ChromaticAberrationPulse(0.4f, FMath::Min(2.f, DamagePercent * 2.5f));
+		ChromaticAberrationPulse(0.4f, FMath::Min(2.f, DamagePercent * 2.5f) * S);
 		UDFCameraShakeFunctionLibrary::PlayBossSlamOnOwner(this, PC);
 		break;
 	default: break;

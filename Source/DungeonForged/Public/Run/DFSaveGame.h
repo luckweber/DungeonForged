@@ -2,6 +2,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Localization/DFAccessibilityData.h"
+#include "Localization/DFLocalizationTypes.h"
 #include "GameFramework/SaveGame.h"
 #include "DFSaveGame.generated.h"
 
@@ -17,7 +19,22 @@ class DUNGEONFORGED_API UDFSaveGame : public USaveGame
 public:
 	/** Bumped when fields change; used for future migrations. */
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta")
-	int32 SaveVersion = 1;
+	int32 SaveVersion = 2;
+
+	/** @see UDFLocalizationSubsystem */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Settings|Localization")
+	EDFLanguage PreferredLanguage = EDFLanguage::PortugueseBrazil;
+
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Settings|Localization")
+	FString PreferredCultureCode = TEXT("pt-BR");
+
+	/** @see UDFAccessibilitySubsystem */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Settings|Accessibility")
+	FDFAccessibilitySettings AccessibilitySettings;
+
+	/** Enhanced Input mapping name → FKey::ToString() for runtime remap reapply. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Settings|Input")
+	TMap<FName, FString> SavedKeyBindings;
 
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta")
 	int32 HighScore = 0;

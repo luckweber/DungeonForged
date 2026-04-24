@@ -1,9 +1,11 @@
 // Source/DungeonForged/Private/FX/UDFHitStopSubsystem.cpp
 #include "FX/UDFHitStopSubsystem.h"
+#include "Engine/GameInstance.h"
 #include "Engine/World.h"
-#include "Kismet/GameplayStatics.h"
 #include "GameFramework/Actor.h"
 #include "HAL/PlatformTime.h"
+#include "Kismet/GameplayStatics.h"
+#include "Localization/UDFAccessibilitySubsystem.h"
 
 float UDFHitStopSubsystem::SafeGlobalDilation(const float Requested)
 {
@@ -55,6 +57,16 @@ void UDFHitStopSubsystem::TriggerHitStop(const float Duration, const float TimeD
 	if (!W || W->bIsTearingDown)
 	{
 		return;
+	}
+	if (UGameInstance* const GI = W->GetGameInstance())
+	{
+		if (const UDFAccessibilitySubsystem* const A11y = GI->GetSubsystem<UDFAccessibilitySubsystem>())
+		{
+			if (A11y->GetSettings().bReduceMotion)
+			{
+				return;
+			}
+		}
 	}
 	const double Now = FPlatformTime::Seconds();
 	const double Remaining = bInHitStop ? FMath::Max(0.0, static_cast<double>(HitStopEndRealTime) - Now) : 0.0;
