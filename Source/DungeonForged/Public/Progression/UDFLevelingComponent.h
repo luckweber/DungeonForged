@@ -94,6 +94,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Leveling")
 	UDFAttributeSet* GetOwnerAttributeSet() const;
 
+#if !UE_BUILD_SHIPPING
+	/** Development: run `LevelUp` N times (server / authority). */
+	void Dev_CheatLevelUp(int32 Times = 1);
+
+	/**
+	 * Development: jump to level N, re-apply current row stat scaling and tags.
+	 * If N is below current, strips level-scaling and reapplies; ability unlocks for skipped levels are not re-granted.
+	 */
+	void Dev_CheatSetLevel(int32 NewLevel);
+#endif
+
 	UPROPERTY(EditAnywhere, Category = "DF|Leveling|VFX", meta = (DisplayName = "Level Up VFX (optional)"))
 	TObjectPtr<UNiagaraSystem> LevelUpNiagara = nullptr;
 

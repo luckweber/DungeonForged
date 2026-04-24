@@ -29,6 +29,7 @@ class UDFTrapDetectionComponent;
 class UDFEquipmentComponent;
 class UDFScreenEffectsComponent;
 class UDFMinimapFogComponent;
+class UDFDebugComponent;
 class USkeletalMeshComponent;
 
 UCLASS(Blueprintable)
@@ -131,6 +132,10 @@ public:
 	/** Minimap fog-of-war: room overlap → reveal/visit, current room for icon pulse. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Minimap")
 	TObjectPtr<UDFMinimapFogComponent> MinimapFog = nullptr;
+
+	/** Cheats and dev overlays call into this; heavy work is `df.*` and non-shipping. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Debug")
+	TObjectPtr<UDFDebugComponent> DFDebug = nullptr;
 
 	/** Paper-doll / GAS: slot-based equipping, modular meshes, leader-pose. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Equipment")

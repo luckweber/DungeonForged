@@ -158,6 +158,20 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Minimap")
 	TObjectPtr<ADFMinimapRoom> CurrentPlayerMinimapRoom = nullptr;
 
+#if !UE_BUILD_SHIPPING
+	/** Development: clear tracked enemies and run `PerformFloorCleared` (authority). */
+	void Dev_ForceFloorCleared();
+
+	/** Development: `RevealRoom` on every registered minimap room. */
+	void Dev_RevealAllMinimapRooms();
+
+	/** Development: spawn `Count` enemies in a ring around `Anchor` using `EnemyDataTable` row. */
+	void Dev_SpawnEnemiesAt(FName RowName, int32 Count, AActor* Anchor);
+
+	/** Development: single spawn from row at `Anchor` (e.g. boss). */
+	void Dev_SpawnAt(FName RowName, AActor* Anchor);
+#endif
+
 protected:
 	bool bWaitingForPCG = false;
 	FDFDungeonFloorRow PendingFloorRow;

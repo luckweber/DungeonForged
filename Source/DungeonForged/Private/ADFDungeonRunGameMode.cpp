@@ -2,12 +2,14 @@
 
 #include "ADFDungeonRunGameMode.h"
 #include "ADFDungeonManager.h"
+#include "Characters/ADFPlayerController.h"
 #include "Engine/GameInstance.h"
 
 ADFDungeonRunGameMode::ADFDungeonRunGameMode()
 	: bAutoStartOnBeginPlay(true)
 	, StartFloorNumber(1)
 {
+	PlayerControllerClass = ADFPlayerController::StaticClass();
 }
 
 void ADFDungeonRunGameMode::BeginPlay()

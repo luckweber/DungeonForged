@@ -472,3 +472,62 @@ void UDFLevelingComponent::Server_SpendAttributePoint_Implementation(
 {
 	SpendAttributePoint(Stat, Amount);
 }
+
+#if !UE_BUILD_SHIPPING
+void UDFLevelingComponent::Dev_CheatLevelUp(int32 Times)
+{
+	if (Times <= 0)
+	{
+		return;
+	}
+	if (APlayerState* const PS = Cast<APlayerState>(GetOwner()); !PS || !PS->HasAuthority())
+	{
+		return;
+	}
+	for (int32 i = 0; i < Times; ++i)
+	{
+		if (CurrentLevel >= MaxLevel)
+		{
+			break;
+		}
+		LevelUp();
+	}
+}
+
+void UDFLevelingComponent::Dev_CheatSetLevel(const int32 NewLevel)
+{
+	if (APlayerState* const PS = Cast<APlayerState>(GetOwner()); !PS || !PS->HasAuthority())
+	{
+		return;
+	}
+	const int32 Target = FMath::Clamp(NewLevel, 1, MaxLevel);
+	if (Target > CurrentLevel)
+	{
+		while (CurrentLevel < Target)
+		{
+			LevelUp();
+		}
+		return;
+	}
+	if (Target < CurrentLevel)
+	{
+		if (UAbilitySystemComponent* const ASC = GetOwnerASC())
+		{
+			if (LevelScalingHandle.IsValid())
+			{
+				ASC->RemoveActiveGameplayEffect(LevelScalingHandle, 1);
+				LevelScalingHandle = FActiveGameplayEffectHandle();
+			}
+		}
+		CurrentLevel = Target;
+		CurrentXP = 0;
+		if (const FDFLevelTableRow* const R = FindRowForLevel(CurrentLevel))
+		{
+			ApplyLevelStatScalingForCurrentRow(*R);
+		}
+		UpdateCharacterLevelAttribute();
+		UpdateLevelGameplayTags();
+		BroadcastXP();
+	}
+}
+#endif

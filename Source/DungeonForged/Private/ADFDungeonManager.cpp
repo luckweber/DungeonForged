@@ -539,3 +539,67 @@ FName UDFDungeonManager::PickWeightedRandomEnemyRow(const TArray<FName>& RowName
 	}
 	return RowNames[RowNames.Num() - 1];
 }
+
+#if !UE_BUILD_SHIPPING
+void UDFDungeonManager::Dev_ForceFloorCleared()
+{
+	if (!IsAuthorityWorld())
+	{
+		return;
+	}
+	bFloorCleared = false;
+	ClearFloorActors();
+	PerformFloorCleared();
+}
+
+void UDFDungeonManager::Dev_RevealAllMinimapRooms()
+{
+	for (TObjectPtr<ADFMinimapRoom> R : RegisteredMinimapRooms)
+	{
+		if (R)
+		{
+			R->RevealRoom();
+		}
+	}
+}
+
+void UDFDungeonManager::Dev_SpawnEnemiesAt(const FName RowName, int32 const Count, AActor* const Anchor)
+{
+	if (!IsAuthorityWorld() || !EnemyDataTable || RowName.IsNone() || !Anchor || !GetWorld())
+	{
+		return;
+	}
+	if (const FDFEnemyTableRow* const ER = EnemyDataTable->FindRow<FDFEnemyTableRow>(RowName, TEXT("UDFDungeonManager::Dev_SpawnEnemiesAt"), false))
+	{
+		if (!ER->EnemyClass)
+		{
+			return;
+		}
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+		const FVector Base = Anchor->GetActorLocation();
+		const int32 N = FMath::Max(1, Count);
+		for (int32 i = 0; i < N; ++i)
+		{
+			const float Ang = (2.f * 3.14159265f * static_cast<float>(i)) / static_cast<float>(N);
+			const FVector Off(FMath::Cos(Ang) * 400.f, FMath::Sin(Ang) * 400.f, 0.f);
+			const FTransform T(FRotator::ZeroRotator, Base + Off);
+			if (AActor* const Sp = GetWorld()->SpawnActor<AActor>(ER->EnemyClass, T, Params))
+			{
+				RegisterSpawnedEnemy(Sp);
+				if (ADFEnemyBase* const Ch = Cast<ADFEnemyBase>(Sp))
+				{
+					Ch->InitializeFromDataTable(EnemyDataTable, RowName);
+				}
+			}
+		}
+		EnemiesRemaining = SpawnedEnemies.Num();
+		bFloorCleared = false;
+	}
+}
+
+void UDFDungeonManager::Dev_SpawnAt(const FName RowName, AActor* const Anchor)
+{
+	Dev_SpawnEnemiesAt(RowName, 1, Anchor);
+}
+#endif
