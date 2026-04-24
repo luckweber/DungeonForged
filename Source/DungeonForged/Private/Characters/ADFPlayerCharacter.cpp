@@ -13,6 +13,7 @@
 #include "Combat/UDFComboPointsComponent.h"
 #include "Combat/UDFMeleeTraceComponent.h"
 #include "Interaction/UDFInteractionComponent.h"
+#include "Dungeon/Traps/UDFTrapDetectionComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "AbilitySystemComponent.h"
 #include "EnhancedInputComponent.h"
@@ -50,6 +51,7 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 	Combo = CreateDefaultSubobject<UDFComboComponent>(TEXT("Combo"));
 	ComboPoints = CreateDefaultSubobject<UDFComboPointsComponent>(TEXT("ComboPoints"));
 	Interaction = CreateDefaultSubobject<UDFInteractionComponent>(TEXT("InteractionComponent"));
+	TrapDetection = CreateDefaultSubobject<UDFTrapDetectionComponent>(TEXT("TrapDetection"));
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);

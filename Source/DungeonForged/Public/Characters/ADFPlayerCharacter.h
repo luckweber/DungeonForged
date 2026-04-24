@@ -22,6 +22,7 @@ class UInputMappingContext;
 class UAbilitySystemComponent;
 class ADFMerchantActor;
 class UDFShopWidget;
+class UDFTrapDetectionComponent;
 
 UCLASS(Blueprintable)
 class DUNGEONFORGED_API ADFPlayerCharacter : public ACharacter, public IAbilitySystemInterface
@@ -107,6 +108,10 @@ public:
 	/** Traces and sphere overlap: interact with IDFInteractable. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Interaction")
 	TObjectPtr<UDFInteractionComponent> Interaction;
+
+	/** Reveals hidden trap outlines / optional indicator widgets. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Traps|Sense")
+	TObjectPtr<UDFTrapDetectionComponent> TrapDetection;
 
 	/** Set when ClientOpenMerchantShop creates the shop; cleared in UDFShopWidget::CloseShop. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|UI|Shop")
