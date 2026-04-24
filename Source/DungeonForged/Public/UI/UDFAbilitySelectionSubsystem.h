@@ -73,8 +73,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|Rogue")
 	void SkipSelection(ADFPlayerCharacter* Player);
 
-protected:
+	/**
+	 * Refreshes `PlayerAbilityHistory` from `UDFRunManager` (e.g. after `GrantSelectedAbility` from other systems
+	 * such as random events).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DF|Rogue")
 	void SyncHistoryFromRun();
+
+protected:
 	UDataTable* ResolveAbilityTable() const;
 
 	/** All full-screen offer UIs on this world (co-op: one per local player in PIE, etc.). */

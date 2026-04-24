@@ -6,6 +6,8 @@
 #include "AbilitySystemComponent.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "GAS/UDFAttributeSet.h"
+#include "Engine/DataTable.h"
+#include "Events/UDFRandomEventSubsystem.h"
 #include "UI/UDFAbilitySelectionWidget.h"
 #include "UI/UDFAbilitySelectionSubsystem.h"
 #include "Blueprint/UserWidget.h"
@@ -236,4 +238,29 @@ void ADFPlayerState::OnRep_ReplicatedRunGold()
 {
 	UE_LOG(LogDFPlayerState, Verbose, TEXT("OnRep_ReplicatedRunGold %s | Gold=%d"), *GetName(), ReplicatedRunGold);
 	OnReplicatedRunGold.Broadcast(ReplicatedRunGold);
+}
+
+void ADFPlayerState::Server_ExecuteRandomEventChoice_Implementation(FDFEventChoice Choice, FName EventRowName)
+{
+	ADFPlayerCharacter* const Ch = GetPawn() ? Cast<ADFPlayerCharacter>(GetPawn()) : nullptr;
+	if (!IsValid(Ch) || !GetWorld())
+	{
+		return;
+	}
+	if (UDFRandomEventSubsystem* const Ev = GetWorld()->GetSubsystem<UDFRandomEventSubsystem>())
+	{
+		Ev->ExecuteChoice(Choice, Ch, EventRowName);
+		if (UDataTable* const DT = Ev->EventTable)
+		{
+			if (const FDFRandomEventRow* const R = DT->FindRow<FDFRandomEventRow>(EventRowName, TEXT("Server_ExecuteRandomEventChoice"), false))
+			{
+				Ev->MarkEventUsed(EventRowName, R->bCanRepeat);
+			}
+		}
+	}
+}
+
+bool ADFPlayerState::Server_ExecuteRandomEventChoice_Validate(FDFEventChoice /*Choice*/, FName /*EventRowName*/)
+{
+	return true;
 }

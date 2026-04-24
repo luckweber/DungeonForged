@@ -47,6 +47,13 @@ struct DUNGEONFORGED_API FDFRunState
 	/** FPlatformTime::Seconds() when the run started (stable across level travel). */
 	UPROPERTY(BlueprintReadOnly, Category = "Run")
 	float RunStartTime = 0.f;
+
+	/**
+	 * Global multiplier for enemy outgoing damage (random events, curses).
+	 * Spawners/AI that compute damage can multiply by this; default 1.0.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Run")
+	float EnemyOutgoingDamageScale = 1.f;
 };
 
 /** GameInstance subsystem: run state, DT_Classes / DT_Abilities, meta save @see UDFSaveGame. */
@@ -134,6 +141,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Run|Gold")
 	bool SpendGold(int32 Amount);
 
+	/** Multiplies in-run `EnemyOutgoingDamageScale` (e.g. 1.2f = +20% enemy damage). Server / authority. */
+	UFUNCTION(BlueprintCallable, Category = "Run|Events")
+	void MulEnemyOutgoingDamageScale(float Mult);
+
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Run|Events")
+	float GetEnemyOutgoingDamageScale() const { return RunState.EnemyOutgoingDamageScale; }
+
 	UFUNCTION(BlueprintCallable, Category = "Run")
 	void AddRunScore(int32 Delta);
 
@@ -148,6 +162,17 @@ public:
 	/** Rebuild ASC abilities from `RunState.GrantedAbilities` (e.g. after a between-floor pick). */
 	UFUNCTION(BlueprintCallable, Category = "Run")
 	void GrantAbilitiesForCurrentRun(ADFPlayerState* PlayerState);
+
+	/** Roguelike events: remove one random row from the granted list, then re-grant. No-op if the list is empty. */
+	UFUNCTION(BlueprintCallable, Category = "Run|Events")
+	void RemoveOneRandomGrantedAbility(ADFPlayerState* PlayerState);
+
+	/**
+	 * Pick a row from AbilityDataTable with `Rarity >= MinRarity`, not in `RunState.GrantedAbilities`, grant it, re-grant.
+	 * @return false if no candidate was found.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Run|Events")
+	bool TryGrantRandomAbilityByMinimumRarity(EItemRarity MinRarity, ADFPlayerState* PlayerState);
 
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Run")
 	bool IsRunInProgress() const { return bRunInProgress; }

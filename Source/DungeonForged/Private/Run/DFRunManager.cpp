@@ -2,6 +2,7 @@
 
 #include "Run/DFRunManager.h"
 #include "Run/DFSaveGame.h"
+#include "Events/UDFRandomEventSubsystem.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Characters/ADFPlayerState.h"
 #include "DFInventoryComponent.h"
@@ -48,10 +49,19 @@ void UDFRunManager::StartNewRun(FName ClassName)
 	RunState.GrantedAbilities = ClassDef->StartingAbilities;
 	RunState.Gold = 0;
 	RunState.Score = 0;
+	RunState.EnemyOutgoingDamageScale = 1.f;
 	RunState.RunStartTime = static_cast<float>(FPlatformTime::Seconds());
 	bRunInProgress = true;
 	SyncReplicatedRunGoldToPlayerStates();
 	OnGoldChanged.Broadcast(RunState.Gold);
+
+	if (UWorld* const W = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr)
+	{
+		if (UDFRandomEventSubsystem* const Ev = W->GetSubsystem<UDFRandomEventSubsystem>())
+		{
+			Ev->ResetUsedEvents();
+		}
+	}
 
 	if (UDFSaveGame* const Meta = UDFSaveGame::Load())
 	{
@@ -231,6 +241,15 @@ bool UDFRunManager::SpendGold(const int32 Amount)
 	return true;
 }
 
+void UDFRunManager::MulEnemyOutgoingDamageScale(const float Mult)
+{
+	if (!bRunInProgress || Mult <= 0.f)
+	{
+		return;
+	}
+	RunState.EnemyOutgoingDamageScale = FMath::Max(0.1f, RunState.EnemyOutgoingDamageScale * Mult);
+}
+
 void UDFRunManager::SyncReplicatedRunGoldToPlayerStates() const
 {
 	UWorld* const W = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr;
@@ -321,6 +340,52 @@ void UDFRunManager::GrantAbilitiesForCurrentRun(ADFPlayerState* PlayerState)
 		const FGameplayAbilitySpec Spec(Row->AbilityClass, Row->AbilityLevel, InId, PlayerState);
 		ASC->GiveAbility(Spec);
 	}
+}
+
+void UDFRunManager::RemoveOneRandomGrantedAbility(ADFPlayerState* PlayerState)
+{
+	if (!bRunInProgress || RunState.GrantedAbilities.Num() == 0)
+	{
+		return;
+	}
+	const int32 Idx = FMath::RandRange(0, RunState.GrantedAbilities.Num() - 1);
+	RunState.GrantedAbilities.RemoveAt(Idx);
+	GrantAbilitiesForCurrentRun(PlayerState);
+}
+
+bool UDFRunManager::TryGrantRandomAbilityByMinimumRarity(const EItemRarity MinRarity, ADFPlayerState* PlayerState)
+{
+	if (!bRunInProgress || !AbilityDataTable || !PlayerState)
+	{
+		return false;
+	}
+	const uint8 MinU = static_cast<uint8>(MinRarity);
+	TArray<FName> Pool;
+	AbilityDataTable->ForeachRow<FDFAbilityTableRow>(
+		TEXT("TryGrantRandomAbilityByMinimumRarity"),
+		[&](const FName& Key, const FDFAbilityTableRow& Row)
+		{
+			if (static_cast<uint8>(Row.Rarity) < MinU)
+			{
+				return;
+			}
+			if (!RunState.GrantedAbilities.Contains(Key))
+			{
+				Pool.Add(Key);
+			}
+		});
+	if (Pool.Num() == 0)
+	{
+		return false;
+	}
+	for (int32 I = Pool.Num() - 1; I > 0; --I)
+	{
+		const int32 J = FMath::RandRange(0, I);
+		Pool.Swap(I, J);
+	}
+	AddAbilityReward(Pool[0]);
+	GrantAbilitiesForCurrentRun(PlayerState);
+	return true;
 }
 
 void UDFRunManager::RestoreInventoryFromRunState(UDFInventoryComponent* Inv) const

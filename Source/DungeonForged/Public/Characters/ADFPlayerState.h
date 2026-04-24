@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "DFDataTableStructs.h"
+#include "Events/DFEventData.h"
 #include "UI/UDFAbilitySelectionSubsystem.h"
 #include "GameFramework/PlayerState.h"
 #include "AbilitySystemInterface.h"
@@ -73,6 +74,10 @@ public:
 	/** Commit pick or skip. First valid resolution per `UDFDungeonManager::ActiveFloorOfferId` wins; others get resume only. */
 	UFUNCTION(Server, Reliable, Category = "DF|Rogue")
 	void Server_FinishAbilitySelection(int32 OfferId, bool bSkipped, FName SelectedRowName);
+
+	/** Client `WBP_RandomEvent` — applies roguelike event outcome on the server. */
+	UFUNCTION(Server, Reliable, WithValidation, Category = "DF|Rogue|Events")
+	void Server_ExecuteRandomEventChoice(FDFEventChoice Choice, FName EventRowName);
 
 	UFUNCTION()
 	void OnRep_ReplicatedRunGold();
