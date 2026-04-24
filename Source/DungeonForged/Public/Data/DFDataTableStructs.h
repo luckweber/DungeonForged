@@ -218,6 +218,17 @@ struct DUNGEONFORGED_API FDFEnemyTableRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI", meta = (ClampMin = "0.0"))
 	float AttackRange = 600.f;
 
+	/**
+	 * Optional: row in `DT_EnemyElemental` (or your `FDFElementalAffinityRow` table).
+	 * Filled on `ADFEnemyBase` if `ElementalAffinityTable` / BP default is set.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Elemental")
+	FName ElementalAffinityRowName;
+
+	/** If set, used instead of the enemy's `DefaultElementalAffinityTable` for this row. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Elemental")
+	TObjectPtr<UDataTable> ElementalAffinityTableOverride = nullptr;
+
 	/** World locations for UDFBTTask_FindPatrolPoint; cyclic index in blackboard. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI")
 	TArray<FVector> PatrolPathPoints;

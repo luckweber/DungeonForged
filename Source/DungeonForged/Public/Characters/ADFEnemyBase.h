@@ -19,6 +19,7 @@ class UDFAttributeSet;
 class UUserWidget;
 class UWidgetComponent;
 class UDFHitReactionComponent;
+class UDFElementalComponent;
 class UBehaviorTree;
 class UGameplayAbility;
 class UGameplayEffect;
@@ -58,6 +59,10 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	TObjectPtr<UDFHitReactionComponent> HitReaction;
+
+	/** Data-driven `DT_EnemyElemental` row when `FDFEnemyTableRow::ElementalAffinityRowName` is set. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GAS|Elemental")
+	TObjectPtr<UDFElementalComponent> ElementalComponent;
 
 	/** GAS: Minimal replication = server-focused FX / minimal effect replication to proxies (use for AI). */
 	/**
@@ -109,6 +114,10 @@ public:
 	/** If set, applied once after base stats are written from the data row (e.g. extra “always on” GEs). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy")
 	TSubclassOf<UGameplayEffect> OptionalInitGameplayEffect;
+
+	/** Per-class default when the enemy data row has `ElementalAffinityRowName` and no per-row override. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Elemental")
+	TObjectPtr<UDataTable> DefaultElementalAffinityTable = nullptr;
 
 	/** Maps gameplay tags (from the enemy data row) to ability classes to grant. Configure on child BP/defaults. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy", meta = (TitleProperty = "GrantedTag"))

@@ -135,6 +135,18 @@ FGameplayTag FDFGameplayTags::Effect_Debuff_Slow;
 FGameplayTag FDFGameplayTags::Effect_Debuff_Weaken;
 FGameplayTag FDFGameplayTags::Effect_Debuff_ArmorBreak;
 FGameplayTag FDFGameplayTags::Effect_Debuff_Blinded;
+FGameplayTag FDFGameplayTags::Effect_Element_Fire;
+FGameplayTag FDFGameplayTags::Effect_Element_Ice;
+FGameplayTag FDFGameplayTags::Effect_Element_Water;
+FGameplayTag FDFGameplayTags::Effect_Element_Lightning;
+FGameplayTag FDFGameplayTags::Effect_Element_Earth;
+FGameplayTag FDFGameplayTags::Effect_Element_Arcane;
+FGameplayTag FDFGameplayTags::Effect_Element_Physical;
+FGameplayTag FDFGameplayTags::Effect_Element_True;
+FGameplayTag FDFGameplayTags::State_Elemental_Wet;
+FGameplayTag FDFGameplayTags::Effect_Reaction_Melt;
+FGameplayTag FDFGameplayTags::Effect_Reaction_Steam;
+FGameplayTag FDFGameplayTags::Effect_Reaction_Electrocute;
 FGameplayTag FDFGameplayTags::Event_Ability_Fire_Launch;
 FGameplayTag FDFGameplayTags::Event_Ability_Melee_Hit;
 FGameplayTag FDFGameplayTags::Event_Ability_Montage_End;
@@ -327,6 +339,20 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(Effect_Debuff_Weaken)(FName("Effect.Debuff.Weaken"), FString("Reduced outgoing damage or stats."));
 	DF_TAG(Effect_Debuff_ArmorBreak)(FName("Effect.Debuff.ArmorBreak"), FString("Reduced mitigation."));
 	DF_TAG(Effect_Debuff_Blinded)(FName("Effect.Debuff.Blinded"), FString("Severe aim/sight debuff."));
+
+	DF_TAG(Effect_Element_Fire)(FName("Effect.Element.Fire"), FString("This damage instance is fire-element (affinity / UI)."));
+	DF_TAG(Effect_Element_Ice)(FName("Effect.Element.Ice"), FString("Ice element."));
+	DF_TAG(Effect_Element_Water)(FName("Effect.Element.Water"), FString("Water element."));
+	DF_TAG(Effect_Element_Lightning)(FName("Effect.Element.Lightning"), FString("Lightning element."));
+	DF_TAG(Effect_Element_Earth)(FName("Effect.Element.Earth"), FString("Earth element."));
+	DF_TAG(Effect_Element_Arcane)(FName("Effect.Element.Arcane"), FString("Arcane — neutral matrix; bypasses resist table."));
+	DF_TAG(Effect_Element_Physical)(FName("Effect.Element.Physical"), FString("Physical/weapon element on damage."));
+	DF_TAG(Effect_Element_True)(FName("Effect.Element.True"), FString("True — bypasses affinity + resist."));
+
+	DF_TAG(State_Elemental_Wet)(FName("State.Elemental.Wet"), FString("Soaked; pairs with slow for electrocute reaction."));
+	DF_TAG(Effect_Reaction_Melt)(FName("Effect.Reaction.Melt"), FString("Melt: fire + frost reaction."));
+	DF_TAG(Effect_Reaction_Steam)(FName("Effect.Reaction.Steam"), FString("Steam: ice on burning target."));
+	DF_TAG(Effect_Reaction_Electrocute)(FName("Effect.Reaction.Electrocute"), FString("Electrocute: lightning on wet/slow."));
 
 	DF_TAG(Event_Ability_Fire_Launch)(FName("Event.Ability.Fire.Launch"), FString("Anim notify: fire projectile release."));
 	DF_TAG(Event_Ability_Melee_Hit)(FName("Event.Ability.Melee.Hit"), FString("Melee impact / damage window."));

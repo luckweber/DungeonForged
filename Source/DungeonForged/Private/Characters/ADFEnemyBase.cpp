@@ -9,6 +9,7 @@
 #include "Progression/UDFLevelingComponent.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Combat/UDFHitReactionComponent.h"
+#include "GAS/Elemental/UDFElementalComponent.h"
 #include "Abilities/GameplayAbility.h"
 #include "AbilitySystemComponent.h"
 #include "AIController.h"
@@ -71,6 +72,8 @@ ADFEnemyBase::ADFEnemyBase()
 	AttributeSet = CreateDefaultSubobject<UDFAttributeSet>(TEXT("AttributeSet"));
 
 	HitReaction = CreateDefaultSubobject<UDFHitReactionComponent>(TEXT("HitReaction"));
+
+	ElementalComponent = CreateDefaultSubobject<UDFElementalComponent>(TEXT("ElementalComponent"));
 
 	HealthBar = CreateDefaultSubobject<UWidgetComponent>(TEXT("HealthBar"));
 	// USceneComponent default subobjects must be attached in the constructor or CDO / Blueprint reinstancing can crash.
@@ -260,6 +263,16 @@ void ADFEnemyBase::InitializeFromDataTable(UDataTable* EnemyTable, FName RowName
 
 	GrantAbilitiesForRow(*Row);
 	ApplyAIConfigFromRow(*Row);
+	if (ElementalComponent && !Row->ElementalAffinityRowName.IsNone())
+	{
+		UDataTable* const ElemTable = Row->ElementalAffinityTableOverride
+			? Row->ElementalAffinityTableOverride
+			: DefaultElementalAffinityTable;
+		if (ElemTable)
+		{
+			ElementalComponent->InitFromTable(ElemTable, Row->ElementalAffinityRowName);
+		}
+	}
 	LastDamageAttacker.Reset();
 
 	if (HasActorBegunPlay())

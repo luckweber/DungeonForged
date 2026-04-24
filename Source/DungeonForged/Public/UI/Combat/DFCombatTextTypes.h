@@ -23,4 +23,7 @@ enum class ECombatTextType : uint8
 	XPGain            UMETA(DisplayName = "XP Gain"),
 	GoldGain          UMETA(DisplayName = "Gold Gain"),
 	Status            UMETA(DisplayName = "Status (Debuff name)"),
+	Elemental_Weak     UMETA(DisplayName = "Elemental: WEAK!"),
+	Elemental_Resist   UMETA(DisplayName = "Elemental: RESIST"),
+	Elemental_Reaction UMETA(DisplayName = "Elemental: Reaction shout"),
 };

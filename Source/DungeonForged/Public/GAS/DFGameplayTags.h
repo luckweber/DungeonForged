@@ -191,6 +191,21 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Effect_Debuff_Blinded;
 	/** Replaces single active level-stat-scaling GameplayEffect (infinite) per level. */
 	static FGameplayTag Effect_Buff_LevelStatScaling;
+	//~ Elemental (damage spec dynamic tags; query in UI/ASC)
+	static FGameplayTag Effect_Element_Fire;
+	static FGameplayTag Effect_Element_Ice;
+	static FGameplayTag Effect_Element_Water;
+	static FGameplayTag Effect_Element_Lightning;
+	static FGameplayTag Effect_Element_Earth;
+	static FGameplayTag Effect_Element_Arcane;
+	static FGameplayTag Effect_Element_Physical;
+	static FGameplayTag Effect_Element_True;
+	/** Stacked with wet/water for Electrocute reaction (optional; can use Effect_Debuff_Slow from water). */
+	static FGameplayTag State_Elemental_Wet;
+	/** Procedural Melt / Steam / Electrocute tags for reactions (grant + FX hooks). */
+	static FGameplayTag Effect_Reaction_Melt;
+	static FGameplayTag Effect_Reaction_Steam;
+	static FGameplayTag Effect_Reaction_Electrocute;
 
 	//~ Data (SetByCaller)
 	static FGameplayTag Data_Damage;

@@ -136,6 +136,12 @@ void UDFCombatTextWidget::ApplyStyleForType(const ECombatTextType Type) const
 		return;
 	case ECombatTextType::Status: Set(FLinearColor(0.6f, 0.2f, 0.8f, 1.f), 24, true);
 		return;
+	case ECombatTextType::Elemental_Weak: Set(FLinearColor(1.f, 0.9f, 0.1f, 1.f), 24, true);
+		return;
+	case ECombatTextType::Elemental_Resist: Set(FLinearColor(0.5f, 0.5f, 0.5f, 1.f), 22, true);
+		return;
+	case ECombatTextType::Elemental_Reaction: Set(FLinearColor(0.2f, 0.85f, 1.f, 1.f), 30, true);
+		return;
 	default: Set(FLinearColor::White, 28);
 		return;
 	}
