@@ -10,6 +10,7 @@
 #include "GameplayTagContainer.h"
 #include "Animation/AnimMontage.h"
 #include "GAS/UDFGameplayAbility.h"
+#include "Equipment/DFEquipmentTypes.h"
 #include "DFDataTableStructs.generated.h"
 
 class AActor;
@@ -29,13 +30,19 @@ enum class EItemRarity : uint8
 UENUM(BlueprintType)
 enum class EItemType : uint8
 {
-	Weapon     UMETA(DisplayName = "Weapon"),
-	Armor      UMETA(DisplayName = "Armor"),
-	Helmet     UMETA(DisplayName = "Helmet"),
-	Ring       UMETA(DisplayName = "Ring"),
-	Amulet     UMETA(DisplayName = "Amulet"),
-	Consumable UMETA(DisplayName = "Consumable"),
-	Currency   UMETA(DisplayName = "Currency (Gold)"),
+	/** Legacy order preserved for DT rows (0-6), new gear types 7-11. */
+	Weapon		= 0 UMETA(DisplayName = "Weapon"),
+	Armor		= 1 UMETA(DisplayName = "Armor (legacy, use target slot)"),
+	Helmet		= 2 UMETA(DisplayName = "Helmet"),
+	Ring		= 3 UMETA(DisplayName = "Ring"),
+	Amulet		= 4 UMETA(DisplayName = "Amulet"),
+	Consumable	= 5 UMETA(DisplayName = "Consumable"),
+	Currency	= 6 UMETA(DisplayName = "Currency (Gold)"),
+	OffHand		= 7 UMETA(DisplayName = "OffHand"),
+	Chest		= 8 UMETA(DisplayName = "Chest"),
+	Legs		= 9 UMETA(DisplayName = "Legs"),
+	Boots		= 10 UMETA(DisplayName = "Boots"),
+	Gloves		= 11 UMETA(DisplayName = "Gloves"),
 };
 
 UENUM(BlueprintType)
@@ -119,6 +126,18 @@ struct DUNGEONFORGED_API FDFItemTableRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Visuals")
 	TObjectPtr<UTexture2D> Icon = nullptr;
+
+	/** Equipment slot (authoritative for gear validation). Filled in DT rows for armor/weapons. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Equipment")
+	EEquipmentSlot TargetEquipmentSlot = EEquipmentSlot::None;
+
+	/** For modular paper-doll / leader-pose (Armor parts). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Visuals")
+	TObjectPtr<USkeletalMesh> ItemSkeletalMesh = nullptr;
+
+	/** Optional; shown on paper-doll / slot widgets. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item", meta = (ClampMin = "0"))
+	int32 ItemLevel = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|GAS")
 	TMap<FGameplayAttribute, float> AttributeModifiers;

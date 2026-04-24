@@ -8,6 +8,7 @@
 #include "Input/DFInputConfig.h"
 #include "InputAction.h"
 #include "Audio/UDFAudioComponent.h"
+#include "Equipment/DFEquipmentTypes.h"
 #include "ADFPlayerCharacter.generated.h"
 
 class UCameraComponent;
@@ -24,6 +25,9 @@ class UAbilitySystemComponent;
 class ADFMerchantActor;
 class UDFShopWidget;
 class UDFTrapDetectionComponent;
+class UDFEquipmentComponent;
+class UDFPreviewCaptureComponent;
+class USkeletalMeshComponent;
 
 UCLASS(Blueprintable)
 class DUNGEONFORGED_API ADFPlayerCharacter : public ACharacter, public IAbilitySystemInterface
@@ -118,6 +122,40 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Audio")
 	TObjectPtr<UDFAudioComponent> DFAudio;
 
+	/** Paper-doll / GAS: slot-based equipping, modular meshes, leader-pose. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Equipment")
+	TObjectPtr<UDFEquipmentComponent> Equipment = nullptr;
+
+	/** Scene capture for WBP character screen; attach in BP if you want a custom offset. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Equipment|UI")
+	TObjectPtr<UDFPreviewCaptureComponent> EquipmentPreview = nullptr;
+
+	/** Same as GetMesh() after construction. Body drives leader pose for slave armor pieces. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
+	TObjectPtr<USkeletalMeshComponent> Mesh_Base = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
+	TObjectPtr<USkeletalMeshComponent> Mesh_Helmet = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
+	TObjectPtr<USkeletalMeshComponent> Mesh_Chest = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
+	TObjectPtr<USkeletalMeshComponent> Mesh_Legs = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
+	TObjectPtr<USkeletalMeshComponent> Mesh_Boots = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
+	TObjectPtr<USkeletalMeshComponent> Mesh_Gloves = nullptr;
+
+	/** Sockets: weapon_r / weapon_l on Mesh_Base. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
+	TObjectPtr<USkeletalMeshComponent> Mesh_Weapon = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
+	TObjectPtr<USkeletalMeshComponent> Mesh_OffHand = nullptr;
+
 	/** Set when ClientOpenMerchantShop creates the shop; cleared in UDFShopWidget::CloseShop. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|UI|Shop")
 	TObjectPtr<UDFShopWidget> ActiveShopWidget;
@@ -141,6 +179,12 @@ public:
 	/** Called from UDFShopWidget when the panel is removed. */
 	UFUNCTION(BlueprintCallable, Category = "DF|UI|Shop")
 	void ClearActiveShopWidget();
+
+	UFUNCTION(BlueprintPure, Category = "DF|Equipment")
+	UDFEquipmentComponent* GetDFEquipment() const { return Equipment; }
+
+	UFUNCTION(BlueprintPure, Category = "DF|Equipment|UI")
+	UDFPreviewCaptureComponent* GetEquipmentPreview() const { return EquipmentPreview; }
 
 protected:
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -175,6 +219,12 @@ protected:
 	void CancelAbilitiesByGameplayTagName(const FName& TagName);
 	void TryActivateAbilitySlot(int32 Slot1Based);
 
+	void SetupModularMeshPart(USkeletalMeshComponent* Part);
+	void RegisterModularSlotsWithEquipment();
+	void RefreshWeaponTraceForMelee();
+	UFUNCTION()
+	void OnEquipmentEvent(EEquipmentSlot Slot, FName ItemRow);
+
 	/** MMO-style look: one SetControlRotation with pitch clamp (avoids AddPitch/AddYaw + second clamp). */
 	static constexpr float MinLookPitch = -60.f;
 	static constexpr float MaxLookPitch = 60.f;
@@ -182,4 +232,7 @@ protected:
 private:
 	/** Set after IMC_Default is added so we do not register twice (BeginPlay + PawnClientRestart). */
 	bool bDefaultInputContextAdded = false;
+
+	/** OnEquipmentChanged bound once; cleared in EndPlay. */
+	bool bModularEquipmentDelegateBound = false;
 };

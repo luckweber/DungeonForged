@@ -83,3 +83,70 @@ void UDFItemTooltipWidget::SetItemData(
 		}
 	}
 }
+
+void UDFItemTooltipWidget::SetItemDataEx(
+	const FDFItemTableRow& Hovered,
+	const FDFItemTableRow& EquippedInSlot,
+	const bool bCompare,
+	const bool bEquippedSlotIsEmpty,
+	UDataTable* const /*ItemTableForLookup*/)
+{
+	SetItemData(Hovered, EquippedInSlot, false, nullptr);
+	if (!bCompare)
+	{
+		if (CompareText)
+		{
+			CompareText->SetText(FText::GetEmpty());
+		}
+		return;
+	}
+	if (bEquippedSlotIsEmpty)
+	{
+		if (StatBlock)
+		{
+			StatBlock->SetText(FText::Format(
+				INVTEXT("{0}\n\n(NEW)"),
+				StatBlock->GetText()));
+		}
+		if (CompareText)
+		{
+			CompareText->SetText(FText::FromString(TEXT("NEW (empty equipment slot)")));
+			CompareText->SetColorAndOpacity(FSlateColor(FLinearColor(0.35f, 0.9f, 0.4f, 1.f)));
+		}
+		return;
+	}
+	FString DeltaLines;
+	for (const TPair<FGameplayAttribute, float>& P : Hovered.AttributeModifiers)
+	{
+		if (!P.Key.IsValid())
+		{
+			continue;
+		}
+		float B = 0.f;
+		if (const float* F = EquippedInSlot.AttributeModifiers.Find(P.Key))
+		{
+			B = *F;
+		}
+		const float D = P.Value - B;
+		if (D > 0.01f)
+		{
+			DeltaLines += FString::Printf(
+				TEXT("▲ +%.1f %s (vs equipped)\n"), D, *P.Key.GetName());
+		}
+		else if (D < -0.01f)
+		{
+			DeltaLines += FString::Printf(
+				TEXT("▼ %.1f %s (vs equipped)\n"), D, *P.Key.GetName());
+		}
+	}
+	if (CompareText)
+	{
+		CompareText->SetText(
+			DeltaLines.IsEmpty() ? FText::GetEmpty() : FText::FromString(DeltaLines));
+		CompareText->SetColorAndOpacity(
+			FSlateColor(
+				DeltaLines.Contains(TEXT("▼")) ? FLinearColor(0.9f, 0.2f, 0.2f, 1.f)
+					: (DeltaLines.Contains(TEXT("▲")) ? FLinearColor(0.2f, 0.85f, 0.25f, 1.f)
+						: FLinearColor(0.9f, 0.9f, 0.9f, 1.f))));
+	}
+}

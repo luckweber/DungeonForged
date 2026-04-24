@@ -3,6 +3,7 @@
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFGEComponent_CancelAbilitiesOnApply.h"
 #include "GameplayEffect.h"
+#include "GameplayEffectComponents/TargetTagRequirementsGameplayEffectComponent.h"
 #include "GameplayEffectComponents/TargetTagsGameplayEffectComponent.h"
 
 UGE_Debuff_Stun::UGE_Debuff_Stun()
@@ -23,5 +24,8 @@ void UGE_Debuff_Stun::ConfigureEffectCDO()
 	Grant.SetAndApplyTargetTagChanges(Gr);
 	FindOrAddComponent<UDFGEComponent_CancelAbilitiesOnApply>();
 	// Enrage / Boss: do not apply stun if target has State.CCIgnore
-	ApplicationTagRequirements.IgnoreTags.AddTag(FDFGameplayTags::State_CCIgnore);
+	UTargetTagRequirementsGameplayEffectComponent& AppReq = FindOrAddComponent<UTargetTagRequirementsGameplayEffectComponent>();
+	FGameplayTagRequirements StunAppReqs;
+	StunAppReqs.IgnoreTags.AddTag(FDFGameplayTags::State_CCIgnore);
+	AppReq.ApplicationTagRequirements = StunAppReqs;
 }

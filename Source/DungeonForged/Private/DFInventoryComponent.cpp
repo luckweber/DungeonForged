@@ -228,7 +228,10 @@ void UDFInventoryComponent::UnequipItem(int32 SlotIndex)
 	{
 		if (const FActiveGameplayEffectHandle* H = EquipHandles.Find(SlotIndex))
 		{
-			ASC->RemoveActiveGameplayEffect(*H);
+			if (ASC->GetAvatarActor())
+			{
+				ASC->RemoveActiveGameplayEffect(*H);
+			}
 		}
 	}
 	EquipHandles.Remove(SlotIndex);
@@ -285,8 +288,9 @@ void UDFInventoryComponent::EquipItem(int32 SlotIndex)
 		return;
 	}
 	UAbilitySystemComponent* const ASC = ResolveOwnerASC();
-	if (!ASC)
+	if (!ASC || !ASC->GetAvatarActor())
 	{
+		// Same as UDFEquipmentComponent: ApplyGameplayEffectToSelf can assert if InitAbilityActorInfo never ran.
 		return;
 	}
 	UnequipOthersOfType(Row->ItemType, SlotIndex);

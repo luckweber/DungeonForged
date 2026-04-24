@@ -28,10 +28,19 @@
 #include "Blueprint/UserWidget.h"
 #include "Merchant/ADFMerchantActor.h"
 #include "UI/UDFShopWidget.h"
+#include "Equipment/UDFEquipmentComponent.h"
+#include "Equipment/UDFPreviewCaptureComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+
+DEFINE_LOG_CATEGORY_STATIC(LogDFPlayer, Log, All);
 
 ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<UDFCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
 {
+	const bool bIsCDO = HasAnyFlags(RF_ClassDefaultObject);
+	UE_LOG(LogDFPlayer, Verbose, TEXT("Ctor %s %s (outer=%s)"),
+		bIsCDO ? TEXT("[CDO]") : TEXT("[Instance]"), *GetName(), GetOuter() ? *GetOuter()->GetName() : TEXT("null"));
+
 	PrimaryActorTick.bCanEverTick = false;
 
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.f);
@@ -60,6 +69,63 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
+
+	Mesh_Base = GetMesh();
+	if (Mesh_Base)
+	{
+		Equipment = CreateDefaultSubobject<UDFEquipmentComponent>(TEXT("Equipment"));
+		EquipmentPreview = CreateDefaultSubobject<UDFPreviewCaptureComponent>(TEXT("DFEquipmentPreview"));
+		EquipmentPreview->SetupAttachment(Mesh_Base);
+		EquipmentPreview->SetRelativeLocation(FVector(0.f, 0.f, 0.f));
+		EquipmentPreview->SetUsingAbsoluteRotation(true);
+
+		Mesh_Helmet = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Mesh_Helmet"));
+		Mesh_Chest = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Mesh_Chest"));
+		Mesh_Legs = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Mesh_Legs"));
+		Mesh_Boots = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Mesh_Boots"));
+		Mesh_Gloves = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Mesh_Gloves"));
+		Mesh_Weapon = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Mesh_Weapon"));
+		Mesh_OffHand = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Mesh_OffHand"));
+
+		Mesh_Helmet->SetupAttachment(Mesh_Base);
+		Mesh_Chest->SetupAttachment(Mesh_Base);
+		Mesh_Legs->SetupAttachment(Mesh_Base);
+		Mesh_Boots->SetupAttachment(Mesh_Base);
+		Mesh_Gloves->SetupAttachment(Mesh_Base);
+		static const FName NWeaponR(TEXT("weapon_r"));
+		static const FName NWeaponL(TEXT("weapon_l"));
+		if (Mesh_Base->DoesSocketExist(NWeaponR))
+		{
+			Mesh_Weapon->SetupAttachment(Mesh_Base, NWeaponR);
+		}
+		else
+		{
+			Mesh_Weapon->SetupAttachment(Mesh_Base);
+		}
+		if (Mesh_Base->DoesSocketExist(NWeaponL))
+		{
+			Mesh_OffHand->SetupAttachment(Mesh_Base, NWeaponL);
+		}
+		else
+		{
+			Mesh_OffHand->SetupAttachment(Mesh_Base);
+		}
+
+		SetupModularMeshPart(Mesh_Helmet);
+		SetupModularMeshPart(Mesh_Chest);
+		SetupModularMeshPart(Mesh_Legs);
+		SetupModularMeshPart(Mesh_Boots);
+		SetupModularMeshPart(Mesh_Gloves);
+		SetupModularMeshPart(Mesh_Weapon);
+		SetupModularMeshPart(Mesh_OffHand);
+
+		UE_LOG(LogDFPlayer, Verbose, TEXT("Ctor mod meshes ok | weapon_r socket=%d weapon_l socket=%d"),
+			Mesh_Base->DoesSocketExist(NWeaponR) ? 1 : 0, Mesh_Base->DoesSocketExist(NWeaponL) ? 1 : 0);
+	}
+	else
+	{
+		UE_LOG(LogDFPlayer, Warning, TEXT("Ctor: GetMesh() was null, modular equipment/gear not created. Name=%s"), *GetName());
+	}
 }
 
 UAbilitySystemComponent* ADFPlayerCharacter::GetAbilitySystemComponent() const
@@ -78,7 +144,78 @@ UAbilitySystemComponent* ADFPlayerCharacter::GetAbilitySystemComponent() const
 void ADFPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	UE_LOG(LogDFPlayer, Log, TEXT("BeginPlay %s | NetMode=%d HasAuth=%d Local=%d"),
+		*GetName(), GetWorld() ? (int32)GetWorld()->GetNetMode() : -1, HasAuthority() ? 1 : 0, IsLocallyControlled() ? 1 : 0);
+	// GAS: PossessedBy/OnRep may run after component BeginPlay; init early when PlayerState is already valid
+	// so inventory/equip paths that apply GameplayEffects do not run before InitAbilityActorInfo.
+	InitializeGAS();
 	AddDefaultMappingContext();
+	RegisterModularSlotsWithEquipment();
+	RefreshWeaponTraceForMelee();
+}
+
+void ADFPlayerCharacter::SetupModularMeshPart(USkeletalMeshComponent* const Part)
+{
+	if (!Part)
+	{
+		return;
+	}
+	Part->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Part->SetComponentTickEnabled(false);
+	Part->bReceivesDecals = true;
+	Part->SetCastShadow(true);
+}
+
+void ADFPlayerCharacter::RegisterModularSlotsWithEquipment()
+{
+	if (!Mesh_Base || !Equipment)
+	{
+		UE_LOG(LogDFPlayer, Verbose, TEXT("RegisterModularSlotsWithEquipment: skip (Mesh_Base=%d Equipment=%d) %s"),
+			Mesh_Base != nullptr, Equipment != nullptr, *GetName());
+		return;
+	}
+	if (bModularEquipmentDelegateBound)
+	{
+		UE_LOG(LogDFPlayer, Verbose, TEXT("RegisterModularSlotsWithEquipment: already bound, refresh only %s"), *GetName());
+		Equipment->RefreshEquipmentVisuals();
+		return;
+	}
+	UE_LOG(LogDFPlayer, Verbose, TEXT("RegisterModularSlotsWithEquipment: initial bind + refresh %s"), *GetName());
+	Equipment->RegisterBaseBodyMesh(Mesh_Base);
+	Equipment->RegisterSlotMesh(EEquipmentSlot::Helmet, Mesh_Helmet);
+	Equipment->RegisterSlotMesh(EEquipmentSlot::Chest, Mesh_Chest);
+	Equipment->RegisterSlotMesh(EEquipmentSlot::Legs, Mesh_Legs);
+	Equipment->RegisterSlotMesh(EEquipmentSlot::Boots, Mesh_Boots);
+	Equipment->RegisterSlotMesh(EEquipmentSlot::Gloves, Mesh_Gloves);
+	Equipment->RegisterSlotMesh(EEquipmentSlot::Weapon, Mesh_Weapon);
+	Equipment->RegisterSlotMesh(EEquipmentSlot::OffHand, Mesh_OffHand);
+	Equipment->OnEquipmentChanged.AddDynamic(this, &ADFPlayerCharacter::OnEquipmentEvent);
+	bModularEquipmentDelegateBound = true;
+	Equipment->RefreshEquipmentVisuals();
+}
+
+void ADFPlayerCharacter::RefreshWeaponTraceForMelee()
+{
+	if (!MeleeTrace)
+	{
+		return;
+	}
+	if (Mesh_Weapon && Mesh_Weapon->GetSkeletalMeshAsset())
+	{
+		MeleeTrace->SkeletalMesh = Mesh_Weapon;
+	}
+	else if (Mesh_Base)
+	{
+		MeleeTrace->SkeletalMesh = Mesh_Base;
+	}
+}
+
+void ADFPlayerCharacter::OnEquipmentEvent(const EEquipmentSlot Slot, const FName /*ItemRow*/)
+{
+	if (Slot == EEquipmentSlot::Weapon || Slot == EEquipmentSlot::OffHand)
+	{
+		RefreshWeaponTraceForMelee();
+	}
 }
 
 void ADFPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -90,6 +227,12 @@ void ADFPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 			Music->UnregisterLocalPlayerForCombatMusic();
 		}
 	}
+	if (Equipment && bModularEquipmentDelegateBound)
+	{
+		Equipment->OnEquipmentChanged.RemoveDynamic(this, &ADFPlayerCharacter::OnEquipmentEvent);
+		bModularEquipmentDelegateBound = false;
+	}
+	UE_LOG(LogDFPlayer, Log, TEXT("EndPlay %s | Reason=%d"), *GetName(), (int32)EndPlayReason);
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -234,6 +377,8 @@ void ADFPlayerCharacter::RegisterAbilityInputFromConfig(UEnhancedInputComponent*
 void ADFPlayerCharacter::PossessedBy(AController* NewController)
 {
 	Super::PossessedBy(NewController);
+	UE_LOG(LogDFPlayer, Verbose, TEXT("PossessedBy %s | Controller=%s"),
+		*GetName(), NewController ? *NewController->GetName() : TEXT("null"));
 	if (HasAuthority())
 	{
 		InitializeGAS();
@@ -243,6 +388,7 @@ void ADFPlayerCharacter::PossessedBy(AController* NewController)
 void ADFPlayerCharacter::OnRep_PlayerState()
 {
 	Super::OnRep_PlayerState();
+	UE_LOG(LogDFPlayer, Verbose, TEXT("OnRep_PlayerState %s"), *GetName());
 	InitializeGAS();
 }
 
@@ -251,6 +397,7 @@ void ADFPlayerCharacter::InitializeGAS()
 	ADFPlayerState* PS = GetPlayerState<ADFPlayerState>();
 	if (!PS)
 	{
+		UE_LOG(LogDFPlayer, Verbose, TEXT("InitializeGAS: no PlayerState (cleared ASC) %s"), *GetName());
 		if (IsLocallyControlled() && GetWorld() && GetWorld()->GetNetMode() != NM_DedicatedServer)
 		{
 			if (UDFMusicManagerSubsystem* const Music = GetWorld()->GetSubsystem<UDFMusicManagerSubsystem>())
@@ -269,6 +416,8 @@ void ADFPlayerCharacter::InitializeGAS()
 	if (UAbilitySystemComponent* ASC = AbilitySystemComponent.Get())
 	{
 		ASC->InitAbilityActorInfo(PS, this);
+		UE_LOG(LogDFPlayer, Verbose, TEXT("InitializeGAS: InitAbilityActorInfo OK | PS=%s Pawn=%s"),
+			*PS->GetName(), *GetName());
 	}
 
 	if (IsLocallyControlled() && GetWorld() && GetWorld()->GetNetMode() != NM_DedicatedServer)

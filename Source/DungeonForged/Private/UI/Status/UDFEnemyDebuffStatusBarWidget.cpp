@@ -175,13 +175,14 @@ void UDFEnemyDebuffStatusBarWidget::OnEffectAdded(
 		return;
 	}
 	Icon->InitializeForEnemyBar(Key, EnemyAsc.Get(), Handle, *Row, this, StatusLibrary);
-	Icon->SetDesiredIconSize(24.f);
 	IconByHandle.Add(Handle, Icon);
 	if (IconAddAnim)
 	{
 		Icon->PlayAnimation(IconAddAnim);
 	}
+	// Reparent into DebuffRow before SetDesiredSizeInViewport (avoids Slate/UMG asserts on rootless widgets).
 	LayoutTopThree();
+	Icon->SetDesiredIconSize(24.f);
 }
 
 void UDFEnemyDebuffStatusBarWidget::OnEffectRemoved(const FActiveGameplayEffect& Removed)
@@ -240,8 +241,10 @@ void UDFEnemyDebuffStatusBarWidget::LayoutTopThree()
 	});
 	DebuffRow->ClearChildren();
 	const FMargin Pad(0.f, 0.f, 3.f, 0.f);
-	const int32 MaxIcons = 3;
-	for (int32 Ix = 0; Ix < Items.Num() && Ix < MaxIcons; ++Ix)
+	const int32 MaxVisible = 3;
+	// Keep every active icon parented under DebuffRow; only the top MaxVisible are shown. Leaving the
+	// rest unparented after ClearChildren() can trigger Slate/UMG check() when geometry or tooltips run.
+	for (int32 Ix = 0; Ix < Items.Num(); ++Ix)
 	{
 		if (const TObjectPtr<UDFStatusEffectIconWidget>* Ptr = IconByHandle.Find(Items[Ix].H))
 		{
@@ -250,6 +253,7 @@ void UDFEnemyDebuffStatusBarWidget::LayoutTopThree()
 				if (UHorizontalBoxSlot* const S = DebuffRow->AddChildToHorizontalBox(Ic))
 				{
 					S->SetPadding(Pad);
+					Ic->SetVisibility(Ix < MaxVisible ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 				}
 			}
 		}

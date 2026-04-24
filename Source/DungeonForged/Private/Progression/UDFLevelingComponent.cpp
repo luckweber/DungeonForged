@@ -266,7 +266,7 @@ void UDFLevelingComponent::UpdateLevelGameplayTags()
 void UDFLevelingComponent::ApplyLevelStatScalingForCurrentRow(const FDFLevelTableRow& Row)
 {
 	UAbilitySystemComponent* const ASC = GetOwnerASC();
-	if (!ASC)
+	if (!ASC || !ASC->GetAvatarActor())
 	{
 		return;
 	}
@@ -427,7 +427,8 @@ void UDFLevelingComponent::SpendAttributePoint(EDFLevelingStat const Stat, int32
 	{
 		return;
 	}
-	if (UAbilitySystemComponent* const ASC = GetOwnerASC())
+	if (UAbilitySystemComponent* const ASC = GetOwnerASC();
+		ASC && ASC->GetAvatarActor())
 	{
 		TSubclassOf<UGameplayEffect> Ge = nullptr;
 		switch (Stat)

@@ -139,7 +139,7 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag State_Dodging;
 	static FGameplayTag State_Attacking;
 	static FGameplayTag State_Casting;
-	/** Stun / most CC GEs with ApplicationTagRequirements should ignore targets with this tag. */
+	/** Stun / most CC: UTargetTagRequirementsGameplayEffectComponent should ignore targets with this tag. */
 	static FGameplayTag State_CCIgnore;
 	static FGameplayTag State_BossEnraged;
 	/** Set on minions spawned by a boss encounter. */

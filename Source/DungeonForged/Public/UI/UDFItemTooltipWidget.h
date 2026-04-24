@@ -24,6 +24,18 @@ public:
 		bool bUseEquippedCompare,
 		UDataTable* ItemTableForLookup);
 
+	/**
+	 * Per-attribute delta vs the item currently in the same equipment slot.
+	 * When bEquippedSlotIsEmpty, StatBlock/CompareText highlight \"NEW\" for that slot.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DF|UI|Item")
+	void SetItemDataEx(
+		const FDFItemTableRow& Hovered,
+		const FDFItemTableRow& EquippedInSlot,
+		bool bCompare,
+		bool bEquippedSlotIsEmpty,
+		UDataTable* ItemTableForLookup);
+
 protected:
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UTextBlock> ItemName = nullptr;

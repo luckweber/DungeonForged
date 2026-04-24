@@ -15,8 +15,14 @@
 #include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogDFPlayerState, Log, All);
+
 ADFPlayerState::ADFPlayerState()
 {
+	const bool bIsCDO = HasAnyFlags(RF_ClassDefaultObject);
+	UE_LOG(LogDFPlayerState, Verbose, TEXT("Ctor %s %s (outer=%s)"),
+		bIsCDO ? TEXT("[CDO]") : TEXT("[Instance]"), *GetName(), GetOuter() ? *GetOuter()->GetName() : TEXT("null"));
+
 	// Replication tick rate (was SetNetUpdateFrequency; direct member works with all include orders / IWYU)
 	NetUpdateFrequency = 100.f;
 
@@ -36,30 +42,48 @@ UAbilitySystemComponent* ADFPlayerState::GetAbilitySystemComponent() const
 void ADFPlayerState::BeginPlay()
 {
 	Super::BeginPlay();
+	UE_LOG(LogDFPlayerState, Log, TEXT("BeginPlay %s | NetMode=%d HasAuth=%d PlayerId=%d"),
+		*GetName(), GetWorld() ? (int32)GetWorld()->GetNetMode() : -1, HasAuthority() ? 1 : 0, GetPlayerId());
 }
 
 void ADFPlayerState::GrantAbilitiesFromDataTable(UDataTable* AbilityTable)
 {
 	if (!HasAuthority() || !AbilitySystemComponent || !AbilityTable)
 	{
+		UE_LOG(LogDFPlayerState, Verbose, TEXT("GrantAbilitiesFromDataTable: skip (Auth=%d ASC=%d Table=%d) %s"),
+			HasAuthority() ? 1 : 0, AbilitySystemComponent != nullptr, AbilityTable != nullptr, *GetName());
 		return;
 	}
 
+	UE_LOG(LogDFPlayerState, Log, TEXT("GrantAbilitiesFromDataTable: %s from table %s"),
+		*GetName(), *AbilityTable->GetName());
+
+	int32 GrantedCount = 0;
 	static const FString Ctx(TEXT("ADFPlayerState::GrantAbilitiesFromDataTable"));
-	AbilityTable->ForeachRow<FDFAbilityTableRow>(Ctx, [this](const FName& RowKey, const FDFAbilityTableRow& Row) {
+	AbilityTable->ForeachRow<FDFAbilityTableRow>(Ctx, [this, &GrantedCount](const FName& RowKey, const FDFAbilityTableRow& Row) {
 		if (!Row.AbilityClass)
 		{
 			return;
 		}
 		const FGameplayAbilitySpec Spec(Row.AbilityClass, Row.AbilityLevel, INDEX_NONE, this);
 		AbilitySystemComponent->GiveAbility(Spec);
+		++GrantedCount;
 	});
+	UE_LOG(LogDFPlayerState, Log, TEXT("GrantAbilitiesFromDataTable: granted %d ability specs for %s"), GrantedCount, *GetName());
 }
 
 void ADFPlayerState::InitializeAttributesFromDataTable(UDataTable* AttributeTable, FName RowName)
 {
 	if (!HasAuthority() || !AbilitySystemComponent || !AttributeTable || RowName.IsNone())
 	{
+		UE_LOG(LogDFPlayerState, Verbose, TEXT("InitializeAttributesFromDataTable: skip (Auth=%d ASC=%d Table=%d RowNone=%d) %s | Row=%s"),
+			HasAuthority() ? 1 : 0, AbilitySystemComponent != nullptr, AttributeTable != nullptr, RowName.IsNone() ? 1 : 0, *GetName(), *RowName.ToString());
+		return;
+	}
+	if (!AbilitySystemComponent->GetAvatarActor())
+	{
+		UE_LOG(LogDFPlayerState, Verbose, TEXT("InitializeAttributesFromDataTable: no avatar yet (deferred) %s | Row=%s"), *GetName(), *RowName.ToString());
+		// Call after InitAbilityActorInfo on the owning pawn (e.g. from GameMode after possess).
 		return;
 	}
 
@@ -67,6 +91,7 @@ void ADFPlayerState::InitializeAttributesFromDataTable(UDataTable* AttributeTabl
 	const FDFAttributeInitTableRow* Row = AttributeTable->FindRow<FDFAttributeInitTableRow>(RowName, Ctx, false);
 	if (!Row || !Row->StartupGameplayEffect)
 	{
+		UE_LOG(LogDFPlayerState, Warning, TEXT("InitializeAttributesFromDataTable: bad row or empty StartupGE %s | Row=%s"), *GetName(), *RowName.ToString());
 		return;
 	}
 
@@ -78,6 +103,12 @@ void ADFPlayerState::InitializeAttributesFromDataTable(UDataTable* AttributeTabl
 	if (SpecHandle.IsValid())
 	{
 		AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+		UE_LOG(LogDFPlayerState, Log, TEXT("InitializeAttributesFromDataTable: applied startup GE %s for %s | Row=%s"),
+			*GetNameSafe(Row->StartupGameplayEffect.Get()), *GetName(), *RowName.ToString());
+	}
+	else
+	{
+		UE_LOG(LogDFPlayerState, Warning, TEXT("InitializeAttributesFromDataTable: MakeOutgoingSpec failed %s | Row=%s"), *GetName(), *RowName.ToString());
 	}
 }
 
@@ -97,7 +128,7 @@ void ADFPlayerState::Client_OpenAbilitySelectionScreen_Implementation(
 	UDFAbilitySelectionSubsystem* const Sub = W->GetSubsystem<UDFAbilitySelectionSubsystem>();
 	if (!Sub || !Sub->SelectionWidgetClass)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Client_OpenAbilitySelectionScreen: set SelectionWidgetClass on UDFAbilitySelectionSubsystem (or CDO)."));
+		UE_LOG(LogDFPlayerState, Warning, TEXT("Client_OpenAbilitySelectionScreen: set SelectionWidgetClass on UDFAbilitySelectionSubsystem (or CDO)."));
 		return;
 	}
 	UDFAbilitySelectionWidget* const Screen = CreateWidget<UDFAbilitySelectionWidget>(PC, Sub->SelectionWidgetClass);
@@ -197,10 +228,12 @@ void ADFPlayerState::AuthoritySetReplicatedRunGold(int32 const NewTotal)
 		return;
 	}
 	ReplicatedRunGold = FMath::Max(0, NewTotal);
+	UE_LOG(LogDFPlayerState, Verbose, TEXT("AuthoritySetReplicatedRunGold %s | %d"), *GetName(), ReplicatedRunGold);
 	OnReplicatedRunGold.Broadcast(ReplicatedRunGold);
 }
 
 void ADFPlayerState::OnRep_ReplicatedRunGold()
 {
+	UE_LOG(LogDFPlayerState, Verbose, TEXT("OnRep_ReplicatedRunGold %s | Gold=%d"), *GetName(), ReplicatedRunGold);
 	OnReplicatedRunGold.Broadcast(ReplicatedRunGold);
 }
