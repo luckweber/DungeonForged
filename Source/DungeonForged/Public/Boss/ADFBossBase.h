@@ -9,6 +9,7 @@ class UAnimMontage;
 class UCameraShakeBase;
 class UNiagaraSystem;
 class UDFGameplayAbility;
+class UGameplayAbility;
 class UGameplayEffect;
 class AActor;
 class UNiagaraComponent;
@@ -85,6 +86,13 @@ public:
 	/** 1.5s self stun (SetByCaller Data.Duration). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DF|Boss|GAS", meta = (ClampMin = "0.0"))
 	float PhaseStunDuration = 1.5f;
+
+	/**
+	 * Optional. If set, TriggerPhaseTransition activates this (server) instead of applying StunForPhaseTransition to self.
+	 * C++ class: e.g. UDFBossAbility_PhaseTransitionSlam. Grant the ability in boss kit or via BeginPlay auto-grant.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DF|Boss|GAS")
+	TSubclassOf<UGameplayAbility> PhaseSlamAbility;
 
 	UPROPERTY(BlueprintAssignable, Category = "DF|Boss")
 	FOnDFBossPhaseChanged OnBossPhaseChanged;

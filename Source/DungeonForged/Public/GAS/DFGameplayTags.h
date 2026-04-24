@@ -90,6 +90,20 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Ability_Cooldown_Siphon;
 	static FGameplayTag Ability_Cooldown_Berserk;
 	static FGameplayTag Ability_Cooldown_CallLightning;
+	// Boss (granted only to ADFBossBase; see bSourceObjectMustBeBoss on ability CDOs)
+	static FGameplayTag Ability_Boss_TerrorShout;
+	static FGameplayTag Ability_Boss_MeteorStrike;
+	static FGameplayTag Ability_Boss_VoidBarrier;
+	static FGameplayTag Ability_Boss_PhaseTransitionSlam;
+	static FGameplayTag Ability_Boss_EnragePulse;
+	static FGameplayTag Ability_Cooldown_Boss_TerrorShout;
+	static FGameplayTag Ability_Cooldown_Boss_MeteorStrike;
+	static FGameplayTag Ability_Cooldown_Boss_VoidBarrier;
+	static FGameplayTag Ability_Cooldown_Boss_EnragePulse;
+	/** AN_PhaseErupt: phase slam room-wide hit frame. */
+	static FGameplayTag Event_Boss_PhaseErupt;
+	static FGameplayTag Event_Boss_WhiteFlash;
+	static FGameplayTag Effect_Debuff_Terrified;
 	static FGameplayTag State_Universal_SecondWindAvailable;
 	static FGameplayTag State_Berserk;
 	static FGameplayTag Effect_Buff_BattleHymn;

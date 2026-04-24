@@ -7,6 +7,7 @@
 #include "GAS/Effects/UGE_Debuff_Stun.h"
 #include "GAS/UDFGameplayAbility.h"
 #include "Abilities/GameplayAbility.h"
+#include "GameplayAbilitySpec.h"
 #include "AbilitySystemComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
@@ -36,6 +37,10 @@ void ADFBossBase::BeginPlay()
 	{
 		GetWorldTimerManager().SetTimer(EnrageTimerHandle, this, &ADFBossBase::OnEnrageTimerExpired, EnrageTimer, false);
 		bEnrageTimerSet = true;
+	}
+	if (HasAuthority() && PhaseSlamAbility && AbilitySystemComponent)
+	{
+		AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(PhaseSlamAbility, 1, INDEX_NONE, this));
 	}
 }
 
@@ -100,7 +105,11 @@ void ADFBossBase::TriggerPhaseTransition(const int32 NewPhase)
 	const int32 Old = CurrentPhase;
 	CurrentPhase = NewPhase;
 
-	if (StunForPhaseTransition && AbilitySystemComponent)
+	if (HasAuthority() && PhaseSlamAbility && AbilitySystemComponent)
+	{
+		AbilitySystemComponent->TryActivateAbilityByClass(PhaseSlamAbility, true);
+	}
+	else if (StunForPhaseTransition && AbilitySystemComponent)
 	{
 		FGameplayEffectContextHandle Ctx = AbilitySystemComponent->MakeEffectContext();
 		Ctx.AddSourceObject(this);

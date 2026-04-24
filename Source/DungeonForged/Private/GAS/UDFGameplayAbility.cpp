@@ -2,6 +2,7 @@
 
 #include "GAS/UDFGameplayAbility.h"
 #include "GAS/UDFAttributeSet.h"
+#include "Boss/ADFBossBase.h"
 
 #include "Abilities/GameplayAbilityTypes.h"
 #include "AbilitySystemComponent.h"
@@ -19,6 +20,13 @@ bool UDFGameplayAbility::CanActivateAbility(const FGameplayAbilitySpecHandle Han
 	if (!ActorInfo)
 	{
 		return false;
+	}
+	if (bSourceObjectMustBeBoss)
+	{
+		if (!Cast<ADFBossBase>(ActorInfo->AvatarActor.Get()))
+		{
+			return false;
+		}
 	}
 	if (UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get())
 	{

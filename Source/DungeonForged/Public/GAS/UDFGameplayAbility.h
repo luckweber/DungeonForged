@@ -50,6 +50,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ability|DF|Cooldown", meta = (ClampMin = "0.0"))
 	float BaseCooldown = 0.f;
 
+	/** If true, activation requires the avatar to be an ADFBossBase (boss-only attacks). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ability|DF|Boss")
+	bool bSourceObjectMustBeBoss = false;
+
 	virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 		const FGameplayTagContainer* SourceTags = nullptr, const FGameplayTagContainer* TargetTags = nullptr,
 		FGameplayTagContainer* OptionalRelevantTags = nullptr) const override;
