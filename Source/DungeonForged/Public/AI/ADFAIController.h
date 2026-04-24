@@ -6,6 +6,7 @@
 #include "AIController.h"
 #include "ADFAIController.generated.h"
 
+struct FAIStimulus;
 class UAIPerceptionComponent;
 class UAISenseConfig_Hearing;
 class UAISenseConfig_Sight;
