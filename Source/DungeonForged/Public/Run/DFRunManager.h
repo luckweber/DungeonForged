@@ -14,6 +14,8 @@ class UDFInventoryComponent;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDFRunFailed);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDFShowDeathScreen);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDFRunCompleted, int32, FinalScore);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDFRunGoldChanged, int32, NewTotalGold);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDFRunFloorChanged, int32, NewFloor);
 
 /**
  * In-memory roguelike run; not serialized to disk (meta is in UDFSaveGame).
@@ -82,6 +84,13 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Run|Events")
 	FOnDFRunCompleted OnRunEndedSuccessfully;
 
+	/** Fires on server (and for listen host) when in-run gold changes. Clients should prefer ADFPlayerState::OnReplicatedRunGoldChanged. */
+	UPROPERTY(BlueprintAssignable, Category = "Run|Events")
+	FOnDFRunGoldChanged OnGoldChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Run|Events")
+	FOnDFRunFloorChanged OnRunFloorChanged;
+
 	/** Reset run state, resolve the class row from ClassDataTable, init starting abilities from the row, and apply to the current possessable player if any. */
 	UFUNCTION(BlueprintCallable, Category = "Run")
 	void StartNewRun(FName ClassName);
@@ -113,11 +122,24 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Run")
 	void AdvanceFloor(int32 FloorDelta = 1);
 
-	UFUNCTION(BlueprintCallable, Category = "Run")
+	/** Adds gold to the in-run total (server). Broadcasts OnGoldChanged and syncs UDFInGameHUD via ADFPlayerState. */
+	UFUNCTION(BlueprintCallable, Category = "Run|Gold")
 	void AddRunGold(int32 Delta);
+
+	/** Blueprint alias for AddRunGold. */
+	UFUNCTION(BlueprintCallable, Category = "Run|Gold", meta = (DisplayName = "Add Gold (Run)"))
+	void AddGold(int32 Amount) { AddRunGold(Amount); }
+
+	/** Spends run gold for shops/costs. Fails if insufficient. */
+	UFUNCTION(BlueprintCallable, Category = "Run|Gold")
+	bool SpendGold(int32 Amount);
 
 	UFUNCTION(BlueprintCallable, Category = "Run")
 	void AddRunScore(int32 Delta);
+
+	/** Server-only mirror of in-run gold (authoritative for logic). */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Run|Gold")
+	int32 GetCurrentGold() const { return RunState.Gold; }
 
 	/** Call after the pawn/ASC is ready (e.g. after level travel) — server / authority only. */
 	UFUNCTION(BlueprintCallable, Category = "Run")
@@ -140,6 +162,7 @@ private:
 	void ApplyClassToAttributes(class UAbilitySystemComponent* ASC, const FDFClassTableRow& ClassRow) const;
 	void RestoreInventoryFromRunState(UDFInventoryComponent* Inv) const;
 	void AddUniqueName(TArray<FName>& ToArray, FName Name) const;
+	void SyncReplicatedRunGoldToPlayerStates() const;
 
 	UPROPERTY(Transient)
 	FDFRunState RunState;

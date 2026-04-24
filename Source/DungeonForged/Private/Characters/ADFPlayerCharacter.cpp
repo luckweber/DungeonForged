@@ -22,6 +22,9 @@
 #include "InputMappingContext.h"
 #include "GameplayTagContainer.h"
 #include "Components/CapsuleComponent.h"
+#include "Blueprint/UserWidget.h"
+#include "Merchant/ADFMerchantActor.h"
+#include "UI/UDFShopWidget.h"
 
 ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<UDFCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
@@ -388,4 +391,77 @@ void ADFPlayerCharacter::TryActivateAbilitySlot(int32 Slot1Based)
 	}
 	const FName N(*FString::Printf(TEXT("Ability.Slot.%d"), Slot1Based));
 	TryActivateByGameplayTagName(N);
+}
+
+void ADFPlayerCharacter::ClientOpenMerchantShop_Implementation(ADFMerchantActor* Shop)
+{
+	if (!IsLocallyControlled() || !Shop)
+	{
+		return;
+	}
+	if (!Shop->ShopWidgetClass)
+	{
+		return;
+	}
+	APlayerController* const PC = GetController<APlayerController>();
+	if (UDFShopWidget* const W = CreateWidget<UDFShopWidget>(PC, Shop->ShopWidgetClass))
+	{
+		ActiveShopWidget = W;
+		W->OpenForMerchant(Shop);
+		W->AddToViewport(1000);
+	}
+}
+
+void ADFPlayerCharacter::ClientNotifyMerchantPurchase_Implementation(int32 SlotIndex)
+{
+	if (!IsLocallyControlled())
+	{
+		return;
+	}
+	if (UDFShopWidget* const W = ActiveShopWidget)
+	{
+		W->PlaySlotPurchaseFeedback(SlotIndex);
+	}
+}
+
+bool ADFPlayerCharacter::ServerMerchantPurchase_Validate(ADFMerchantActor* /*Shop*/, int32 /*SlotIndex*/)
+{
+	return true;
+}
+
+void ADFPlayerCharacter::ServerMerchantPurchase_Implementation(ADFMerchantActor* Shop, int32 SlotIndex)
+{
+	if (!HasAuthority() || !IsValid(Shop) || SlotIndex < 0)
+	{
+		return;
+	}
+	const float MaxDist = 900.f;
+	if (FVector::Dist(Shop->GetActorLocation(), GetActorLocation()) > MaxDist)
+	{
+		return;
+	}
+	Shop->PurchaseItem(SlotIndex, this);
+}
+
+bool ADFPlayerCharacter::ServerMerchantReroll_Validate(ADFMerchantActor* /*Shop*/)
+{
+	return true;
+}
+
+void ADFPlayerCharacter::ServerMerchantReroll_Implementation(ADFMerchantActor* Shop)
+{
+	if (!HasAuthority() || !IsValid(Shop))
+	{
+		return;
+	}
+	if (FVector::Dist(Shop->GetActorLocation(), GetActorLocation()) > 900.f)
+	{
+		return;
+	}
+	Shop->RerollStock(this);
+}
+
+void ADFPlayerCharacter::ClearActiveShopWidget()
+{
+	ActiveShopWidget = nullptr;
 }

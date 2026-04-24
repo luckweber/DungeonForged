@@ -1,11 +1,13 @@
 // Source/DungeonForged/Private/Interaction/ADFShrine.cpp
 #include "Interaction/ADFShrine.h"
+#include "Run/DFRunManager.h"
 #include "GAS/UDFAttributeSet.h"
 #include "NiagaraComponent.h"
 #include "NiagaraSystem.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
 #include "GameFramework/Character.h"
+#include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 #include "GameplayEffectTypes.h"
@@ -73,6 +75,25 @@ void ADFShrine::Interact_Implementation(ACharacter* const Interactor)
 	if (!HasAuthority() || !Interactor)
 	{
 		return;
+	}
+	if (GoldRewardMax > 0)
+	{
+		if (UWorld* const W = GetWorld())
+		{
+			if (UGameInstance* const GI = W->GetGameInstance())
+			{
+				if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
+				{
+					const int32 G = FMath::RandRange(
+						FMath::Min(GoldRewardMin, GoldRewardMax),
+						FMath::Max(GoldRewardMin, GoldRewardMax));
+					if (G > 0)
+					{
+						RM->AddRunGold(G);
+					}
+				}
+			}
+		}
 	}
 	if (ShrineType == EDFShrineType::Mystery)
 	{

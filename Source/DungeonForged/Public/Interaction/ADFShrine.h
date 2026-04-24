@@ -47,6 +47,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Shrine|GAS|Mystery")
 	TArray<TSubclassOf<UGameplayEffect>> MysteryEffects;
 
+	/** Run gold granted on use (inclusive). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Shrine|Gold", meta = (ClampMin = "0"))
+	int32 GoldRewardMin = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Shrine|Gold", meta = (ClampMin = "0"))
+	int32 GoldRewardMax = 0;
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Shrine|VFX")
 	TObjectPtr<UNiagaraComponent> VFXComponent = nullptr;

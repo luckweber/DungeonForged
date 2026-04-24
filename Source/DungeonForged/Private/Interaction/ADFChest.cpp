@@ -1,9 +1,11 @@
 // Source/DungeonForged/Private/Interaction/ADFChest.cpp
 #include "Interaction/ADFChest.h"
+#include "Run/DFRunManager.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DFLootGeneratorSubsystem.h"
 #include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
+#include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "Animation/AnimInstance.h"
 #include "Particles/ParticleSystem.h"
@@ -71,6 +73,21 @@ void ADFChest::Interact_Implementation(ACharacter* Interactor)
 	}
 	if (UWorld* const W = GetWorld())
 	{
+		if (GoldMax > 0)
+		{
+			if (UGameInstance* const GI = W->GetGameInstance())
+			{
+				if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
+				{
+					const int32 G = FMath::RandRange(
+						FMath::Min(GoldMin, GoldMax), FMath::Max(GoldMin, GoldMax));
+					if (G > 0)
+					{
+						RM->AddRunGold(G);
+					}
+				}
+			}
+		}
 		if (UDFLootGeneratorSubsystem* const Loot = W->GetSubsystem<UDFLootGeneratorSubsystem>())
 		{
 			if (LootPoolDataTable && !LootTableRow.IsNone() && Loot->ItemDataTable)

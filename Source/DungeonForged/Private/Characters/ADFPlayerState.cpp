@@ -13,6 +13,7 @@
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
+#include "Net/UnrealNetwork.h"
 
 ADFPlayerState::ADFPlayerState()
 {
@@ -181,4 +182,25 @@ void ADFPlayerState::Server_FinishAbilitySelection_Implementation(int32 const Of
 			}
 		}
 	}
+}
+
+void ADFPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(ADFPlayerState, ReplicatedRunGold);
+}
+
+void ADFPlayerState::AuthoritySetReplicatedRunGold(int32 const NewTotal)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+	ReplicatedRunGold = FMath::Max(0, NewTotal);
+	OnReplicatedRunGold.Broadcast(ReplicatedRunGold);
+}
+
+void ADFPlayerState::OnRep_ReplicatedRunGold()
+{
+	OnReplicatedRunGold.Broadcast(ReplicatedRunGold);
 }

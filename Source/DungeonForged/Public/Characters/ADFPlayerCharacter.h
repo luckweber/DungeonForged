@@ -20,6 +20,8 @@ class UDFMeleeTraceComponent;
 class UInputAction;
 class UInputMappingContext;
 class UAbilitySystemComponent;
+class ADFMerchantActor;
+class UDFShopWidget;
 
 UCLASS(Blueprintable)
 class DUNGEONFORGED_API ADFPlayerCharacter : public ACharacter, public IAbilitySystemInterface
@@ -106,9 +108,29 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Interaction")
 	TObjectPtr<UDFInteractionComponent> Interaction;
 
+	/** Set when ClientOpenMerchantShop creates the shop; cleared in UDFShopWidget::CloseShop. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|UI|Shop")
+	TObjectPtr<UDFShopWidget> ActiveShopWidget;
+
 	/** Zoom: TargetArmLength change per 1.0f of the zoom action (mouse wheel). */
 	UPROPERTY(EditDefaultsOnly, Category = "Camera", meta = (ClampMin = "0.0"))
 	float CameraZoomStep = 25.f;
+
+	UFUNCTION(Client, Reliable, Category = "DF|UI|Shop")
+	void ClientOpenMerchantShop(ADFMerchantActor* Shop);
+
+	UFUNCTION(Client, Reliable, Category = "DF|UI|Shop")
+	void ClientNotifyMerchantPurchase(int32 SlotIndex);
+
+	UFUNCTION(Server, Reliable, WithValidation, Category = "DF|UI|Shop")
+	void ServerMerchantPurchase(ADFMerchantActor* Shop, int32 SlotIndex);
+
+	UFUNCTION(Server, Reliable, WithValidation, Category = "DF|UI|Shop")
+	void ServerMerchantReroll(ADFMerchantActor* Shop);
+
+	/** Called from UDFShopWidget when the panel is removed. */
+	UFUNCTION(BlueprintCallable, Category = "DF|UI|Shop")
+	void ClearActiveShopWidget();
 
 protected:
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;

@@ -174,6 +174,12 @@ protected:
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|Enemy")
 	float CachedExperienceReward = 0.f;
 
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|Enemy|Rewards")
+	int32 CachedGoldDropMin = 0;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|Enemy|Rewards")
+	int32 CachedGoldDropMax = 0;
+
 	/** Server-only: who last applied damage (effect causer / instigator). */
 	TWeakObjectPtr<AActor> LastDamageAttacker;
 

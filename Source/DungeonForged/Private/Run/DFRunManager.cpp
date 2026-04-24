@@ -7,7 +7,9 @@
 #include "DFInventoryComponent.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Engine/World.h"
+#include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerState.h"
 #include "TimerManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -48,6 +50,8 @@ void UDFRunManager::StartNewRun(FName ClassName)
 	RunState.Score = 0;
 	RunState.RunStartTime = static_cast<float>(FPlatformTime::Seconds());
 	bRunInProgress = true;
+	SyncReplicatedRunGoldToPlayerStates();
+	OnGoldChanged.Broadcast(RunState.Gold);
 
 	if (UDFSaveGame* const Meta = UDFSaveGame::Load())
 	{
@@ -197,6 +201,7 @@ void UDFRunManager::AdvanceFloor(const int32 FloorDelta)
 		return;
 	}
 	RunState.CurrentFloor = FMath::Max(1, RunState.CurrentFloor + FloorDelta);
+	OnRunFloorChanged.Broadcast(RunState.CurrentFloor);
 }
 
 void UDFRunManager::AddRunGold(const int32 Delta)
@@ -206,6 +211,41 @@ void UDFRunManager::AddRunGold(const int32 Delta)
 		return;
 	}
 	RunState.Gold = FMath::Max(0, RunState.Gold + Delta);
+	SyncReplicatedRunGoldToPlayerStates();
+	OnGoldChanged.Broadcast(RunState.Gold);
+}
+
+bool UDFRunManager::SpendGold(const int32 Amount)
+{
+	if (!bRunInProgress || Amount < 0)
+	{
+		return false;
+	}
+	if (RunState.Gold < Amount)
+	{
+		return false;
+	}
+	RunState.Gold -= Amount;
+	SyncReplicatedRunGoldToPlayerStates();
+	OnGoldChanged.Broadcast(RunState.Gold);
+	return true;
+}
+
+void UDFRunManager::SyncReplicatedRunGoldToPlayerStates() const
+{
+	UWorld* const W = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr;
+	AGameStateBase* const GS = W ? W->GetGameState() : nullptr;
+	if (!GS)
+	{
+		return;
+	}
+	for (APlayerState* const PS : GS->PlayerArray)
+	{
+		if (ADFPlayerState* const DPS = Cast<ADFPlayerState>(PS))
+		{
+			DPS->AuthoritySetReplicatedRunGold(RunState.Gold);
+		}
+	}
 }
 
 void UDFRunManager::AddRunScore(const int32 Delta)

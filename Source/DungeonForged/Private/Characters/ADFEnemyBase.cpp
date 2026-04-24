@@ -24,6 +24,7 @@
 #include "GameFramework/PlayerState.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Engine/GameInstance.h"
+#include "Run/DFRunManager.h"
 #include "GameplayEffectTypes.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "TimerManager.h"
@@ -209,6 +210,8 @@ void ADFEnemyBase::InitializeFromDataTable(UDataTable* EnemyTable, FName RowName
 	}
 
 	CachedExperienceReward = Row->ExperienceReward;
+	CachedGoldDropMin = Row->GoldDropMin;
+	CachedGoldDropMax = Row->GoldDropMax;
 	CachedLootTableRowNames = Row->LootTableRows;
 	CachedAIBehaviorTree = Row->AIBehaviorTree;
 
@@ -323,28 +326,50 @@ void ADFEnemyBase::HandleServerDeath(AActor* Killer)
 		return;
 	}
 	bHasDied = true;
-	if (HasAuthority() && CachedExperienceReward > 0.f)
+	if (HasAuthority())
 	{
 		if (ADFPlayerState* const PState = ResolveKillerPlayerState(Killer))
 		{
-			if (UDFLevelingComponent* const Lv = PState->GetLevelingComponent())
+			if (CachedExperienceReward > 0.f)
 			{
-				int32 Floor = 0;
-				if (UWorld* const W = GetWorld())
+				if (UDFLevelingComponent* const Lv = PState->GetLevelingComponent())
 				{
-					if (UGameInstance* const GI = W->GetGameInstance())
+					int32 Floor = 0;
+					if (UWorld* const W = GetWorld())
 					{
-						if (UDFDungeonManager* const Dm = GI->GetSubsystem<UDFDungeonManager>())
+						if (UGameInstance* const GI = W->GetGameInstance())
 						{
-							Floor = Dm->CurrentFloor;
+							if (UDFDungeonManager* const Dm = GI->GetSubsystem<UDFDungeonManager>())
+							{
+								Floor = Dm->CurrentFloor;
+							}
 						}
 					}
+					const int32 XpAward = FMath::RoundToInt(
+						CachedExperienceReward * (1.f + 0.1f * static_cast<float>(Floor)));
+					if (XpAward > 0)
+					{
+						Lv->AddXP(XpAward);
+					}
 				}
-				const int32 XpAward = FMath::RoundToInt(
-					CachedExperienceReward * (1.f + 0.1f * static_cast<float>(Floor)));
-				if (XpAward > 0)
+			}
+			if (CachedGoldDropMax > 0)
+			{
+				if (UWorld* const Wg = GetWorld())
 				{
-					Lv->AddXP(XpAward);
+					if (UGameInstance* const GI = Wg->GetGameInstance())
+					{
+						if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
+						{
+							const int32 G = FMath::RandRange(
+								FMath::Min(CachedGoldDropMin, CachedGoldDropMax),
+								FMath::Max(CachedGoldDropMin, CachedGoldDropMax));
+							if (G > 0)
+							{
+								RM->AddRunGold(G);
+							}
+						}
+					}
 				}
 			}
 		}

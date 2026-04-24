@@ -14,6 +14,8 @@ class UDataTable;
 class UDFAttributeSet;
 class UDFLevelingComponent;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDFReplicatedRunGold, int32, NewTotalGold);
+
 UCLASS()
 class DUNGEONFORGED_API ADFPlayerState : public APlayerState, public IAbilitySystemInterface
 {
@@ -36,7 +38,19 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Progression")
 	UDFLevelingComponent* GetLevelingComponent() const { return LevelingComponent; }
 
+	/** Mirrored from UDFRunManager for WBP / clients (replicated with OnRep). */
+	UFUNCTION(BlueprintPure, Category = "Run|Gold")
+	int32 GetReplicatedRunGold() const { return ReplicatedRunGold; }
+
+	/** Server: sets replicated gold for HUD. Do not call from client. */
+	void AuthoritySetReplicatedRunGold(int32 NewTotal);
+
+	/** HUD / WBP: bind in NativeConstruct; fires on every replicate + server broadcast. */
+	UPROPERTY(BlueprintAssignable, Category = "Run|Gold")
+	FOnDFReplicatedRunGold OnReplicatedRunGold;
+
 	virtual void BeginPlay() override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	/** Server / authority: grants every valid row in the table to this PlayerState's ASC. */
 	UFUNCTION(BlueprintCallable, Category = "GAS")
@@ -59,4 +73,12 @@ public:
 	/** Commit pick or skip. First valid resolution per `UDFDungeonManager::ActiveFloorOfferId` wins; others get resume only. */
 	UFUNCTION(Server, Reliable, Category = "DF|Rogue")
 	void Server_FinishAbilitySelection(int32 OfferId, bool bSkipped, FName SelectedRowName);
+
+	UFUNCTION()
+	void OnRep_ReplicatedRunGold();
+
+protected:
+	/** Synchronized on server with UDFRunManager::RunState.Gold. */
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_ReplicatedRunGold, Category = "Run|Gold")
+	int32 ReplicatedRunGold = 0;
 };

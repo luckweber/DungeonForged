@@ -42,6 +42,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Loot")
 	int32 MaxDropCount = 4;
 
+	/** In-run gold added when opened (inclusive). 0,0 = no extra gold. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Loot|Gold", meta = (ClampMin = "0"))
+	int32 GoldMin = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Loot|Gold", meta = (ClampMin = "0"))
+	int32 GoldMax = 0;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|VFX|Audio")
 	TObjectPtr<UAnimMontage> OpenMontage = nullptr;
 

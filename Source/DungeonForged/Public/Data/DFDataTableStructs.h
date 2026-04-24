@@ -166,6 +166,13 @@ struct DUNGEONFORGED_API FDFEnemyTableRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Rewards", meta = (ClampMin = "0.0"))
 	float ExperienceReward = 0.f;
 
+	/** Run gold dropped to the killing player (rand in [Min, Max], inclusive). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Rewards", meta = (ClampMin = "0"))
+	int32 GoldDropMin = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Rewards", meta = (ClampMin = "0"))
+	int32 GoldDropMax = 0;
+
 	/** Row names in DT_Items (or your item table) that this enemy can roll for loot. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Loot")
 	TArray<FName> LootTableRows;
