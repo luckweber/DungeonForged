@@ -134,7 +134,7 @@ void UDFGameInstance::HostSession()
 	DoCreateSessionInternal();
 }
 
-void UDFGameInstance::JoinSession(const FString& Address)
+void UDFGameInstance::JoinSessionToAddress(const FString& Address)
 {
 	ServerAddress = Address;
 	if (APlayerController* const PC = GetFirstLocalPlayerController())

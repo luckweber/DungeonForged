@@ -4,6 +4,7 @@
 #include "GameModes/Run/ADFRunGameState.h"
 #include "GameModes/Run/ADFRunHUD.h"
 #include "GameModes/Run/ADFRunPlayerController.h"
+#include "World/DFWorldTypes.h"
 #include "World/UDFWorldTransitionSubsystem.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Characters/ADFPlayerState.h"
@@ -319,13 +320,6 @@ void ADFRunGameMode::TriggerVictory()
 	{
 		RGS->SetPhase(ERunPhase::Victory);
 	}
-	if (UGameInstance* const GI = GetGameInstance())
-	{
-		if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
-		{
-			RM->OnRunCompleted();
-		}
-	}
 	if (UWorld* const W = GetWorld())
 	{
 		if (const ADFRunGameState* const RGS = W->GetGameState<ADFRunGameState>())
@@ -351,7 +345,7 @@ void ADFRunGameMode::ScheduleFinishVictoryToNexus()
 	{
 		if (UDFWorldTransitionSubsystem* const T = GI->GetSubsystem<UDFWorldTransitionSubsystem>())
 		{
-			T->TravelToNexus(ERunNexusTravelReason::Victory);
+			T->TravelToNexus(ETravelReason::Victory);
 		}
 	}
 }
@@ -391,7 +385,7 @@ void ADFRunGameMode::ScheduleFinishDefeatToNexus()
 	{
 		if (UDFWorldTransitionSubsystem* const T = GI->GetSubsystem<UDFWorldTransitionSubsystem>())
 		{
-			T->TravelToNexus(ERunNexusTravelReason::Defeat);
+			T->TravelToNexus(ETravelReason::Defeat);
 		}
 	}
 }

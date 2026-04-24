@@ -3,12 +3,18 @@
 
 #include "CoreMinimal.h"
 #include "GameModes/Run/DFRunTypes.h"
+#include "World/DFWorldTypes.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "UDFWorldTransitionSubsystem.generated.h"
 
 /**
- * End-of-run and between-floor level transitions. Uses @c ServerTravel / @c OpenLevel with optional
- * query parameters; configure map paths in the instance CDO or project settings.
+ * All Nexus <-> run travel, between-floor loads, and meta end-of-run persistence.
+ *
+ * Map world settings (for designers, assign in the map asset, not enforced here):
+ * - Map "Nexus": @c GameMode = @c ADFNexusGameMode, @c DefaultPawn = @c ADFNexusPawn (non-combat),
+ *   @c PlayerController = @c ADFNexusPlayerController. Sky: eternal golden hour. Ambient: tranquil MetaSound.
+ * - Map "DungeonRun": @c GameMode = @c ADFRunGameMode, @c Pawn = @c ADFPlayerCharacter,
+ *   @c PC = @c ADFRunPlayerController. NavMesh rebuild after PCG. Underground (no sky). Dungeon MetaSound.
  */
 UCLASS()
 class DUNGEONFORGED_API UDFWorldTransitionSubsystem : public UGameInstanceSubsystem
@@ -16,32 +22,58 @@ class DUNGEONFORGED_API UDFWorldTransitionSubsystem : public UGameInstanceSubsys
 	GENERATED_BODY()
 
 public:
-	/** e.g. @c /Game/Maps/Nexus — defaults to UDFGameInstance::MainMenuMapName if empty at runtime. */
+	/** @c ETravelReason queued for the active transition (Nexus, floor, or run end). */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|World")
+	ETravelReason PendingReason = ETravelReason::None;
+
+	/** For @a NewRun, the chosen class row. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|World")
+	FName PendingClass = NAME_None;
+
+	UPROPERTY(BlueprintReadWrite, Category = "DF|World")
+	bool bIsTransitioning = false;
+
+	/** Short or long map path (e.g. /Game/Maps/Nexus or Nexus). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|World")
-	FString NexusMapPath;
+	FString NexusMapName = TEXT("Nexus");
 
-	/**
-	 * Packaged / same-map floor reload: if non-empty, @c TravelToNextFloor will @c ServerTravel here with
-	 * @c ?df_run_floor=N ; leave empty to call @c UDFDungeonManager::AdvanceToNextFloor in-place.
-	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|World")
-	FString DungeonRunMapPath;
-
-	/** Server / authority: return to the Nexus (meta hub). */
-	UFUNCTION(BlueprintCallable, Category = "DF|World")
-	void TravelToNexus(ERunNexusTravelReason Reason);
+	FString RunMapName = TEXT("DungeonRun");
 
 	/**
-	 * Server / authority: start a new dungeon run (class already chosen in Nexus).
-	 * Sets @c EDFRunTravelReason::NewRun on @c UDFRunManager and @c ServerTravels to @c DungeonRunMapPath.
+	 * Return to the Nexus. Server / local authority. Runs @a FinalizeRunData for Victory / Defeat / Abandon.
+	 * @see DFWorldTypes.h @c ETravelReason
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DF|World")
-	void TravelToRun(FName SelectedClassRow);
+	void TravelToNexus(ETravelReason Reason);
+
+	/** Blueprint-friendly wrapper; see TravelToNexus(ETravelReason). */
+	UFUNCTION(BlueprintCallable, Category = "DF|World", meta = (DisplayName = "Travel To Nexus (Nexus Enum)"))
+	void TravelToNexusFromNexusEnum(ERunNexusTravelReason Reason)
+	{
+		TravelToNexus(DFWorldTransition::NexusReasonToTravel(Reason));
+	}
+
+	/** Start a new dungeon run after class select in the Nexus. */
+	UFUNCTION(BlueprintCallable, Category = "DF|World")
+	void TravelToRun(FName SelectedClass);
 
 	/**
-	 * Server / authority: move to the next floor — either in-place (dungeon manager) or @c ServerTravel
-	 * to @c DungeonRunMapPath.
+	 * Same @a RunMapName, run GameMode restarts floor: capture state, save checkpoint, loading screen, @c OpenLevel.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DF|World")
-	void TravelToNextFloor(int32 NextFloor);
+	void TravelToNextFloor(int32 NextFloor, int32 MaxFloors = 10);
+
+	/** Called from UDFLoadingScreenSubsystem when the fade and min display time are done. */
+	UFUNCTION(BlueprintCallable, Category = "DF|World")
+	void NotifyLoadingFinished() { bIsTransitioning = false; }
+
+	UFUNCTION(BlueprintCallable, Category = "DF|World")
+	void FinalizeRunData(ETravelReason Reason);
+
+	UFUNCTION(BlueprintCallable, Category = "DF|World")
+	void SaveCheckpoint(ECheckpointType Type);
+
+protected:
+	void OpenMapByName(const FString& Map);
 };

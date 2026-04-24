@@ -39,8 +39,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|Session")
 	void HostSession();
 
-	UFUNCTION(BlueprintCallable, Category = "DF|Session")
-	void JoinSession(const FString& Address);
+	/**
+	 * Direct ClientTravel to Address (e.g. 127.0.0.1:17777).
+	 * This is not Online Subsystem UGameInstance::JoinSession; named separately so the base virtual is not hidden.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DF|Session", meta = (DisplayName = "Join Session (By Address)"))
+	void JoinSessionToAddress(const FString& Address);
 
 	UFUNCTION(BlueprintCallable, Category = "DF|Session")
 	void LeaveSession();

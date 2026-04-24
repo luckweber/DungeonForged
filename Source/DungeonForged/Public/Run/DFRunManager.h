@@ -4,6 +4,7 @@
 #include "CoreMinimal.h"
 #include "Data/DFDataTableStructs.h"
 #include "GameModes/Run/DFRunTypes.h"
+#include "World/DFWorldTypes.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "DFRunManager.generated.h"
 
@@ -55,6 +56,26 @@ struct DUNGEONFORGED_API FDFRunState
 	 */
 	UPROPERTY(BlueprintReadOnly, Category = "Run")
 	float EnemyOutgoingDamageScale = 1.f;
+
+	/** -1 = leave vitals to class defaults; else 0–1 of max after @ref ApplyClassToAttributes. */
+	UPROPERTY(BlueprintReadOnly, Category = "Run|Checkpoint")
+	float HealthPercent = -1.f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Run|Checkpoint")
+	float ManaPercent = -1.f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Run|Checkpoint")
+	int32 RunCharacterLevel = 1;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Run|Checkpoint")
+	int32 RunXP = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Run|Checkpoint")
+	int32 ComboPoints = 0;
+
+	/** Best-effort history (e.g. recent grants) for debug / UI. */
+	UPROPERTY(BlueprintReadOnly, Category = "Run|Checkpoint")
+	TArray<FName> AbilityHistory;
 };
 
 /** GameInstance subsystem: run state, DT_Classes / DT_Abilities, meta save @see UDFSaveGame. */
@@ -114,6 +135,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Run")
 	void OnRunCompleted();
 
+	/**
+	 * Persists end-of-run meta and MetaXP (Victory / Defeat / Abandon) when returning to the Nexus
+	 * via @ref UDFWorldTransitionSubsystem. Safe to call once per run end; drives @a OnRunEndedSuccessfully on victory.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Run|Meta")
+	void ApplyEndOfRunPersistence(ETravelReason Why, FDFRunSummary const& Summary);
+
 	//~ --- Arrival (Nexus / between-floor travel) @see EDFRunTravelReason, ADFRunGameMode ---
 
 	/**
@@ -137,9 +165,26 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Run|Travel")
 	EDFRunTravelReason GetArrivalReason() const { return PendingArrivalReason; }
 
+	/**
+	 * World transition reason (Nexus, floor, or run end) last queued before travel.
+	 * @c ETravelReason::None when not set.
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Run|Travel")
+	ETravelReason GetTravelArrivalReason() const { return LastTravelReason; }
+
 	/** Only meaningful when @a GetArrivalReason() is @c NewRun. */
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Run|Travel")
 	FName GetPendingClassName() const { return PendingClassForArrival; }
+
+	/** Queues the selected class row for the next @c NewRun (Nexus / class select). */
+	UFUNCTION(BlueprintCallable, Category = "Run|Travel")
+	void SetPendingClass(FName ClassName) { PendingClassForArrival = ClassName; }
+
+	/**
+	 * Queues both legacy @a EDFRunTravelReason and @a ETravelReason for @ref UDFWorldTransitionSubsystem.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Run|Travel")
+	void SetPendingWorldTravel(ETravelReason WorldReason, FName ClassForNewRun = NAME_None);
 
 	/** Clears arrival fields after the run GameMode has applied them. */
 	UFUNCTION(BlueprintCallable, Category = "Run|Travel")
@@ -226,6 +271,10 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Run")
 	bool IsRunInProgress() const { return bRunInProgress; }
 
+	/** Set by @ref UDFSaveGame::LastCheckpoint for crash recovery / resume. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Run|Checkpoint")
+	FDFRunState RestoredRunState;
+
 protected:
 	/** Base score from run stats; override in a subclass to tune. */
 	virtual int32 CalculateFinalScore() const;
@@ -248,10 +297,14 @@ private:
 	EDFRunTravelReason PendingArrivalReason = EDFRunTravelReason::None;
 	FName PendingClassForArrival = NAME_None;
 
+	ETravelReason LastTravelReason = ETravelReason::None;
+
 	uint8 bNexusArrivalSet : 1 = false;
 	ERunNexusTravelReason LastNexusArrivalReason = ERunNexusTravelReason::FirstLaunch;
 
 	uint8 bRunInProgress : 1 = false;
+	/** Prevents double MetaXP / TotalRuns if @a ApplyEndOfRunPersistence is invoked twice. */
+	uint8 bEndRunPersistenceApplied : 1 = false;
 
 	FTimerHandle DeathScreenTimerHandle;
 };

@@ -2,6 +2,7 @@
 #include "GameModes/Run/ADFRunPlayerController.h"
 #include "GameModes/Run/UDFVictoryScreenWidget.h"
 #include "GameModes/Run/UDFDefeatScreenWidget.h"
+#include "World/DFWorldTypes.h"
 #include "World/UDFWorldTransitionSubsystem.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Engine/LocalPlayer.h"
@@ -160,7 +161,7 @@ void ADFRunPlayerController::Server_RequestReturnToNexus_Implementation(ERunNexu
 	{
 		if (UDFWorldTransitionSubsystem* const T = GI->GetSubsystem<UDFWorldTransitionSubsystem>())
 		{
-			T->TravelToNexus(Reason);
+			T->TravelToNexus(DFWorldTransition::NexusReasonToTravel(Reason));
 		}
 	}
 }

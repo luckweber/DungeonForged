@@ -6,6 +6,8 @@
 #include "Localization/DFLocalizationTypes.h"
 #include "GameFramework/SaveGame.h"
 #include "GameModes/Nexus/DFNexusTypes.h"
+#include "Run/DFRunManager.h"
+#include "World/DFWorldTypes.h"
 #include "DFSaveGame.generated.h"
 
 /**
@@ -20,7 +22,7 @@ class DUNGEONFORGED_API UDFSaveGame : public USaveGame
 public:
 	/** Bumped when fields change; used for future migrations. */
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta")
-	int32 SaveVersion = 3;
+	int32 SaveVersion = 4;
 
 	/** @see UDFLocalizationSubsystem */
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Settings|Localization")
@@ -92,6 +94,20 @@ public:
 	/** Merchant stock refresh counter (every 3 runs). */
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Nexus")
 	int32 MerchantRestockRunCounter = 0;
+
+	/** Best 1-based floor and kill count in a single run (Chronicler / highs). v4+ */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Nexus")
+	int32 BestFloorReached = 0;
+
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Nexus")
+	int32 BestKillsInRun = 0;
+
+	/** Last captured run snapshot for resume-after-crash (see @ref UDFWorldTransitionSubsystem::SaveCheckpoint). */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Run")
+	FDFRunState LastCheckpoint;
+
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Run")
+	ECheckpointType LastCheckpointType = ECheckpointType::RunStart;
 
 	/** Synchronous load from the primary meta slot, or a new object if missing / invalid. */
 	UFUNCTION(BlueprintCallable, Category = "DF|Meta|Save")
