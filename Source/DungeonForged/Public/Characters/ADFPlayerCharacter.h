@@ -7,6 +7,7 @@
 #include "AbilitySystemInterface.h"
 #include "Input/DFInputConfig.h"
 #include "InputAction.h"
+#include "Audio/UDFAudioComponent.h"
 #include "ADFPlayerCharacter.generated.h"
 
 class UCameraComponent;
@@ -113,6 +114,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Traps|Sense")
 	TObjectPtr<UDFTrapDetectionComponent> TrapDetection;
 
+	/** 3D SFX for abilities, footstep/impact, UI (see UDFAudioComponent::PlayDFUISound). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Audio")
+	TObjectPtr<UDFAudioComponent> DFAudio;
+
 	/** Set when ClientOpenMerchantShop creates the shop; cleared in UDFShopWidget::CloseShop. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|UI|Shop")
 	TObjectPtr<UDFShopWidget> ActiveShopWidget;
@@ -140,6 +145,7 @@ public:
 protected:
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void PawnClientRestart() override;
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void OnRep_PlayerState() override;

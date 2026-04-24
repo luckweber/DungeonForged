@@ -14,6 +14,8 @@
 #include "Combat/UDFMeleeTraceComponent.h"
 #include "Interaction/UDFInteractionComponent.h"
 #include "Dungeon/Traps/UDFTrapDetectionComponent.h"
+#include "Audio/UDFAudioComponent.h"
+#include "Audio/UDFMusicManagerSubsystem.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "AbilitySystemComponent.h"
 #include "EnhancedInputComponent.h"
@@ -52,6 +54,8 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 	ComboPoints = CreateDefaultSubobject<UDFComboPointsComponent>(TEXT("ComboPoints"));
 	Interaction = CreateDefaultSubobject<UDFInteractionComponent>(TEXT("InteractionComponent"));
 	TrapDetection = CreateDefaultSubobject<UDFTrapDetectionComponent>(TEXT("TrapDetection"));
+	DFAudio = CreateDefaultSubobject<UDFAudioComponent>(TEXT("DFAudio"));
+	DFAudio->SetupAttachment(RootComponent);
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
@@ -75,6 +79,18 @@ void ADFPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 	AddDefaultMappingContext();
+}
+
+void ADFPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (IsLocallyControlled() && GetWorld() && GetWorld()->GetNetMode() != NM_DedicatedServer)
+	{
+		if (UDFMusicManagerSubsystem* const Music = GetWorld()->GetSubsystem<UDFMusicManagerSubsystem>())
+		{
+			Music->UnregisterLocalPlayerForCombatMusic();
+		}
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 void ADFPlayerCharacter::PawnClientRestart()
@@ -235,6 +251,13 @@ void ADFPlayerCharacter::InitializeGAS()
 	ADFPlayerState* PS = GetPlayerState<ADFPlayerState>();
 	if (!PS)
 	{
+		if (IsLocallyControlled() && GetWorld() && GetWorld()->GetNetMode() != NM_DedicatedServer)
+		{
+			if (UDFMusicManagerSubsystem* const Music = GetWorld()->GetSubsystem<UDFMusicManagerSubsystem>())
+			{
+				Music->UnregisterLocalPlayerForCombatMusic();
+			}
+		}
 		AbilitySystemComponent = nullptr;
 		AttributeSet = nullptr;
 		return;
@@ -246,6 +269,17 @@ void ADFPlayerCharacter::InitializeGAS()
 	if (UAbilitySystemComponent* ASC = AbilitySystemComponent.Get())
 	{
 		ASC->InitAbilityActorInfo(PS, this);
+	}
+
+	if (IsLocallyControlled() && GetWorld() && GetWorld()->GetNetMode() != NM_DedicatedServer)
+	{
+		if (UAbilitySystemComponent* const ASC = AbilitySystemComponent.Get())
+		{
+			if (UDFMusicManagerSubsystem* const Music = GetWorld()->GetSubsystem<UDFMusicManagerSubsystem>())
+			{
+				Music->RegisterLocalPlayerForCombatMusic(ASC, this);
+			}
+		}
 	}
 }
 
