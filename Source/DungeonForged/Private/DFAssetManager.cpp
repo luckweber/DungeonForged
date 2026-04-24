@@ -1,5 +1,5 @@
 // Source/DungeonForged/Private/DFAssetManager.cpp
-// UDFAssetManager: tag registration + primary assets. GAS InitGlobalData is in UDungeonForgedGameInstance::Init.
+// UDFAssetManager: tag registration + primary assets. GAS InitGlobalData is in UDFGameInstance::Init.
 #include "DFAssetManager.h"
 #include "Engine/AssetManager.h"
 #include "GAS/DFGameplayTags.h"

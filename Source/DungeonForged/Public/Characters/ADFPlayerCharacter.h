@@ -137,6 +137,13 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Debug")
 	TObjectPtr<UDFDebugComponent> DFDebug = nullptr;
 
+	/**
+	 * Co-op UI: 4 bar slots, ability row names (or `NAME_None`); server should refresh when the loadout changes.
+	 * @see UDFReplicationAudit.h
+	 */
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_CurrentAbilitySlots, Category = "DF|GAS|Coop")
+	TArray<FName> CurrentAbilitySlots;
+
 	/** Paper-doll / GAS: slot-based equipping, modular meshes, leader-pose. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Equipment")
 	TObjectPtr<UDFEquipmentComponent> Equipment = nullptr;
@@ -208,6 +215,7 @@ protected:
 	virtual void PawnClientRestart() override;
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void OnRep_PlayerState() override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	void AddDefaultMappingContext();
 	void InitializeGAS();
@@ -250,4 +258,7 @@ private:
 
 	/** OnEquipmentChanged bound once; cleared in EndPlay. */
 	bool bModularEquipmentDelegateBound = false;
+
+	UFUNCTION()
+	void OnRep_CurrentAbilitySlots();
 };

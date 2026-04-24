@@ -53,9 +53,9 @@ void UDFInventoryComponent::BeginPlay()
 void UDFInventoryComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	DOREPLIFETIME(UDFInventoryComponent, MaxSlots);
-	DOREPLIFETIME(UDFInventoryComponent, ItemDataTable);
-	DOREPLIFETIME(UDFInventoryComponent, Items);
+	DOREPLIFETIME_CONDITION(UDFInventoryComponent, MaxSlots, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UDFInventoryComponent, ItemDataTable, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UDFInventoryComponent, Items, COND_OwnerOnly);
 }
 
 void UDFInventoryComponent::OnRep_Items()

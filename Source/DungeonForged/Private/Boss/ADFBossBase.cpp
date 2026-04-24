@@ -26,6 +26,11 @@ ADFBossBase::ADFBossBase()
 	StunForPhaseTransition = UGE_Debuff_Stun::StaticClass();
 	PhaseStatEffect = UGE_BossPhaseStats::StaticClass();
 	EnrageEffect = UGE_BossEnrage::StaticClass();
+	// All clients: boss phases, debuffs, telegraphs; overrides enemy `Minimal` at construction.
+	if (AbilitySystemComponent)
+	{
+		AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Full);
+	}
 }
 
 void ADFBossBase::BeginPlay()

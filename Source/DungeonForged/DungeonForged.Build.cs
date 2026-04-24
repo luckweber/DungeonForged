@@ -22,6 +22,8 @@ public class DungeonForged : ModuleRules
 			"PhysicsCore",
 			"InputCore",
 			"NetCore",
+			"OnlineSubsystem",
+			"OnlineSubsystemUtils",
 
 			// GAS
 			"GameplayAbilities",

@@ -42,6 +42,8 @@ public:
 	//~ IAbilitySystemInterface
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 	//~ IGenericTeamAgentInterface
 	virtual FGenericTeamId GetGenericTeamId() const override;
 	virtual void SetGenericTeamId(const FGenericTeamId& InTeamId) override;
@@ -164,6 +166,9 @@ protected:
 	/** Server: runs death flow once, broadcasts, multicasts VFX, schedules destroy. */
 	virtual void HandleServerDeath(AActor* Killer);
 
+	UFUNCTION()
+	void OnRep_bHasDied();
+
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastOnDeath(AActor* Killer);
 
@@ -186,7 +191,8 @@ protected:
 	UPROPERTY(Transient, DuplicateTransient)
 	bool bAttributeDelegatesBound = false;
 
-	UPROPERTY(Transient, DuplicateTransient)
+	/** Replicated to all clients for co-op VFX and UI. Server sets in `HandleServerDeath`. */
+	UPROPERTY(Transient, ReplicatedUsing = OnRep_bHasDied, BlueprintReadOnly, Category = "DF|Combat")
 	bool bHasDied = false;
 
 	/** Filled in InitializeFromDataTable for loot. */

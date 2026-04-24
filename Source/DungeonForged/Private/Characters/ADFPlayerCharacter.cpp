@@ -34,6 +34,7 @@
 #include "UI/Minimap/UDFMinimapFogComponent.h"
 #include "Debug/UDFDebugComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Net/UnrealNetwork.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDFPlayer, Log, All);
 
@@ -75,6 +76,8 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 	MinimapFog->SetupAttachment(RootComponent);
 
 	DFDebug = CreateDefaultSubobject<UDFDebugComponent>(TEXT("DFDebug"));
+
+	CurrentAbilitySlots.Init(NAME_None, 4);
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
@@ -396,6 +399,16 @@ void ADFPlayerCharacter::OnRep_PlayerState()
 	Super::OnRep_PlayerState();
 	UE_LOG(LogDFPlayer, Verbose, TEXT("OnRep_PlayerState %s"), *GetName());
 	InitializeGAS();
+}
+
+void ADFPlayerCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(ADFPlayerCharacter, CurrentAbilitySlots);
+}
+
+void ADFPlayerCharacter::OnRep_CurrentAbilitySlots()
+{
 }
 
 void ADFPlayerCharacter::InitializeGAS()

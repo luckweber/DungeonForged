@@ -6,7 +6,7 @@
 
 /**
  * Project-native GameplayTags (AddNativeGameplayTag). Storage is static; assign once in RegisterGameplayTags.
- * @see UDFAssetManager::StartInitialLoading, UDungeonForgedGameInstance::Init
+ * @see UDFAssetManager::StartInitialLoading, UDFGameInstance::Init
  */
 struct DUNGEONFORGED_API FDFGameplayTags
 {

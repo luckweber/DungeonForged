@@ -31,6 +31,7 @@
 #include "TimerManager.h"
 #include "UI/Status/UDFEnemyDebuffStatusBarWidget.h"
 #include "GameFramework/PlayerController.h"
+#include "Net/UnrealNetwork.h"
 
 namespace
 {
@@ -103,6 +104,16 @@ void ADFEnemyBase::PostInitializeComponents()
 UAbilitySystemComponent* ADFEnemyBase::GetAbilitySystemComponent() const
 {
 	return AbilitySystemComponent;
+}
+
+void ADFEnemyBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(ADFEnemyBase, bHasDied);
+}
+
+void ADFEnemyBase::OnRep_bHasDied()
+{
 }
 
 FGenericTeamId ADFEnemyBase::GetGenericTeamId() const

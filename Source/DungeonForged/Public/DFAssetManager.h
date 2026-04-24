@@ -7,7 +7,7 @@
 
 /**
  * Project asset manager: FDFGameplayTags::RegisterGameplayTags in StartInitialLoading, then primary-asset work.
- * UAbilitySystemGlobals::InitGlobalData remains in UDungeonForgedGameInstance::Init.
+ * UAbilitySystemGlobals::InitGlobalData remains in UDFGameInstance::Init.
  */
 UCLASS()
 class DUNGEONFORGED_API UDFAssetManager : public UAssetManager

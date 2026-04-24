@@ -50,9 +50,9 @@ void UDFLevelingComponent::BeginPlay()
 void UDFLevelingComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	DOREPLIFETIME(UDFLevelingComponent, CurrentXP);
-	DOREPLIFETIME(UDFLevelingComponent, CurrentLevel);
-	DOREPLIFETIME(UDFLevelingComponent, UnspentAttributePoints);
+	DOREPLIFETIME_CONDITION(UDFLevelingComponent, CurrentXP, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UDFLevelingComponent, CurrentLevel, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UDFLevelingComponent, UnspentAttributePoints, COND_OwnerOnly);
 }
 
 UAbilitySystemComponent* UDFLevelingComponent::GetOwnerASC() const
