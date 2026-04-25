@@ -22,7 +22,7 @@ class DUNGEONFORGED_API UDFSaveGame : public USaveGame
 public:
 	/** Bumped when fields change; used for future migrations. */
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta")
-	int32 SaveVersion = 4;
+	int32 SaveVersion = 5;
 
 	/** @see UDFLocalizationSubsystem */
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Settings|Localization")
@@ -109,6 +109,53 @@ public:
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta|Run")
 	ECheckpointType LastCheckpointType = ECheckpointType::RunStart;
 
+	// --- Per-profile main menu / run preview (v5) ---
+
+	/** Set false after first time the player is welcomed in Nexus. */
+	UPROPERTY(SaveGame, BlueprintReadWrite, Category = "DF|Profile")
+	bool bIsFirstLaunch = true;
+
+	/** True if a roguelike run was started and not yet cleared by victory/reset. */
+	UPROPERTY(SaveGame, BlueprintReadWrite, Category = "DF|Profile|Run")
+	bool bHasActiveRun = false;
+
+	UPROPERTY(SaveGame, BlueprintReadWrite, Category = "DF|Profile|Run")
+	FName LastRunClass = NAME_None;
+
+	UPROPERTY(SaveGame, BlueprintReadWrite, Category = "DF|Profile|Run")
+	int32 LastRunFloor = 0;
+
+	UPROPERTY(SaveGame, BlueprintReadWrite, Category = "DF|Profile")
+	FDateTime LastPlayedDate = FDateTime(0);
+
+	/** Stamped when saved; use @c IsCompatible with project version. */
+	UPROPERTY(SaveGame, BlueprintReadWrite, Category = "DF|Profile")
+	FString GameVersion = TEXT("0.1.0");
+
+	/** 0, 1, or 2 for multi-slot; -1 = legacy / unspecified. */
+	UPROPERTY(SaveGame, BlueprintReadWrite, Category = "DF|Profile")
+	int32 SlotIndex = -1;
+
+	/** Run progress only: clears checkpoint and active run flags; keeps meta, unlocks, high score. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Profile|Save")
+	void ResetRunData();
+
+	/** True if this save is safe to load (same @c GameVersion family). */
+	UFUNCTION(BlueprintCallable, Category = "DF|Profile|Save")
+	bool IsCompatible() const;
+
+	/** Profile slot file name. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Profile|Save", meta = (ReturnDisplayName = "SlotName"))
+	static FName GetProfileSlotFName(int32 Index);
+
+	/** Synchronous load from a profile index (0–2), or a new object if missing. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Profile|Save")
+	static UDFSaveGame* LoadProfile(int32 ProfileIndex);
+
+	/** Write to a profile index. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Profile|Save")
+	static bool SaveProfile(UDFSaveGame* Data, int32 ProfileIndex);
+
 	/** Synchronous load from the primary meta slot, or a new object if missing / invalid. */
 	UFUNCTION(BlueprintCallable, Category = "DF|Meta|Save")
 	static UDFSaveGame* Load();
@@ -119,4 +166,6 @@ public:
 
 	static const TCHAR* GetSlotName() { return TEXT("DFMetaSave"); }
 	static constexpr int32 UserIndex = 0;
+
+	static const TCHAR* GetProfileSlotNameBase() { return TEXT("DungeonForged_Slot"); }
 };
