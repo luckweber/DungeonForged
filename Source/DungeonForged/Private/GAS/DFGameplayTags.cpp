@@ -170,6 +170,7 @@ FGameplayTag FDFGameplayTags::Character_Level;
 FGameplayTag FDFGameplayTags::UI_MenuOpen;
 FGameplayTag FDFGameplayTags::UI_InventoryOpen;
 FGameplayTag FDFGameplayTags::UI_AbilityMenuOpen;
+FGameplayTag FDFGameplayTags::UI_ClassSelectionOpen;
 FGameplayTag FDFGameplayTags::UI_CinematicLock;
 
 static bool GDF_RegisteredNativeGameplayTags = false;
@@ -386,6 +387,7 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(UI_MenuOpen)(FName("UI.MenuOpen"), FString("Pause / main menu visible."));
 	DF_TAG(UI_InventoryOpen)(FName("UI.InventoryOpen"), FString("Inventory screen up."));
 	DF_TAG(UI_AbilityMenuOpen)(FName("UI.AbilityMenuOpen"), FString("Ability offer / roguelike pick UI."));
+	DF_TAG(UI_ClassSelectionOpen)(FName("UI.ClassSelectionOpen"), FString("Class selection full-screen; slow-mo + UI focus."));
 
 	DF_TAG(UI_CinematicLock)(FName("UI.CinematicLock"), FString("Input and abilities locked for cinematic."));
 

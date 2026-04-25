@@ -229,6 +229,8 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag UI_MenuOpen;
 	static FGameplayTag UI_InventoryOpen;
 	static FGameplayTag UI_AbilityMenuOpen;
+	/** Class selection (Nexus / new run) — pause-adjacent; query on ASC for input lock. */
+	static FGameplayTag UI_ClassSelectionOpen;
 	/** Gate gameplay input/abilities while boss intro cinematic runs. */
 	static FGameplayTag UI_CinematicLock;
 };

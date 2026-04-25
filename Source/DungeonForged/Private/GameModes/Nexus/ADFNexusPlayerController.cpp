@@ -8,6 +8,7 @@
 #include "Engine/LocalPlayer.h"
 #include "GameFramework/Character.h"
 #include "GameModes/Nexus/UDFNexusClassSelectionWidget.h"
+#include "UI/ClassSelection/UDFClassSelectionSubsystem.h"
 #include "World/UDFWorldTransitionSubsystem.h"
 #include "Interaction/UDFInteractionComponent.h"
 #include "Blueprint/UserWidget.h"
@@ -99,28 +100,17 @@ void ADFNexusPlayerController::Input_Interact()
 
 void ADFNexusPlayerController::Client_OpenClassSelection_Implementation()
 {
-	if (ClassSelectionInstance)
+	if (UWorld* const W = GetWorld())
 	{
-		return;
+		if (UDFClassSelectionSubsystem* const Sub = W->GetSubsystem<UDFClassSelectionSubsystem>())
+		{
+			if (ClassSelectionClass)
+			{
+				Sub->ClassSelectionWidgetClass = TSubclassOf<UUserWidget>(ClassSelectionClass);
+			}
+			Sub->OpenClassSelection();
+		}
 	}
-	const TSubclassOf<UDFNexusClassSelectionWidget> C = ClassSelectionClass
-			? ClassSelectionClass
-			: TSubclassOf<UDFNexusClassSelectionWidget>(UDFNexusClassSelectionWidget::StaticClass());
-	if (!C)
-	{
-		return;
-	}
-	UDFNexusClassSelectionWidget* const Wgt = CreateWidget<UDFNexusClassSelectionWidget>(this, C);
-	if (!Wgt)
-	{
-		return;
-	}
-	ClassSelectionInstance = Wgt;
-	Wgt->AddToViewport(100);
-	FInputModeUIOnly Mo;
-	Mo.SetWidgetToFocus(Wgt->TakeWidget());
-	SetInputMode(Mo);
-	SetShowMouseCursor(true);
 }
 
 void ADFNexusPlayerController::Server_BeginRunWithClass_Implementation(const FName ClassRow)

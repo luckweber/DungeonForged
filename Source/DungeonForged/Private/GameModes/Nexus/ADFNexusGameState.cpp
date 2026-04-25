@@ -7,6 +7,7 @@
 #include "GameModes/Nexus/ADFNexusGameMode.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
+#include "Net/UnrealNetwork.h"
 
 namespace
 {
@@ -161,4 +162,14 @@ float ADFNexusGameState::GetNexusXPFillRatio() const
 		return 1.f;
 	}
 	return FMath::Clamp((float)(MetaXP - X0) / (float)(X1 - X0), 0.f, 1.f);
+}
+
+void ADFNexusGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(ADFNexusGameState, CoopPartnerHoveredClass);
+}
+
+void ADFNexusGameState::OnRep_CoopPartnerClass()
+{
 }

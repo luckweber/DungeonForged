@@ -40,6 +40,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Nexus|Meta")
 	TArray<FName> CompletedUpgrades;
 
+	/** Co-op: partner's current hovers / selection row (replicated; Prompt 70). */
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_CoopPartnerClass, Category = "Nexus|Coop")
+	FName CoopPartnerHoveredClass = NAME_None;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Nexus|Data")
 	TObjectPtr<UDataTable> NexusLevelsTable = nullptr;
 
@@ -48,6 +52,8 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Nexus|Meta")
 	void ApplyFromSave(UDFSaveGame* Save);
+
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	UFUNCTION(BlueprintCallable, Category = "Nexus|Meta")
 	void AddMetaXP(int32 Amount, UDFSaveGame* SaveToUpdate);
@@ -62,4 +68,7 @@ public:
 	/** Progress within the current nexus level band (for HUD bar). */
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Nexus|Meta")
 	float GetNexusXPFillRatio() const;
+
+	UFUNCTION()
+	void OnRep_CoopPartnerClass();
 };

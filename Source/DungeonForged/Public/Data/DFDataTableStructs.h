@@ -8,7 +8,9 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/Texture2D.h"
 #include "GameplayTagContainer.h"
+#include "Animation/AnimSequence.h"
 #include "Animation/AnimMontage.h"
+#include "NiagaraSystem.h"
 #include "GAS/UDFGameplayAbility.h"
 #include "Equipment/DFEquipmentTypes.h"
 #include "DFDataTableStructs.generated.h"
@@ -266,6 +268,37 @@ struct DUNGEONFORGED_API FDFClassTableRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class")
 	FText ClassDescription;
+
+	/** e.g. "Tanque Corpo a Corpo" (class selection UI). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|UI")
+	FText ClassArchetype;
+
+	/** 1-5; drives skull pips. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|UI", meta = (ClampMin = "1", ClampMax = "5"))
+	int32 DifficultyPips = 3;
+
+	/** e.g. "Agressivo" (pill badge in details). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|UI")
+	FText PlaystyleTag;
+
+	/** Class-themed UI: title, borders, name under preview. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|UI")
+	FLinearColor ClassColor = FLinearColor(0.9f, 0.75f, 0.2f, 1.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|UI")
+	TObjectPtr<UTexture2D> ClassPortrait = nullptr;
+
+	/** Optional idle loop in the 3D class preview; leave null to keep mesh bind pose. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|UI|Preview")
+	TSoftObjectPtr<UAnimSequence> ClassPreviewIdle;
+
+	/** Optional burst when swapping class on the turntable. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|UI|Preview")
+	TSoftObjectPtr<UNiagaraSystem> ClassChangeVFX;
+
+	/** Multiplies or drives a simple tint on preview MID (setup in BP or future cosmetic hook). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|UI|Preview")
+	FLinearColor PreviewCosmeticTint = FLinearColor::White;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Visuals")
 	TObjectPtr<USkeletalMesh> CharacterMesh = nullptr;
