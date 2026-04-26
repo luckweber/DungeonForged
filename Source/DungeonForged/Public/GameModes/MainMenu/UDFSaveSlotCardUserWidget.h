@@ -12,6 +12,7 @@ class UButton;
 class UProgressBar;
 class UWrapBox;
 class UWidget;
+class UWidgetSwitcher;
 class UDFSaveGame;
 class UWidgetAnimation;
 class USoundBase;
@@ -50,8 +51,28 @@ protected:
 	/** Borda 1: cinza = vazio, ouro = perfil com save (nome opcional "SlotBorderImage"). */
 	void ApplySlotBorderState(bool bEmpty);
 
+	/** Aplica @c StateSwitcher (se configurado) e fallback @c EmptyRoot/OccupiedRoot. */
+	void ApplyStateSwitch(bool bEmpty);
+
+	void ApplyEmptyState(bool bManage);
+	void ApplyOccupiedState(UDFSaveGame* Data, bool bManage);
+
 	int32 SlotIndex = 0;
 	EDFSlotScreenMode Mode = EDFSlotScreenMode::SelectToPlay;
+
+	/**
+	 * Switcher recomendado: 1 filho “Empty” + 1 filho “Occupied”.
+	 * O C++ alterna por @c SetActiveWidgetIndex, sem manipular visibilidade
+	 * de cada widget — útil para alinhar 3 cartões com tamanho fixo.
+	 */
+	UPROPERTY(Transient, meta = (BindWidgetOptional)) TObjectPtr<UWidgetSwitcher> StateSwitcher = nullptr;
+
+	/** Índices do switcher (Designer pode reordenar e o C++ continua válido). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|MainMenu|Slots|Switcher")
+	int32 SwitcherEmptyIndex = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|MainMenu|Slots|Switcher")
+	int32 SwitcherOccupiedIndex = 1;
 
 	// -- Occupied --
 	UPROPERTY(Transient, meta = (BindWidgetOptional)) TObjectPtr<UImage> SlotBorderImage = nullptr;

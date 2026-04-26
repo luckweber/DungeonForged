@@ -30,7 +30,9 @@ void ADFMainMenuHUD::OnLocalPlayerMenuReady(APlayerController* const ForPC)
 			return;
 		}
 	}
-	ForPC->SetInputMode(FInputModeUIOnly());
+	FInputModeUIOnly Mode;
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	ForPC->SetInputMode(Mode);
 	ForPC->bShowMouseCursor = true;
 	if (SplashWidgetClass)
 	{
@@ -41,6 +43,9 @@ void ADFMainMenuHUD::OnLocalPlayerMenuReady(APlayerController* const ForPC)
 		{
 			SplashWgt->SetOwnerHUD(this);
 			SplashWgt->AddToViewport(0);
+			// Foco do utilizador para que as teclas Skip funcionem em qualquer momento.
+			Mode.SetWidgetToFocus(SplashWgt->TakeWidget());
+			ForPC->SetInputMode(Mode);
 			SplashWgt->StartSplashFlow();
 		}
 	}
@@ -70,6 +75,11 @@ void ADFMainMenuHUD::ShowMainMenu()
 	{
 		Main->AddToViewport(5);
 		Main->RefreshForCurrentSaveState();
+		// Foco no menu principal para navegação por teclado/gamepad.
+		FInputModeUIOnly Mode;
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		Mode.SetWidgetToFocus(Main->TakeWidget());
+		PC->SetInputMode(Mode);
 	}
 	// A seleção de perfil abre a partir de "Nova Aventura" / "Continuar" (UDFMainMenuUserWidget
 	// e ADFMainMenuHUD::ShowSaveSlotLayer), nunca automaticamente no primeiro frame — o menu
@@ -96,6 +106,10 @@ void ADFMainMenuHUD::ShowSaveSlotLayer(EDFSlotScreenMode const Mode)
 		SaveSlotLayer->SetScreenMode(Mode);
 		SaveSlotLayer->RefreshFromSubsystem();
 		SaveSlotLayer->AddToViewport(20);
+		FInputModeUIOnly InputMode;
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		InputMode.SetWidgetToFocus(SaveSlotLayer->TakeWidget());
+		PC->SetInputMode(InputMode);
 	}
 }
 
@@ -106,6 +120,7 @@ void ADFMainMenuHUD::HideSaveSlotLayer()
 		SaveSlotLayer->RemoveFromParent();
 	}
 	SaveSlotLayer = nullptr;
+	RestoreMainMenuFocus();
 }
 
 void ADFMainMenuHUD::ShowCredits()
@@ -129,4 +144,18 @@ void ADFMainMenuHUD::ShowConfirmDialog(UDFConfirmDialogUserWidget* const Inst)
 	{
 		Inst->AddToViewport(100);
 	}
+}
+
+void ADFMainMenuHUD::RestoreMainMenuFocus()
+{
+	APlayerController* const PC = GetOwningPlayerController();
+	if (!PC || !Main || !Main->IsInViewport())
+	{
+		return;
+	}
+	FInputModeUIOnly Mode;
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	Mode.SetWidgetToFocus(Main->TakeWidget());
+	PC->SetInputMode(Mode);
+	Main->RefreshForCurrentSaveState();
 }

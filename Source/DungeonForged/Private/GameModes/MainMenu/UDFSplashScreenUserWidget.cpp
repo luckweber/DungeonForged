@@ -6,6 +6,7 @@
 #include "Components/TextBlock.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
+#include "GameFramework/PlayerController.h"
 #include "Input/Events.h"
 #include "TimerManager.h"
 
@@ -19,6 +20,11 @@ void UDFSplashScreenUserWidget::NativeConstruct()
 	Super::NativeConstruct();
 	ShownTimeSeconds = FPlatformTime::Seconds();
 	SetIsFocusable(true);
+	if (APlayerController* const PC = GetOwningPlayer())
+	{
+		SetUserFocus(PC);
+		SetKeyboardFocus();
+	}
 }
 
 void UDFSplashScreenUserWidget::StartSplashFlow()

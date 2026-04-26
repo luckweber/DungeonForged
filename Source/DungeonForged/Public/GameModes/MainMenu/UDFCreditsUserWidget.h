@@ -19,6 +19,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|MainMenu|Credits")
 	float AutoScrollSpeed = 60.f;
 
+	/** Tempo (s) que o scroll permanece no fim antes de fechar; <=0 desativa fecho automático. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|MainMenu|Credits")
+	float AutoCloseHoldSeconds = 2.f;
+
 protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
@@ -44,4 +48,6 @@ protected:
 	TObjectPtr<UButton> SkipButton = nullptr;
 
 	uint8 bSkipSpeedMultiplier : 1 = false;
+	uint8 bReachedEnd : 1 = false;
+	float TimeAtEndSeconds = 0.f;
 };

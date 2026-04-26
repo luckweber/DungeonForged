@@ -8,7 +8,7 @@
 
 class UTextBlock;
 class UButton;
-class UHorizontalBox;
+class UPanelWidget;
 class UDFSaveSlotCardUserWidget;
 class APlayerController;
 class UDFSaveGame;
@@ -52,8 +52,12 @@ protected:
 	UPROPERTY(Transient, meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> TitleText = nullptr;
 
+	/**
+	 * Painel que recebe os 3 cartões: pode ser @c UHorizontalBox, @c UWrapBox,
+	 * @c UUniformGridPanel ou qualquer @c UPanelWidget. O Designer escolhe o tipo.
+	 */
 	UPROPERTY(Transient, meta = (BindWidgetOptional))
-	TObjectPtr<UHorizontalBox> SlotRow = nullptr;
+	TObjectPtr<UPanelWidget> SlotRow = nullptr;
 
 	UPROPERTY(Transient, meta = (BindWidgetOptional))
 	TObjectPtr<UButton> BackButton = nullptr;

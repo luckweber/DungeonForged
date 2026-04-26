@@ -14,6 +14,7 @@
 #include "Components/Image.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
+#include "Components/WidgetSwitcher.h"
 #include "Components/WrapBox.h"
 #include "Engine/DataTable.h"
 #include "Engine/GameInstance.h"
@@ -83,6 +84,13 @@ void UDFSaveSlotCardUserWidget::ResolveOptionalWidgetNames()
 			EmptyRoot = W;
 		}
 	}
+	if (!OccupiedRoot)
+	{
+		if (UWidget* const W = GetWidgetFromName(FName("OccupiedRoot")))
+		{
+			OccupiedRoot = W;
+		}
+	}
 	if (!EmptySlotArt)
 	{
 		if (UWidget* const W = GetWidgetFromName(FName("EmptySlotArt")))
@@ -96,6 +104,34 @@ void UDFSaveSlotCardUserWidget::ResolveOptionalWidgetNames()
 		{
 			SlotBorderImage = Cast<UImage>(W);
 		}
+	}
+	if (!StateSwitcher)
+	{
+		if (UWidget* const W = GetWidgetFromName(FName("StateSwitcher")))
+		{
+			StateSwitcher = Cast<UWidgetSwitcher>(W);
+		}
+	}
+}
+
+void UDFSaveSlotCardUserWidget::ApplyStateSwitch(bool const bEmpty)
+{
+	if (StateSwitcher)
+	{
+		const int32 Idx = bEmpty ? SwitcherEmptyIndex : SwitcherOccupiedIndex;
+		const int32 Clamped = FMath::Clamp(Idx, 0, FMath::Max(0, StateSwitcher->GetNumWidgets() - 1));
+		StateSwitcher->SetActiveWidgetIndex(Clamped);
+		return;
+	}
+	if (OccupiedRoot)
+	{
+		OccupiedRoot->SetVisibility(
+			bEmpty ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
+	}
+	if (EmptyRoot)
+	{
+		EmptyRoot->SetVisibility(
+			bEmpty ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	}
 }
 
@@ -118,27 +154,38 @@ void UDFSaveSlotCardUserWidget::NativeDestruct()
 	Super::NativeDestruct();
 }
 
-void UDFSaveSlotCardUserWidget::RefreshSlotData(int32 const InSlotIndex, EDFSlotScreenMode const InMode)
+void UDFSaveSlotCardUserWidget::ApplyEmptyState(bool const bManage)
 {
-	SlotIndex = InSlotIndex;
-	Mode = InMode;
-	ResolveOptionalWidgetNames();
-	UGameInstance* const GI = GetGameInstance();
-	UDFSaveSlotManagerSubsystem* const Slots = GI ? GI->GetSubsystem<UDFSaveSlotManagerSubsystem>() : nullptr;
-	UDFRunManager* const RM = GI ? GI->GetSubsystem<UDFRunManager>() : nullptr;
-	if (!Slots)
+	const FText PlaceholderEmpty = NSLOCTEXT("MainMenu", "EmptySaveSlotParen", "( PERFIL VAZIO )");
+	if (EmptyText)
 	{
-		return;
+		EmptyText->SetText(PlaceholderEmpty);
+		EmptyText->SetVisibility(ESlateVisibility::Visible);
 	}
-	const bool bEmpty = Slots->IsSlotEmpty(SlotIndex);
-	UDFSaveGame* const Data = Slots->GetSlotData(SlotIndex);
-	const bool bManage = (Mode == EDFSlotScreenMode::SelectToDelete);
-	// Título "Perfil N" só no painel preenchido; vazio: ver ramo abaixo (Hades: placeholder visível)
-	if (bEmpty || !Data)
+	if (EmptySlotArt) { EmptySlotArt->SetVisibility(ESlateVisibility::Visible); }
+	if (HintText)
 	{
-		ApplySlotBorderState(true);
-		if (OccupiedRoot) { OccupiedRoot->SetVisibility(ESlateVisibility::Collapsed); }
-		if (EmptyRoot) { EmptyRoot->SetVisibility(ESlateVisibility::Visible); }
+		HintText->SetText(NSLOCTEXT("MainMenu", "EmptyHint", "Clique em criar para começar"));
+		HintText->SetVisibility(ESlateVisibility::Visible);
+	}
+	if (SlotLabel)
+	{
+		SlotLabel->SetText(
+			EmptyText
+			? FText::FromString(FString::Printf(TEXT("Perfil %d"), SlotIndex + 1))
+			: FText::FromString(FString::Printf(
+				TEXT("Perfil %d\n%s"), SlotIndex + 1, *PlaceholderEmpty.ToString())));
+		SlotLabel->SetVisibility(ESlateVisibility::Visible);
+	}
+	else if (!EmptyText)
+	{
+		UE_LOG(
+			LogTemp, Warning,
+			TEXT("WBP_SaveSlotCard: slot vazio sem EmptyText/SlotLabel — adicione um TextBlock (nome 'EmptyText' ou 'SlotLabel')."));
+	}
+	// Sem switcher: garantimos que widgets do estado oposto fiquem ocultos.
+	if (!StateSwitcher)
+	{
 		if (ClassPortraitArt) { ClassPortraitArt->SetVisibility(ESlateVisibility::Collapsed); }
 		if (ClassNameText) { ClassNameText->SetVisibility(ESlateVisibility::Collapsed); }
 		if (MetaLevelText) { MetaLevelText->SetVisibility(ESlateVisibility::Collapsed); }
@@ -150,189 +197,186 @@ void UDFSaveSlotCardUserWidget::RefreshSlotData(int32 const InSlotIndex, EDFSlot
 		if (UnlockedClassIcons) { UnlockedClassIcons->SetVisibility(ESlateVisibility::Collapsed); }
 		if (ActiveRunBadge) { ActiveRunBadge->SetVisibility(ESlateVisibility::Collapsed); }
 		if (IncompatibleVersionText) { IncompatibleVersionText->SetVisibility(ESlateVisibility::Collapsed); }
-		if (EmptySlotArt) { EmptySlotArt->SetVisibility(ESlateVisibility::Visible); }
-		// Hades: "( EMPTY SAVE SLOT )" — sempre visível no ramo vazio
-		FText const PlaceholderEmpty = NSLOCTEXT("MainMenu", "EmptySaveSlotParen", "( PERFIL VAZIO )");
-		if (EmptyText)
-		{
-			EmptyText->SetText(PlaceholderEmpty);
-			EmptyText->SetVisibility(ESlateVisibility::Visible);
-		}
-		if (SlotLabel)
-		{
-			// Se não houver linha dedicada, o título mostra tudo (WBP mínimo)
-			if (EmptyText)
-			{
-				SlotLabel->SetText(
-					FText::FromString(FString::Printf(TEXT("Perfil %d"), SlotIndex + 1)));
-				SlotLabel->SetVisibility(ESlateVisibility::Visible);
-			}
-			else
-			{
-				SlotLabel->SetText(
-					FText::FromString(FString::Printf(
-						TEXT("Perfil %d\n%s"), SlotIndex + 1, *PlaceholderEmpty.ToString())));
-				SlotLabel->SetVisibility(ESlateVisibility::Visible);
-			}
-		}
-		else if (!EmptyText)
-		{
-			UE_LOG(
-				LogTemp, Warning,
-				TEXT("WBP_SaveSlotCard: slot vazio sem EmptyText/SlotLabel — adicione um TextBlock (nome 'EmptyText' ou 'SlotLabel')."));
-		}
-		if (HintText)
-		{
-			HintText->SetText(NSLOCTEXT("MainMenu", "EmptyHint", "Clique em criar para começar"));
-			HintText->SetVisibility(ESlateVisibility::Visible);
-		}
-		if (CreateButton)
-		{
-			CreateButton->SetVisibility(bManage ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
-		}
-		if (PlayButton) { PlayButton->SetVisibility(ESlateVisibility::Collapsed); }
-		if (NewRunButton) { NewRunButton->SetVisibility(ESlateVisibility::Collapsed); }
-		if (DeleteButton) { DeleteButton->SetVisibility(ESlateVisibility::Collapsed); }
-		// Garante que o card do perfil (widget raiz) não fique invisível no estado vazio
-		SetVisibility(ESlateVisibility::Visible);
 	}
-	else
+	if (CreateButton)
 	{
-		ApplySlotBorderState(false);
-		if (SlotLabel)
-		{
-			SlotLabel->SetText(
-				FText::FromString(FString::Printf(TEXT("Perfil %d"), SlotIndex + 1)));
-			SlotLabel->SetVisibility(ESlateVisibility::Visible);
-		}
-		if (OccupiedRoot) { OccupiedRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible); }
-		if (EmptyRoot) { EmptyRoot->SetVisibility(ESlateVisibility::Collapsed); }
+		CreateButton->SetVisibility(bManage ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
+	}
+	if (PlayButton) { PlayButton->SetVisibility(ESlateVisibility::Collapsed); }
+	if (NewRunButton) { NewRunButton->SetVisibility(ESlateVisibility::Collapsed); }
+	if (DeleteButton) { DeleteButton->SetVisibility(ESlateVisibility::Collapsed); }
+}
+
+void UDFSaveSlotCardUserWidget::ApplyOccupiedState(UDFSaveGame* const Data, bool const bManage)
+{
+	check(Data);
+	UDFRunManager* const RM = GetGameInstance()
+		? GetGameInstance()->GetSubsystem<UDFRunManager>()
+		: nullptr;
+	if (SlotLabel)
+	{
+		SlotLabel->SetText(
+			FText::FromString(FString::Printf(TEXT("Perfil %d"), SlotIndex + 1)));
+		SlotLabel->SetVisibility(ESlateVisibility::Visible);
+	}
+	if (!StateSwitcher)
+	{
 		if (EmptySlotArt) { EmptySlotArt->SetVisibility(ESlateVisibility::Collapsed); }
 		if (EmptyText) { EmptyText->SetVisibility(ESlateVisibility::Collapsed); }
 		if (HintText) { HintText->SetVisibility(ESlateVisibility::Collapsed); }
-		if (FDFClassTableRow const* const ClassRow = RM ? RM->FindClassTableRow(Data->LastRunClass) : nullptr)
+	}
+	if (FDFClassTableRow const* const ClassRow = RM ? RM->FindClassTableRow(Data->LastRunClass) : nullptr)
+	{
+		if (ClassNameText) { ClassNameText->SetText(ClassRow->ClassName); }
+		if (ClassPortraitArt && ClassRow->ClassPortrait)
 		{
-			if (ClassNameText) { ClassNameText->SetText(ClassRow->ClassName); }
-			if (ClassPortraitArt && ClassRow->ClassPortrait)
+			ClassPortraitArt->SetBrushFromTexture(ClassRow->ClassPortrait, false);
+		}
+	}
+	else if (ClassNameText)
+	{
+		ClassNameText->SetText(FText::GetEmpty());
+	}
+	if (ClassNameText) { ClassNameText->SetVisibility(ESlateVisibility::Visible); }
+	if (ClassPortraitArt) { ClassPortraitArt->SetVisibility(ESlateVisibility::Visible); }
+	if (MetaLevelText)
+	{
+		MetaLevelText->SetText(
+			FText::FromString(FString::Printf(TEXT("Nexus Nv. %d"), FMath::Max(1, Data->MetaLevel))));
+		MetaLevelText->SetVisibility(ESlateVisibility::Visible);
+	}
+	if (MetaXPBar)
+	{
+		const float P = Data->GetNexusMetaXPFillRatio(
+			RM && RM->NexusMetaLevelsTable ? RM->NexusMetaLevelsTable : nullptr);
+		MetaXPBar->SetPercent(P);
+		MetaXPBar->SetVisibility(ESlateVisibility::Visible);
+	}
+	if (LastFloorText)
+	{
+		if (Data->TotalWins > 0 && Data->bLastRunWasVictory)
+		{
+			LastFloorText->SetText(
+				FText::FromString(
+					FString::Printf(TEXT("\u2605 Vitoria no Andar %d"), Data->LastRunFloor)));
+			LastFloorText->SetColorAndOpacity(
+				FSlateColor(FLinearColor(0.95f, 0.8f, 0.2f, 1.f)));
+		}
+		else if (Data->bHasActiveRun)
+		{
+			LastFloorText->SetText(
+				FText::FromString(FString::Printf(TEXT("Run ativa: Andar %d"), Data->LastRunFloor)));
+			LastFloorText->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+		}
+		else
+		{
+			LastFloorText->SetText(
+				FText::FromString(FString::Printf(TEXT("Melhor andar: %d"), Data->BestFloorReached)));
+			LastFloorText->SetColorAndOpacity(
+				FSlateColor(FLinearColor(0.5f, 0.5f, 0.5f, 1.f)));
+		}
+		LastFloorText->SetVisibility(ESlateVisibility::Visible);
+	}
+	if (TotalRunsText)
+	{
+		TotalRunsText->SetText(
+			FText::FromString(FString::Printf(TEXT("%d runs - %d vitorias"), Data->TotalRuns, Data->TotalWins)));
+		TotalRunsText->SetVisibility(ESlateVisibility::Visible);
+	}
+	if (PlayTimeText)
+	{
+		const int32 T = FMath::RoundToInt(Data->TotalPlayTimeSeconds);
+		const int32 H = T / 3600;
+		const int32 M = (T % 3600) / 60;
+		PlayTimeText->SetText(FText::FromString(FString::Printf(TEXT("%dh %dmin jogadas"), H, M)));
+		PlayTimeText->SetVisibility(ESlateVisibility::Visible);
+	}
+	if (LastPlayedText)
+	{
+		LastPlayedText->SetText(DfFormatRelativeTime(Data->LastPlayedDate));
+		LastPlayedText->SetVisibility(ESlateVisibility::Visible);
+	}
+	if (IncompatibleVersionText)
+	{
+		const bool bWarn = !Data->IsCompatible();
+		IncompatibleVersionText->SetVisibility(
+			bWarn ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		if (bWarn)
+		{
+			IncompatibleVersionText->SetText(
+				FText::Format(
+					NSLOCTEXT("MainMenu", "OldVersion", "Salvo em versao antiga ({0})"),
+					FText::FromString(Data->GameVersion)));
+		}
+	}
+	if (ActiveRunBadge)
+	{
+		ActiveRunBadge->SetVisibility(
+			Data->bHasActiveRun ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+	if (UnlockedClassIcons)
+	{
+		UnlockedClassIcons->SetVisibility(ESlateVisibility::Visible);
+		UnlockedClassIcons->ClearChildren();
+		if (RM && RM->ClassDataTable)
+		{
+			for (FName const ClassName : Data->UnlockedClasses)
 			{
-				ClassPortraitArt->SetBrushFromTexture(ClassRow->ClassPortrait, false);
-			}
-		}
-		else if (ClassNameText)
-		{
-			ClassNameText->SetText(FText::GetEmpty());
-		}
-		if (ClassNameText) { ClassNameText->SetVisibility(ESlateVisibility::Visible); }
-		if (ClassPortraitArt) { ClassPortraitArt->SetVisibility(ESlateVisibility::Visible); }
-		if (MetaLevelText)
-		{
-			MetaLevelText->SetText(
-				FText::FromString(FString::Printf(TEXT("Nexus Nv. %d"), FMath::Max(1, Data->MetaLevel))));
-			MetaLevelText->SetVisibility(ESlateVisibility::Visible);
-		}
-		if (MetaXPBar)
-		{
-			const float P = Data->GetNexusMetaXPFillRatio(
-				RM && RM->NexusMetaLevelsTable ? RM->NexusMetaLevelsTable : nullptr);
-			MetaXPBar->SetPercent(P);
-			MetaXPBar->SetVisibility(ESlateVisibility::Visible);
-		}
-		if (LastFloorText)
-		{
-			if (Data->TotalWins > 0 && Data->bLastRunWasVictory)
-			{
-				LastFloorText->SetText(
-					FText::FromString(
-						FString::Printf(TEXT("\u2605 Vitoria no Andar %d"), Data->LastRunFloor)));
-				LastFloorText->SetColorAndOpacity(
-					FSlateColor(FLinearColor(0.95f, 0.8f, 0.2f, 1.f)));
-			}
-			else if (Data->bHasActiveRun)
-			{
-				LastFloorText->SetText(
-					FText::FromString(FString::Printf(TEXT("Run ativa: Andar %d"), Data->LastRunFloor)));
-				LastFloorText->SetColorAndOpacity(FSlateColor(FLinearColor::White));
-			}
-			else
-			{
-				LastFloorText->SetText(
-					FText::FromString(FString::Printf(TEXT("Melhor andar: %d"), Data->BestFloorReached)));
-				LastFloorText->SetColorAndOpacity(
-					FSlateColor(FLinearColor(0.5f, 0.5f, 0.5f, 1.f)));
-			}
-			LastFloorText->SetVisibility(ESlateVisibility::Visible);
-		}
-		if (TotalRunsText)
-		{
-			TotalRunsText->SetText(
-				FText::FromString(FString::Printf(TEXT("%d runs - %d vitorias"), Data->TotalRuns, Data->TotalWins)));
-			TotalRunsText->SetVisibility(ESlateVisibility::Visible);
-		}
-		if (PlayTimeText)
-		{
-			const int32 T = FMath::RoundToInt(Data->TotalPlayTimeSeconds);
-			const int32 H = T / 3600;
-			const int32 M = (T % 3600) / 60;
-			PlayTimeText->SetText(FText::FromString(FString::Printf(TEXT("%dh %dmin jogadas"), H, M)));
-			PlayTimeText->SetVisibility(ESlateVisibility::Visible);
-		}
-		if (LastPlayedText)
-		{
-			LastPlayedText->SetText(DfFormatRelativeTime(Data->LastPlayedDate));
-			LastPlayedText->SetVisibility(ESlateVisibility::Visible);
-		}
-		if (IncompatibleVersionText)
-		{
-			const bool bWarn = !Data->IsCompatible();
-			IncompatibleVersionText->SetVisibility(
-				bWarn ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
-			if (bWarn)
-			{
-				IncompatibleVersionText->SetText(
-					FText::Format(
-						NSLOCTEXT("MainMenu", "OldVersion", "Salvo em versao antiga ({0})"),
-						FText::FromString(Data->GameVersion)));
-			}
-		}
-		if (ActiveRunBadge)
-		{
-			ActiveRunBadge->SetVisibility(
-				Data->bHasActiveRun ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
-		}
-		if (UnlockedClassIcons)
-		{
-			UnlockedClassIcons->SetVisibility(ESlateVisibility::Visible);
-			UnlockedClassIcons->ClearChildren();
-			if (RM && RM->ClassDataTable)
-			{
-				for (FName const ClassName : Data->UnlockedClasses)
+				if (FDFClassTableRow const* const R = RM->ClassDataTable->FindRow<FDFClassTableRow>(
+					ClassName, TEXT("UnlockedClassIcon"), false))
 				{
-					if (FDFClassTableRow const* const R = RM->ClassDataTable->FindRow<FDFClassTableRow>(
-						ClassName, TEXT("UnlockedClassIcon"), false))
+					if (R->ClassPortrait)
 					{
-						if (R->ClassPortrait)
-						{
-							UImage* const Img = NewObject<UImage>(this);
-							Img->SetBrushFromTexture(R->ClassPortrait, false);
-							UnlockedClassIcons->AddChild(Img);
-						}
+						UImage* const Img = NewObject<UImage>(this);
+						Img->SetBrushFromTexture(R->ClassPortrait, false);
+						UnlockedClassIcons->AddChild(Img);
 					}
 				}
 			}
 		}
-		if (bManage)
-		{
-			if (PlayButton) { PlayButton->SetVisibility(ESlateVisibility::Collapsed); }
-			if (NewRunButton) { NewRunButton->SetVisibility(ESlateVisibility::Collapsed); }
-			if (CreateButton) { CreateButton->SetVisibility(ESlateVisibility::Collapsed); }
-			if (DeleteButton) { DeleteButton->SetVisibility(ESlateVisibility::Visible); }
-		}
-		else
-		{
-			if (PlayButton) { PlayButton->SetVisibility(ESlateVisibility::Visible); }
-			if (NewRunButton) { NewRunButton->SetVisibility(ESlateVisibility::Visible); }
-			if (DeleteButton) { DeleteButton->SetVisibility(ESlateVisibility::Visible); }
-		}
+	}
+	if (bManage)
+	{
+		if (PlayButton) { PlayButton->SetVisibility(ESlateVisibility::Collapsed); }
+		if (NewRunButton) { NewRunButton->SetVisibility(ESlateVisibility::Collapsed); }
+		if (CreateButton) { CreateButton->SetVisibility(ESlateVisibility::Collapsed); }
+		if (DeleteButton) { DeleteButton->SetVisibility(ESlateVisibility::Visible); }
+	}
+	else
+	{
+		if (PlayButton) { PlayButton->SetVisibility(ESlateVisibility::Visible); }
+		if (NewRunButton) { NewRunButton->SetVisibility(ESlateVisibility::Visible); }
+		if (CreateButton) { CreateButton->SetVisibility(ESlateVisibility::Collapsed); }
+		if (DeleteButton) { DeleteButton->SetVisibility(ESlateVisibility::Visible); }
+	}
+}
+
+void UDFSaveSlotCardUserWidget::RefreshSlotData(int32 const InSlotIndex, EDFSlotScreenMode const InMode)
+{
+	SlotIndex = InSlotIndex;
+	Mode = InMode;
+	ResolveOptionalWidgetNames();
+	UGameInstance* const GI = GetGameInstance();
+	UDFSaveSlotManagerSubsystem* const Slots = GI ? GI->GetSubsystem<UDFSaveSlotManagerSubsystem>() : nullptr;
+	if (!Slots)
+	{
+		return;
+	}
+	const bool bEmpty = Slots->IsSlotEmpty(SlotIndex);
+	UDFSaveGame* const Data = Slots->GetSlotData(SlotIndex);
+	const bool bManage = (Mode == EDFSlotScreenMode::SelectToDelete);
+	const bool bIsEmpty = bEmpty || !Data;
+	// O card raiz nunca pode ficar invisível mesmo no estado vazio.
+	SetVisibility(ESlateVisibility::Visible);
+	ApplySlotBorderState(bIsEmpty);
+	ApplyStateSwitch(bIsEmpty);
+	if (bIsEmpty)
+	{
+		ApplyEmptyState(bManage);
+	}
+	else
+	{
+		ApplyOccupiedState(Data, bManage);
 	}
 	if (CardRefreshAnim) { PlayAnimation(CardRefreshAnim, 0.f, 1, EUMGSequencePlayMode::Forward, 1.f, false); }
 }

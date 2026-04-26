@@ -7,7 +7,7 @@
 #include "Run/DFSaveGame.h"
 #include "Engine/GameInstance.h"
 #include "GameFramework/PlayerController.h"
-#include "Components/HorizontalBox.h"
+#include "Components/PanelWidget.h"
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
 #include "Blueprint/UserWidget.h"
@@ -19,7 +19,7 @@ void UDFSaveSlotSelectionUserWidget::ResolveWidgetBindings()
 	{
 		if (UWidget* const W = GetWidgetFromName(UmgNameSlotRow))
 		{
-			SlotRow = Cast<UHorizontalBox>(W);
+			SlotRow = Cast<UPanelWidget>(W);
 		}
 	}
 	if (!SlotCard0)
@@ -159,8 +159,8 @@ void UDFSaveSlotSelectionUserWidget::RebuildCardWidgets()
 	{
 		UE_LOG(
 			LogTemp, Warning,
-			TEXT("WBP_SaveSlotSelection: nenhum UHorizontalBox. Marque a caixa 'Is Variable' e nomeie como '%s' (ou ajuste UmgNameSlotRow), "
-				 "ou coloque 3 WBP alinhado a SlotCard0..2 no Designer."),
+			TEXT("WBP_SaveSlotSelection: nenhum painel '%s'. Marque a caixa 'Is Variable' (UHorizontalBox/UWrapBox/UUniformGridPanel...) "
+				 "ou coloque 3 cartões nomeados SlotCard0..2 no Designer."),
 			*UmgNameSlotRow.ToString());
 		return;
 	}

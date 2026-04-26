@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/GameModes/MainMenu/UDFCreditsUserWidget.cpp
 #include "GameModes/MainMenu/UDFCreditsUserWidget.h"
+#include "GameModes/MainMenu/ADFMainMenuHUD.h"
 #include "Components/ScrollBox.h"
 #include "Components/Button.h"
 #include "GameFramework/PlayerController.h"
@@ -42,13 +43,30 @@ void UDFCreditsUserWidget::NativeTick(const FGeometry& MyGeometry, const float I
 	{
 		return;
 	}
-	const float S = AutoScrollSpeed * (bSkipSpeedMultiplier ? 4.f : 1.f) * InDeltaTime;
-	CreditsScroll->SetScrollOffset(CreditsScroll->GetScrollOffset() + S);
+	const float Mult = bSkipSpeedMultiplier ? 4.f : 1.f;
+	const float NewOffset = CreditsScroll->GetScrollOffset() + (AutoScrollSpeed * Mult * InDeltaTime);
+	const float Limit = CreditsScroll->GetScrollOffsetOfEnd();
+	CreditsScroll->SetScrollOffset(FMath::Min(NewOffset, Limit));
+	if (NewOffset >= Limit - 0.5f)
+	{
+		bReachedEnd = true;
+	}
+	if (bReachedEnd && AutoCloseHoldSeconds > 0.f)
+	{
+		TimeAtEndSeconds += InDeltaTime;
+		if (TimeAtEndSeconds >= AutoCloseHoldSeconds)
+		{
+			OnBackClicked();
+		}
+	}
 }
 
 void UDFCreditsUserWidget::OnBackClicked()
 {
+	APlayerController* const Pc = GetOwningPlayer();
+	ADFMainMenuHUD* const H = Pc ? Cast<ADFMainMenuHUD>(Pc->GetHUD()) : nullptr;
 	RemoveFromParent();
+	if (H) { H->RestoreMainMenuFocus(); }
 }
 
 void UDFCreditsUserWidget::OnSkipClicked()

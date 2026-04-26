@@ -156,13 +156,19 @@ void UDFMainMenuUserWidget::RefreshForCurrentSaveState()
 			ContinueSubText->SetVisibility(ESlateVisibility::Collapsed);
 		}
 	}
+	const bool bHasMeta = Slots && Slots->HasAnyProfileOrLegacySave();
 	if (AchievementsButton)
 	{
-		const bool bHasMeta = Slots && Slots->HasAnyProfileOrLegacySave();
 		AchievementsButton->SetVisibility(
 			bHasMeta ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	}
-	const bool bNoProfiles = !Slots || !Slots->HasAnyProfileOrLegacySave();
+	if (ManageProfilesButton)
+	{
+		// "Gerenciar perfis" só faz sentido quando há perfil para gerir.
+		ManageProfilesButton->SetVisibility(
+			bHasMeta ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+	const bool bNoProfiles = !bHasMeta;
 	OnNewAdventureEmphasisChanged(bNoProfiles);
 }
 

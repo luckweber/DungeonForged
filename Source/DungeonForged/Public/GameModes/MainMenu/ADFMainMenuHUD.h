@@ -40,6 +40,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|MainMenu|UI")
 	void ShowConfirmDialog(UDFConfirmDialogUserWidget* Inst);
 
+	/** Devolve o foco UI ao menu principal (pós-fecho de Credits/Options/etc.). */
+	UFUNCTION(BlueprintCallable, Category = "DF|MainMenu|UI")
+	void RestoreMainMenuFocus();
+
 	/** Blueprint child sets classes in Defaults; parent C++ is @c WBP_*. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DF|MainMenu|UI")
 	TSubclassOf<UDFSplashScreenUserWidget> SplashWidgetClass = nullptr;
