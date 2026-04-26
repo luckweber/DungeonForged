@@ -23,6 +23,8 @@
 #include "Run/DFRunManager.h"
 #include "Run/DFSaveGame.h"
 #include "Run/UDFSaveSlotManagerSubsystem.h"
+#include "World/UDFWorldTransitionSubsystem.h"
+#include "World/DFWorldTypes.h"
 #include "Blueprint/UserWidget.h"
 
 static bool DfIsUnlockedByRules(FName ClassName, const UDFSaveGame* Save);
@@ -39,6 +41,7 @@ void UDFClassSelectionSubsystem::Deinitialize()
 	ClassTable = nullptr;
 	ActiveRenderTarget = nullptr;
 	ClassSelectionWidgetInstance = nullptr;
+	MainMenuClassDestination = EDFMainMenuClassPickDestination::None;
 	Super::Deinitialize();
 }
 
@@ -257,11 +260,38 @@ void UDFClassSelectionSubsystem::CloseClassSelection(const bool bConfirm)
 	}
 	if (bConfirm && SelectedClass.IsNone() == false)
 	{
-		if (APlayerController* const PC = W ? UGameplayStatics::GetPlayerController(W, 0) : nullptr)
+		const FName ConfirmedClass = SelectedClass;
+		UGameInstance* const GI = W ? W->GetGameInstance() : nullptr;
+		if (MainMenuClassDestination != EDFMainMenuClassPickDestination::None)
+		{
+			if (UDFSaveSlotManagerSubsystem* const Slots = GI ? GI->GetSubsystem<UDFSaveSlotManagerSubsystem>() : nullptr)
+			{
+				if (UDFSaveGame* const Save = Slots->GetActiveSave())
+				{
+					Save->LastRunClass = ConfirmedClass;
+					Save->bHasActiveRun = true;
+					Save->bIsFirstLaunch = false;
+					(void)Slots->SaveActiveSlot();
+				}
+			}
+			if (UDFWorldTransitionSubsystem* const WT = GI ? GI->GetSubsystem<UDFWorldTransitionSubsystem>() : nullptr)
+			{
+				if (MainMenuClassDestination == EDFMainMenuClassPickDestination::NexusFirstLaunch)
+				{
+					WT->TravelToNexus(ETravelReason::FirstLaunch);
+				}
+				else if (MainMenuClassDestination == EDFMainMenuClassPickDestination::RunDungeon)
+				{
+					WT->TravelToRun(ConfirmedClass);
+				}
+			}
+			MainMenuClassDestination = EDFMainMenuClassPickDestination::None;
+		}
+		else if (APlayerController* const PC = W ? UGameplayStatics::GetPlayerController(W, 0) : nullptr)
 		{
 			if (ADFNexusPlayerController* const N = Cast<ADFNexusPlayerController>(PC))
 			{
-				N->Server_BeginRunWithClass(SelectedClass);
+				N->Server_BeginRunWithClass(ConfirmedClass);
 			}
 		}
 	}

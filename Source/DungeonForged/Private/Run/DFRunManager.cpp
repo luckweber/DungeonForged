@@ -2,6 +2,8 @@
 
 #include "Run/DFRunManager.h"
 #include "Run/DFSaveGame.h"
+#include "Run/UDFSaveSlotManagerSubsystem.h"
+#include "Engine/GameInstance.h"
 #include "World/DFWorldTypes.h"
 #include "GameModes/Nexus/DFNexusTypes.h"
 #include "ADFDungeonManager.h"
@@ -286,7 +288,9 @@ void UDFRunManager::ApplyEndOfRunPersistence(const ETravelReason Why, FDFRunSumm
 	default:
 		return;
 	}
-	UDFSaveGame* const Meta = UDFSaveGame::Load();
+	UGameInstance* const GI = GetGameInstance();
+	UDFSaveSlotManagerSubsystem* const SlotSub = GI ? GI->GetSubsystem<UDFSaveSlotManagerSubsystem>() : nullptr;
+	UDFSaveGame* const Meta = SlotSub ? SlotSub->GetActiveOrLegacyMetaSave() : UDFSaveGame::Load();
 	if (!Meta)
 	{
 		return;
@@ -295,6 +299,9 @@ void UDFRunManager::ApplyEndOfRunPersistence(const ETravelReason Why, FDFRunSumm
 	Meta->MetaXP += XpGain;
 	Meta->TotalPlayTimeSeconds += S.TimeSeconds;
 	Meta->LifetimeKills += S.Kills;
+	Meta->bLastRunWasVictory = (Why == ETravelReason::Victory);
+	Meta->bHasActiveRun = false;
+	Meta->LastRunFloor = S.FloorReached;
 	if (S.FloorReached > Meta->BestFloorReached)
 	{
 		Meta->BestFloorReached = S.FloorReached;
@@ -326,7 +333,14 @@ void UDFRunManager::ApplyEndOfRunPersistence(const ETravelReason Why, FDFRunSumm
 		}
 		OnRunEndedSuccessfully.Broadcast(FinalScore);
 	}
-	UDFSaveGame::Save(Meta);
+	if (SlotSub && SlotSub->GetActiveSlotIndex() >= 0)
+	{
+		(void)SlotSub->SaveActiveSlot();
+	}
+	else
+	{
+		UDFSaveGame::Save(Meta);
+	}
 }
 
 int32 UDFRunManager::CalculateFinalScore() const

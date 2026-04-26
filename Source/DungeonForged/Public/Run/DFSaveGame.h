@@ -10,6 +10,8 @@
 #include "World/DFWorldTypes.h"
 #include "DFSaveGame.generated.h"
 
+class UDataTable;
+
 /**
  * Persistent meta-progression (high score, unlocks, run stats). Uses UPROPERTY(SaveGame) + UGameplayStatics slot API.
  * @see ue-serialization-savegames
@@ -22,7 +24,7 @@ class DUNGEONFORGED_API UDFSaveGame : public USaveGame
 public:
 	/** Bumped when fields change; used for future migrations. */
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Meta")
-	int32 SaveVersion = 5;
+	int32 SaveVersion = 6;
 
 	/** @see UDFLocalizationSubsystem */
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Settings|Localization")
@@ -139,6 +141,18 @@ public:
 	/** Run progress only: clears checkpoint and active run flags; keeps meta, unlocks, high score. */
 	UFUNCTION(BlueprintCallable, Category = "DF|Profile|Save")
 	void ResetRunData();
+
+	/** Alias: same as @c ResetRunData (roguelike — keeps permanent progress). */
+	UFUNCTION(BlueprintCallable, Category = "DF|Profile|Save", meta = (DisplayName = "Reset (Keep Meta)"))
+	void Reset() { ResetRunData(); }
+
+	/** True if the last *completed* run was a victory (Chronicler / card UI). v6+ */
+	UPROPERTY(SaveGame, BlueprintReadWrite, Category = "DF|Profile|Run")
+	bool bLastRunWasVictory = false;
+
+	/** 0-1 fill for nexus meta XP bar; @a NexusLevelsTable from game data (optional). */
+	UFUNCTION(BlueprintCallable, Category = "DF|Meta|Nexus", meta = (DisplayName = "Get Nexus Meta XP Fill (0-1)"))
+	float GetNexusMetaXPFillRatio(UDataTable const* NexusLevelsTable) const;
 
 	/** True if this save is safe to load (same @c GameVersion family). */
 	UFUNCTION(BlueprintCallable, Category = "DF|Profile|Save")

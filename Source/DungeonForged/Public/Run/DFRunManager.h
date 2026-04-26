@@ -91,6 +91,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Run|Data")
 	TObjectPtr<UDataTable> ClassDataTable = nullptr;
 
+	/** Optional: nexus level thresholds (FDFNexusLevelRow) for main-menu meta XP bar; same as Nexus GameState default if used. */
+	UPROPERTY(EditDefaultsOnly, Category = "Run|Data|Nexus")
+	TObjectPtr<UDataTable> NexusMetaLevelsTable = nullptr;
+
 	/** DataTable (e.g. DT_Abilities) using FDFAbilityTableRow; used to grant ability rows. */
 	UPROPERTY(EditDefaultsOnly, Category = "Run|Data")
 	TObjectPtr<UDataTable> AbilityDataTable = nullptr;

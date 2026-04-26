@@ -6,10 +6,37 @@
 #include "Kismet/GameplayStatics.h"
 #include "Misc/ConfigCacheIni.h"
 #include "Misc/DateTime.h"
+#include "Engine/DataTable.h"
+#include "GameModes/Nexus/DFNexusLevelData.h"
 
 namespace
 {
-	constexpr int32 GDFSaveLatestVersion = 5;
+	constexpr int32 GDFSaveLatestVersion = 6;
+
+	const FDFNexusLevelRow* FindLevelRowByNexusLevel(
+		UDataTable const* const Table,
+		int32 const InNexusLevel,
+		FName& OutRowName)
+	{
+		OutRowName = NAME_None;
+		if (!Table)
+		{
+			return nullptr;
+		}
+		for (TPair<FName, uint8*> const& RowPair : Table->GetRowMap())
+		{
+			if (FDFNexusLevelRow const* const R =
+					Table->FindRow<FDFNexusLevelRow>(RowPair.Key, TEXT("SaveGameNexusLevelLookup"), false))
+			{
+				if (R->NexusLevel == InNexusLevel)
+				{
+					OutRowName = RowPair.Key;
+					return R;
+				}
+			}
+		}
+		return nullptr;
+	}
 
 	void ApplyMigrations(UDFSaveGame* const CastSave)
 	{
@@ -33,6 +60,10 @@ namespace
 			{
 				CastSave->GameVersion = TEXT("0.1.0");
 			}
+		}
+		if (CastSave->SaveVersion < 6)
+		{
+			CastSave->bLastRunWasVictory = false;
 		}
 		CastSave->SaveVersion = GDFSaveLatestVersion;
 	}
@@ -96,6 +127,30 @@ bool UDFSaveGame::IsCompatible() const
 		return true;
 	}
 	return GameVersion == ProjectVer;
+}
+
+float UDFSaveGame::GetNexusMetaXPFillRatio(UDataTable const* const NexusLevelsTable) const
+{
+	if (!NexusLevelsTable)
+	{
+		const float Den = FMath::Max(1000.f, float(FMath::Max(1, MetaLevel) * 800));
+		return FMath::Clamp(MetaXP / Den, 0.f, 1.f);
+	}
+	FName A;
+	FName B;
+	FDFNexusLevelRow const* const RowMin = FindLevelRowByNexusLevel(NexusLevelsTable, MetaLevel, A);
+	FDFNexusLevelRow const* const RowMax = FindLevelRowByNexusLevel(NexusLevelsTable, MetaLevel + 1, B);
+	if (!RowMax)
+	{
+		return 1.f;
+	}
+	int32 const X0 = RowMin ? RowMin->MetaXPRequired : 0;
+	int32 const X1 = RowMax->MetaXPRequired;
+	if (X1 <= X0)
+	{
+		return 1.f;
+	}
+	return FMath::Clamp(float(MetaXP - X0) / float(X1 - X0), 0.f, 1.f);
 }
 
 UDFSaveGame* UDFSaveGame::Load()

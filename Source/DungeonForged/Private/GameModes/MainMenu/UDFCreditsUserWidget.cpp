@@ -7,6 +7,11 @@
 void UDFCreditsUserWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+	SetIsFocusable(true);
+	if (APlayerController* const Pc = GetOwningPlayer())
+	{
+		SetUserFocus(Pc);
+	}
 	if (BackButton)
 	{
 		BackButton->OnClicked.AddDynamic(this, &UDFCreditsUserWidget::OnBackClicked);
@@ -57,4 +62,19 @@ void UDFCreditsUserWidget::JumpScrollToEnd()
 	{
 		CreditsScroll->ScrollToEnd();
 	}
+}
+
+FReply UDFCreditsUserWidget::NativeOnKeyDown(
+	const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+	(void)InKeyEvent;
+	bSkipSpeedMultiplier = true;
+	return FReply::Unhandled();
+}
+
+FReply UDFCreditsUserWidget::NativeOnKeyUp(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+	(void)InKeyEvent;
+	bSkipSpeedMultiplier = false;
+	return FReply::Unhandled();
 }

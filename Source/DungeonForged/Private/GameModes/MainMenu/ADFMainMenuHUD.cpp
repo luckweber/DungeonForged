@@ -71,22 +71,15 @@ void ADFMainMenuHUD::ShowMainMenu()
 		Main->AddToViewport(5);
 		Main->RefreshForCurrentSaveState();
 	}
-	UGameInstance* const GI = GetGameInstance();
-	UDFSaveSlotManagerSubsystem* const Slots = GI ? GI->GetSubsystem<UDFSaveSlotManagerSubsystem>() : nullptr;
-	if (Slots)
-	{
-		// Instalação: nenhum perfil; painel de slot antes do menu, se desejado.
-		if (!Slots->HasAnyProfileOrLegacySave())
-		{
-			ShowSaveSlotLayer(EDFSlotScreenMode::SelectToPlay);
-		}
-	}
+	// A seleção de perfil abre a partir de "Nova Aventura" / "Continuar" (UDFMainMenuUserWidget
+	// e ADFMainMenuHUD::ShowSaveSlotLayer), nunca automaticamente no primeiro frame — o menu
+	// fica visível abaixo (Z 5) e o overlay de slots (Z 20) só em fluxo explícito do jogador.
 }
 
 void ADFMainMenuHUD::ShowSaveSlotLayer(EDFSlotScreenMode const Mode)
 {
 	if (!SaveSlotWidgetClass)
-	{
+	{	
 		return;
 	}
 	APlayerController* const PC = GetOwningPlayerController();

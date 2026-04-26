@@ -16,6 +16,8 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/ConfigCacheIni.h"
+#include "Data/DFDataTableStructs.h"
+#include "Run/DFRunManager.h"
 
 void UDFMainMenuUserWidget::NativeConstruct()
 {
@@ -68,6 +70,11 @@ void UDFMainMenuUserWidget::NativeConstruct()
 	RefreshForCurrentSaveState();
 }
 
+void UDFMainMenuUserWidget::OnNewAdventureEmphasisChanged_Implementation(bool const bEmphasize)
+{
+	(void)bEmphasize;
+}
+
 void UDFMainMenuUserWidget::NativeDestruct()
 {
 	if (ContinueAdventureButton)
@@ -105,12 +112,49 @@ void UDFMainMenuUserWidget::RefreshForCurrentSaveState()
 {
 	UGameInstance* const GI = GetGameInstance();
 	UDFSaveSlotManagerSubsystem* const Slots = GI ? GI->GetSubsystem<UDFSaveSlotManagerSubsystem>() : nullptr;
-	UDFSaveGame* const Meta = Slots ? Slots->GetActiveOrLegacyMetaSave() : nullptr;
-	const bool bHasActiveRun = Meta && Meta->bHasActiveRun && (Slots->GetActiveSlotIndex() >= 0);
+	UDFRunManager* const RM = GI ? GI->GetSubsystem<UDFRunManager>() : nullptr;
+	const UDFSaveGame* ActiveRunSave = nullptr;
+	if (Slots)
+	{
+		for (int32 I = 0; I < UDFSaveSlotManagerSubsystem::MaxSlots; ++I)
+		{
+			if (UDFSaveGame* D = Slots->GetSlotData(I))
+			{
+				if (D->bHasActiveRun)
+				{
+					ActiveRunSave = D;
+					break;
+				}
+			}
+		}
+	}
+	const bool bHasActiveRun = ActiveRunSave != nullptr;
 	if (ContinueAdventureButton)
 	{
 		ContinueAdventureButton->SetVisibility(
 			bHasActiveRun ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+	if (ContinueSubText)
+	{
+		if (bHasActiveRun && ActiveRunSave)
+		{
+			FString ClassNameStr = ActiveRunSave->LastRunClass.ToString();
+			if (RM)
+			{
+				if (FDFClassTableRow const* R = RM->FindClassTableRow(ActiveRunSave->LastRunClass))
+				{
+					ClassNameStr = R->ClassName.ToString();
+				}
+			}
+			ContinueSubText->SetText(
+				FText::FromString(FString::Printf(
+					TEXT("Andar %d — %s"), ActiveRunSave->LastRunFloor, *ClassNameStr)));
+			ContinueSubText->SetVisibility(ESlateVisibility::Visible);
+		}
+		else
+		{
+			ContinueSubText->SetVisibility(ESlateVisibility::Collapsed);
+		}
 	}
 	if (AchievementsButton)
 	{
@@ -118,6 +162,8 @@ void UDFMainMenuUserWidget::RefreshForCurrentSaveState()
 		AchievementsButton->SetVisibility(
 			bHasMeta ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	}
+	const bool bNoProfiles = !Slots || !Slots->HasAnyProfileOrLegacySave();
+	OnNewAdventureEmphasisChanged(bNoProfiles);
 }
 
 void UDFMainMenuUserWidget::OnContinueAdventure()
@@ -132,7 +178,8 @@ void UDFMainMenuUserWidget::OnContinueAdventure()
 	{
 		return;
 	}
-	if (Slots->GetActiveSlotIndex() < 0)
+	UDFSaveGame* S = Slots->GetActiveSave();
+	if (!S || !S->bHasActiveRun)
 	{
 		if (APlayerController* const PC = GetOwningPlayer())
 		{
@@ -141,11 +188,6 @@ void UDFMainMenuUserWidget::OnContinueAdventure()
 				H->ShowSaveSlotLayer(EDFSlotScreenMode::SelectToPlay);
 			}
 		}
-		return;
-	}
-	UDFSaveGame* S = Slots->GetActiveSave();
-	if (!S || !S->bHasActiveRun)
-	{
 		return;
 	}
 	if (!S->IsCompatible())
@@ -160,13 +202,38 @@ void UDFMainMenuUserWidget::OnContinueAdventure()
 
 void UDFMainMenuUserWidget::OnNewAdventure()
 {
-	if (APlayerController* const PC = GetOwningPlayer())
+	UGameInstance* const GI = GetGameInstance();
+	UDFSaveSlotManagerSubsystem* const Slots = GI ? GI->GetSubsystem<UDFSaveSlotManagerSubsystem>() : nullptr;
+	APlayerController* const PC = GetOwningPlayer();
+	ADFMainMenuHUD* const H = PC ? Cast<ADFMainMenuHUD>(PC->GetHUD()) : nullptr;
+	if (!H)
 	{
-		if (ADFMainMenuHUD* const H = Cast<ADFMainMenuHUD>(PC->GetHUD()))
+		return;
+	}
+	// Nenhum perfil em disco: ir direto à seleção (fluxo "primeiro boot").
+	if (!Slots || !Slots->HasAnyProfileOrLegacySave())
+	{
+		H->ShowSaveSlotLayer(EDFSlotScreenMode::SelectToPlay);
+		return;
+	}
+	if (H->ConfirmWidgetClass)
+	{
+		UDFConfirmDialogUserWidget* const D = CreateWidget<UDFConfirmDialogUserWidget>(PC, H->ConfirmWidgetClass);
+		if (D)
 		{
-			H->ShowSaveSlotLayer(EDFSlotScreenMode::SelectToPlay);
+			D->ShowDialog(
+				NSLOCTEXT("MainMenu", "NovaAventuraTitle", "Nova aventura"),
+				NSLOCTEXT(
+					"MainMenu", "NovaAventuraBody",
+					"Isto abre a selecao de perfis. O progresso permanente (Nexus, desbloqueios) em cada perfil nao e apagado; "
+					"voce escolhe o perfil e se deseja iniciar ou retomar uma run."),
+				FSimpleDelegate::CreateWeakLambda(
+					PC, [H]() { H->ShowSaveSlotLayer(EDFSlotScreenMode::SelectToPlay); }));
+			H->ShowConfirmDialog(D);
+			return;
 		}
 	}
+	H->ShowSaveSlotLayer(EDFSlotScreenMode::SelectToPlay);
 }
 
 void UDFMainMenuUserWidget::OnManageProfiles()

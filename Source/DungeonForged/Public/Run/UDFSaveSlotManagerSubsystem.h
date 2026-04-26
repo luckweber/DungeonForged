@@ -8,6 +8,7 @@
 class UDFSaveGame;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDFSaveSlotChanged, int32, SlotIndex);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnDFSaveSlotLoadFailed, int32, SlotIndex, FString, Reason);
 
 /**
  * Up to 3 profile saves. Primary slot files use @c UDFSaveGame::GetProfileSlotFName.
@@ -48,6 +49,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|Save|Slots")
 	void DeleteSlot(int32 SlotIndex);
 
+	void BroadcastSlotChanged(int32 const SlotIndex);
+
 	UFUNCTION(BlueprintPure, Category = "DF|Save|Slots")
 	bool IsSlotEmpty(int32 SlotIndex) const;
 
@@ -59,8 +62,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|Save|Slots")
 	UDFSaveGame* GetActiveOrLegacyMetaSave();
 
+	/** Any slot data changed (load, select, save, delete). */
+	UPROPERTY(BlueprintAssignable, Category = "DF|Save|Slots")
+	FOnDFSaveSlotChanged OnSlotChanged;
+
+	/** @c OnSlotDeleted kept for prior listeners. */
 	UPROPERTY(BlueprintAssignable, Category = "DF|Save|Slots")
 	FOnDFSaveSlotChanged OnSlotDeleted;
+
+	/** Deserialization failed — slot treated as empty. */
+	UPROPERTY(BlueprintAssignable, Category = "DF|Save|Slots")
+	FOnDFSaveSlotLoadFailed OnSlotLoadFailed;
 
 protected:
 	/** 0, 1, 2: cached headers (full object). */

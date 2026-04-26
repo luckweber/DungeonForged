@@ -3,6 +3,7 @@
 
 #include "CoreMinimal.h"
 #include "Data/DFDataTableStructs.h"
+#include "GameModes/MainMenu/DFMainMenuTypes.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "UDFClassSelectionSubsystem.generated.h"
 
@@ -96,6 +97,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|ClassSelection|Preview")
 	UTextureRenderTarget2D* GetRenderTarget() const { return ActiveRenderTarget; }
 
+	/** When opening class selection from the main menu, set where to travel on confirm. */
+	UFUNCTION(BlueprintCallable, Category = "DF|ClassSelection|MainMenu")
+	void SetMainMenuClassPickDestination(EDFMainMenuClassPickDestination InDestination)
+		{ MainMenuClassDestination = InDestination; }
+
+	EDFMainMenuClassPickDestination GetMainMenuClassPickDestination() const
+		{ return MainMenuClassDestination; }
+
 	/** Merged CDO / @c UDFRunManager::ClassDataTable. */
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "DF|ClassSelection|Data")
 	UDataTable* GetClassTable() const;
@@ -139,4 +148,6 @@ protected:
 	TObjectPtr<class UUserWidget> ClassSelectionWidgetInstance = nullptr;
 
 	float PreviousGlobalTimeDilation = 1.f;
+
+	EDFMainMenuClassPickDestination MainMenuClassDestination = EDFMainMenuClassPickDestination::None;
 };

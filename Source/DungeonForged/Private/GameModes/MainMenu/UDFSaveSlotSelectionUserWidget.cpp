@@ -11,6 +11,39 @@
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
 #include "Blueprint/UserWidget.h"
+#include "Logging/LogMacros.h"
+
+void UDFSaveSlotSelectionUserWidget::ResolveWidgetBindings()
+{
+	if (!SlotRow && !UmgNameSlotRow.IsNone())
+	{
+		if (UWidget* const W = GetWidgetFromName(UmgNameSlotRow))
+		{
+			SlotRow = Cast<UHorizontalBox>(W);
+		}
+	}
+	if (!SlotCard0)
+	{
+		if (UWidget* const W = GetWidgetFromName(FName("SlotCard0")))
+		{
+			SlotCard0 = Cast<UDFSaveSlotCardUserWidget>(W);
+		}
+	}
+	if (!SlotCard1)
+	{
+		if (UWidget* const W = GetWidgetFromName(FName("SlotCard1")))
+		{
+			SlotCard1 = Cast<UDFSaveSlotCardUserWidget>(W);
+		}
+	}
+	if (!SlotCard2)
+	{
+		if (UWidget* const W = GetWidgetFromName(FName("SlotCard2")))
+		{
+			SlotCard2 = Cast<UDFSaveSlotCardUserWidget>(W);
+		}
+	}
+}
 
 void UDFSaveSlotSelectionUserWidget::NativeConstruct()
 {
@@ -19,10 +52,25 @@ void UDFSaveSlotSelectionUserWidget::NativeConstruct()
 	{
 		BackButton->OnClicked.AddDynamic(this, &UDFSaveSlotSelectionUserWidget::OnBackClicked);
 	}
+	if (UGameInstance* const Gi = GetGameInstance())
+	{
+		if (UDFSaveSlotManagerSubsystem* const S = Gi->GetSubsystem<UDFSaveSlotManagerSubsystem>())
+		{
+			S->OnSlotChanged.AddDynamic(this, &UDFSaveSlotSelectionUserWidget::HandleSlotChanged);
+		}
+	}
+	RefreshFromSubsystem();
 }
 
 void UDFSaveSlotSelectionUserWidget::NativeDestruct()
 {
+	if (UGameInstance* const Gi = GetGameInstance())
+	{
+		if (UDFSaveSlotManagerSubsystem* const S = Gi->GetSubsystem<UDFSaveSlotManagerSubsystem>())
+		{
+			S->OnSlotChanged.RemoveAll(this);
+		}
+	}
 	if (BackButton)
 	{
 		BackButton->OnClicked.RemoveAll(this);
@@ -51,23 +99,69 @@ void UDFSaveSlotSelectionUserWidget::UpdateTitle() const
 		CurrentMode == EDFSlotScreenMode::SelectToDelete
 			? NSLOCTEXT("MainMenu", "SlotTitleManage", "Gerenciar Perfis")
 			: NSLOCTEXT("MainMenu", "SlotTitleSelect", "Selecionar Perfil"));
+	if (ManageHintText)
+	{
+		ManageHintText->SetText(
+			NSLOCTEXT("MainMenu", "ManageSlotHint", "Selecione um perfil para apagá-lo"));
+		ManageHintText->SetVisibility(
+			CurrentMode == EDFSlotScreenMode::SelectToDelete
+				? ESlateVisibility::Visible
+				: ESlateVisibility::Collapsed);
+	}
 }
 
 void UDFSaveSlotSelectionUserWidget::RefreshFromSubsystem()
 {
+	ResolveWidgetBindings();
 	UGameInstance* const Gi = GetGameInstance();
 	if (UDFSaveSlotManagerSubsystem* const S = Gi ? Gi->GetSubsystem<UDFSaveSlotManagerSubsystem>() : nullptr)
 	{
 		S->LoadAllSlotHeaders();
 	}
 	UpdateTitle();
-	RebuildCardWidgets();
+	if (SlotCard0 && SlotCard1 && SlotCard2)
+	{
+		SlotCard0->RefreshSlotData(0, CurrentMode);
+		SlotCard1->RefreshSlotData(1, CurrentMode);
+		SlotCard2->RefreshSlotData(2, CurrentMode);
+	}
+	else
+	{
+		RebuildCardWidgets();
+	}
+}
+
+void UDFSaveSlotSelectionUserWidget::HandleSlotChanged(int32 const SlotIndex)
+{
+	// After Select/Save/Delete, LoadedSlots is already current — never call
+	// LoadAllSlotHeaders from this path (it used to recurse via OnSlotChanged).
+	if (SlotCard0 && SlotCard1 && SlotCard2 && SlotIndex >= 0 && SlotIndex <= 2)
+	{
+		UDFSaveSlotCardUserWidget* const Card = SlotIndex == 0
+			 ? SlotCard0
+			 : (SlotIndex == 1 ? SlotCard1 : SlotCard2);
+		if (Card)
+		{
+			Card->RefreshSlotData(SlotIndex, CurrentMode);
+		}
+	}
+	else
+	{
+		UpdateTitle();
+		RebuildCardWidgets();
+	}
 }
 
 void UDFSaveSlotSelectionUserWidget::RebuildCardWidgets()
 {
+	ResolveWidgetBindings();
 	if (!SlotRow)
 	{
+		UE_LOG(
+			LogTemp, Warning,
+			TEXT("WBP_SaveSlotSelection: nenhum UHorizontalBox. Marque a caixa 'Is Variable' e nomeie como '%s' (ou ajuste UmgNameSlotRow), "
+				 "ou coloque 3 WBP alinhado a SlotCard0..2 no Designer."),
+			*UmgNameSlotRow.ToString());
 		return;
 	}
 	SlotRow->ClearChildren();
@@ -76,6 +170,9 @@ void UDFSaveSlotSelectionUserWidget::RebuildCardWidgets()
 	UDFSaveSlotManagerSubsystem* const Slots = Gi ? Gi->GetSubsystem<UDFSaveSlotManagerSubsystem>() : nullptr;
 	if (!SlotCardClass || !Pc || !Slots)
 	{
+		UE_LOG(
+			LogTemp, Warning,
+			TEXT("WBP_SaveSlotSelection: SlotCardClass, PlayerController ou sub sistema de slots nulo; verifique a classe e o PIE."));
 		return;
 	}
 	for (int32 I = 0; I < 3; ++I)
@@ -87,6 +184,7 @@ void UDFSaveSlotSelectionUserWidget::RebuildCardWidgets()
 		}
 		UDFSaveGame* D = Slots->GetSlotData(I);
 		const bool bEmpty = Slots->IsSlotEmpty(I);
+		(void)D;
 		Card->SetupForSlot(I, CurrentMode, bEmpty ? nullptr : D, bEmpty);
 		SlotRow->AddChild(Card);
 	}

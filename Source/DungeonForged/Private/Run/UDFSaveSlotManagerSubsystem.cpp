@@ -58,12 +58,26 @@ void UDFSaveSlotManagerSubsystem::LoadAllSlotHeaders()
 		const FString Slot = UDFSaveGame::GetProfileSlotFName(I).ToString();
 		if (UGameplayStatics::DoesSaveGameExist(Slot, UDFSaveGame::UserIndex))
 		{
-			LoadedSlots[I] = UDFSaveGame::LoadProfile(I);
+			USaveGame* const Loaded = UGameplayStatics::LoadGameFromSlot(Slot, UDFSaveGame::UserIndex);
+			if (UDFSaveGame* const CastSave = Cast<UDFSaveGame>(Loaded))
+			{
+				CastSave->SlotIndex = I;
+				LoadedSlots[I] = CastSave;
+			}
+			else
+			{
+				LoadedSlots[I] = nullptr;
+				const FString Reason = TEXT("Deserializacao invalida");
+				OnSlotLoadFailed.Broadcast(I, Reason);
+			}
 		}
 		else
 		{
 			LoadedSlots[I] = nullptr;
 		}
+		// Do not broadcast from here: listeners (e.g. save slot UI) may call
+		// LoadAllSlotHeaders again and recurse until stack overflow. Mutations
+		// (Select, Save, Delete) broadcast separately after cache is already updated.
 	}
 }
 
@@ -91,6 +105,7 @@ void UDFSaveSlotManagerSubsystem::SelectSlot(int32 const SlotIndex)
 	LoadedSlots[I] = UDFSaveGame::LoadProfile(I);
 	ActiveSlotIndex = I;
 	MirrorToLegacy(GetActiveSave());
+	BroadcastSlotChanged(I);
 }
 
 bool UDFSaveSlotManagerSubsystem::SaveActiveSlot()
@@ -109,6 +124,7 @@ bool UDFSaveSlotManagerSubsystem::SaveActiveSlot()
 		return false;
 	}
 	MirrorToLegacy(S);
+	BroadcastSlotChanged(ActiveSlotIndex);
 	return true;
 }
 
@@ -122,7 +138,13 @@ void UDFSaveSlotManagerSubsystem::DeleteSlot(int32 const SlotIndex)
 		ActiveSlotIndex = -1;
 	}
 	// Legacy mirror: no longer valid if we had only that slot; caller may refresh
+	OnSlotChanged.Broadcast(I);
 	OnSlotDeleted.Broadcast(I);
+}
+
+void UDFSaveSlotManagerSubsystem::BroadcastSlotChanged(int32 const SlotIndex)
+{
+	OnSlotChanged.Broadcast(SlotIndex);
 }
 
 bool UDFSaveSlotManagerSubsystem::IsSlotEmpty(int32 const SlotIndex) const

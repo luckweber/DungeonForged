@@ -81,6 +81,16 @@ protected:
 	float GetDefaultHold() const;
 	FDFSplashPhaseConfig GetOrCreatePhaseConfig(int32 Index) const;
 
+	/** ~60 Hz linear fade (alpha 0..1) without requiring WBP UMG anims. */
+	UFUNCTION()
+	void SplashTickFadeIn();
+	UFUNCTION()
+	void SplashTickFadeOut();
+	void OnFadeInFinishedStartHold();
+
+	float SplashLinearFadeAlpha = 0.f;
+	static constexpr float SplashFadeTimeStep = 1.f / 60.f;
+
 	UPROPERTY(BlueprintReadWrite, Transient, Category = "DF|MainMenu|Splash", meta = (AllowPrivateAccess = true))
 	int32 CurrentSplash = 0;
 
@@ -97,9 +107,6 @@ protected:
 	double ShownTimeSeconds = 0.0;
 
 	TWeakObjectPtr<AHUD> OwnerHUD;
-
-	UFUNCTION()
-	void OnFadeInEnd();
 
 	UFUNCTION()
 	void OnHoldEnd();

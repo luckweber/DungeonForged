@@ -77,24 +77,46 @@ void UDFSplashScreenUserWidget::PlayNextSplash()
 	{
 		OnTitleCardShown(Tex);
 	}
-	ApplySplashVisibleAlpha(1.f, CurrentSplash);
 	SchedulePhaseTimers();
 }
 
 void UDFSplashScreenUserWidget::OnSplashIndexChanged_Implementation(int32 const Index, UTexture2D* const Texture) {}
 
+float UDFSplashScreenUserWidget::GetDefaultHold() const
+{
+	return 1.f;
+}
+
 FDFSplashPhaseConfig UDFSplashScreenUserWidget::GetOrCreatePhaseConfig(int32 const Index) const
 {
+	FDFSplashPhaseConfig C;
 	if (PhaseConfig.IsValidIndex(Index))
 	{
-		return PhaseConfig[Index];
+		C = PhaseConfig[Index];
 	}
-	FDFSplashPhaseConfig C;
-	if (Index == 2)
+	else
 	{
-		C.FadeInSeconds = 1.2f;
-		C.HoldSeconds = 1.5f;
-		C.FadeOutSeconds = 0.5f;
+		// Padrão ~4s total: 1+2: UE/Estúdio 1,2s in / 1,0s hold / 0,8s out; 3: title card 1,5s hold, out mais curto
+		if (Index == 2)
+		{
+			C.FadeInSeconds = 1.2f;
+			C.HoldSeconds = 1.5f;
+			C.FadeOutSeconds = 0.5f;
+		}
+		else
+		{
+			C.FadeInSeconds = 1.2f;
+			C.HoldSeconds = 1.0f;
+			C.FadeOutSeconds = 0.8f;
+		}
+	}
+	if (HoldDurations.IsValidIndex(Index) && HoldDurations[Index] > 0.01f)
+	{
+		C.HoldSeconds = HoldDurations[Index];
+	}
+	if (C.HoldSeconds <= 0.01f)
+	{
+		C.HoldSeconds = GetDefaultHold();
 	}
 	return C;
 }
@@ -116,15 +138,39 @@ void UDFSplashScreenUserWidget::SchedulePhaseTimers()
 	{
 		return;
 	}
-	FTimerManager& TM = W->GetTimerManager();
-	const FDFSplashPhaseConfig P = GetOrCreatePhaseConfig(CurrentSplash);
+	SplashLinearFadeAlpha = 0.f;
 	ApplySplashVisibleAlpha(0.f, CurrentSplash);
-	TM.SetTimer(PhaseTimer1, this, &UDFSplashScreenUserWidget::OnFadeInEnd, P.FadeInSeconds, false);
+	FTimerManager& TM = W->GetTimerManager();
+	TM.SetTimer(PhaseTimer1, this, &UDFSplashScreenUserWidget::SplashTickFadeIn, SplashFadeTimeStep, true, 0.f);
 }
 
-void UDFSplashScreenUserWidget::OnFadeInEnd()
+void UDFSplashScreenUserWidget::SplashTickFadeIn()
 {
-	ApplySplashVisibleAlpha(1.f, CurrentSplash);
+	UWorld* const W = GetWorld();
+	if (!W)
+	{
+		return;
+	}
+	const FDFSplashPhaseConfig P = GetOrCreatePhaseConfig(CurrentSplash);
+	if (P.FadeInSeconds <= 1.e-3f)
+	{
+		ApplySplashVisibleAlpha(1.f, CurrentSplash);
+		W->GetTimerManager().ClearTimer(PhaseTimer1);
+		OnFadeInFinishedStartHold();
+		return;
+	}
+	const float Step = SplashFadeTimeStep / P.FadeInSeconds;
+	SplashLinearFadeAlpha = FMath::Min(1.f, SplashLinearFadeAlpha + Step);
+	ApplySplashVisibleAlpha(SplashLinearFadeAlpha, CurrentSplash);
+	if (SplashLinearFadeAlpha >= 1.f - 1.e-3f)
+	{
+		W->GetTimerManager().ClearTimer(PhaseTimer1);
+		OnFadeInFinishedStartHold();
+	}
+}
+
+void UDFSplashScreenUserWidget::OnFadeInFinishedStartHold()
+{
 	UWorld* const W = GetWorld();
 	if (!W)
 	{
@@ -139,10 +185,42 @@ void UDFSplashScreenUserWidget::OnHoldEnd() { AdvanceAfterFadeInHold(); }
 void UDFSplashScreenUserWidget::AdvanceAfterFadeInHold()
 {
 	const FDFSplashPhaseConfig P = GetOrCreatePhaseConfig(CurrentSplash);
-	ApplySplashVisibleAlpha(0.f, CurrentSplash);
-	if (UWorld* W = GetWorld())
+	UWorld* const W = GetWorld();
+	if (!W)
 	{
-		W->GetTimerManager().SetTimer(PhaseTimer3, this, &UDFSplashScreenUserWidget::OnFadeOutEnd, P.FadeOutSeconds, false);
+		return;
+	}
+	if (P.FadeOutSeconds <= 1.e-3f)
+	{
+		ApplySplashVisibleAlpha(0.f, CurrentSplash);
+		OnFadeOutEnd();
+		return;
+	}
+	SplashLinearFadeAlpha = 0.f;
+	W->GetTimerManager().SetTimer(PhaseTimer3, this, &UDFSplashScreenUserWidget::SplashTickFadeOut, SplashFadeTimeStep, true, 0.f);
+}
+
+void UDFSplashScreenUserWidget::SplashTickFadeOut()
+{
+	UWorld* const W = GetWorld();
+	if (!W)
+	{
+		return;
+	}
+	const FDFSplashPhaseConfig P = GetOrCreatePhaseConfig(CurrentSplash);
+	if (P.FadeOutSeconds <= 1.e-3f)
+	{
+		W->GetTimerManager().ClearTimer(PhaseTimer3);
+		OnFadeOutEnd();
+		return;
+	}
+	const float Step = SplashFadeTimeStep / P.FadeOutSeconds;
+	SplashLinearFadeAlpha = FMath::Min(1.f, SplashLinearFadeAlpha + Step);
+	ApplySplashVisibleAlpha(1.f - SplashLinearFadeAlpha, CurrentSplash);
+	if (SplashLinearFadeAlpha >= 1.f - 1.e-3f)
+	{
+		W->GetTimerManager().ClearTimer(PhaseTimer3);
+		OnFadeOutEnd();
 	}
 }
 
