@@ -24,6 +24,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|ClassSelection|Preview")
 	void SetSpringArm(class USpringArmComponent* InArm) { SpringArm = InArm; }
 
+	/** Depois de teleportar o pawn (preview mundo direto), alinha yaw interno ao actor. */
+	void SyncYawFromOwner();
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void TickComponent(

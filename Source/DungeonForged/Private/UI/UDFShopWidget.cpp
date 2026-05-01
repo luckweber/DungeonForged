@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/UI/UDFShopWidget.cpp
 #include "UI/UDFShopWidget.h"
+#include "DungeonForgedModule.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Characters/ADFPlayerState.h"
 #include "Merchant/ADFMerchantActor.h"
@@ -114,6 +115,7 @@ void UDFShopWidget::OpenForMerchant(ADFMerchantActor* Merchant)
 	if (APlayerController* const PC = GetOwningPlayer())
 	{
 		FInputModeUIOnly Mode;
+		DFPrepareWidgetForUIModeFocus(this);
 		Mode.SetWidgetToFocus(TakeWidget());
 		PC->SetInputMode(Mode);
 		PC->SetShowMouseCursor(true);

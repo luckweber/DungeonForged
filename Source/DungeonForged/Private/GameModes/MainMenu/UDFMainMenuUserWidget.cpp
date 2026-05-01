@@ -22,6 +22,14 @@
 void UDFMainMenuUserWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+	// Sem isso, FInputModeUIOnly::SetWidgetToFocus(TakeWidget()) emite o erro
+	// "Attempting to focus Non-Focusable widget SObjectWidget".
+	SetIsFocusable(true);
+	if (APlayerController* const PC = GetOwningPlayer())
+	{
+		SetUserFocus(PC);
+		SetKeyboardFocus();
+	}
 	if (ContinueAdventureButton)
 	{
 		ContinueAdventureButton->OnClicked.AddDynamic(this, &UDFMainMenuUserWidget::OnContinueAdventure);

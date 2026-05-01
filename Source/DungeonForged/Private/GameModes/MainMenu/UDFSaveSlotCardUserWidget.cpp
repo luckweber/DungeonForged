@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/GameModes/MainMenu/UDFSaveSlotCardUserWidget.cpp
 #include "GameModes/MainMenu/UDFSaveSlotCardUserWidget.h"
+#include "DungeonForgedModule.h"
 #include "GameModes/MainMenu/ADFMainMenuHUD.h"
 #include "GameModes/MainMenu/UDFConfirmDialogUserWidget.h"
 #include "Data/DFDataTableStructs.h"
@@ -442,20 +443,36 @@ void UDFSaveSlotCardUserWidget::OnNewRunClicked()
 
 void UDFSaveSlotCardUserWidget::OnCreateClicked()
 {
+	DF_LOG(Log, "[DF|MainMenu|SlotCard] OnCreateClicked: SlotIndex=%d Mode=%u",
+		SlotIndex,
+		static_cast<uint32>(Mode));
 	UGameInstance* const GI = GetGameInstance();
 	UDFSaveSlotManagerSubsystem* const Slots = GI ? GI->GetSubsystem<UDFSaveSlotManagerSubsystem>() : nullptr;
 	if (!Slots || Mode == EDFSlotScreenMode::SelectToDelete)
 	{
+		DF_LOG(Warning, "[DF|MainMenu|SlotCard] OnCreateClicked: abort Slots=%s Mode=%u (SelectToDelete ignora criar)",
+			Slots ? TEXT("ok") : TEXT("null"),
+			static_cast<uint32>(Mode));
 		return;
 	}
 	Slots->SelectSlot(SlotIndex);
+	DF_LOG(Log, "[DF|MainMenu|SlotCard] OnCreateClicked: SelectSlot(%d) feito", SlotIndex);
 	if (UWorld* const W = GetWorld())
 	{
 		if (UDFClassSelectionSubsystem* const Sub = W->GetSubsystem<UDFClassSelectionSubsystem>())
 		{
 			Sub->SetMainMenuClassPickDestination(EDFMainMenuClassPickDestination::NexusFirstLaunch);
 			Sub->OpenClassSelection();
+			DF_LOG(Log, "[DF|MainMenu|SlotCard] OnCreateClicked: OpenClassSelection disparado (dest=NexusFirstLaunch)");
 		}
+		else
+		{
+			DF_LOG(Error, "[DF|MainMenu|SlotCard] OnCreateClicked: UDFClassSelectionSubsystem nao encontrado no World");
+		}
+	}
+	else
+	{
+		DF_LOG(Error, "[DF|MainMenu|SlotCard] OnCreateClicked: World nulo");
 	}
 }
 

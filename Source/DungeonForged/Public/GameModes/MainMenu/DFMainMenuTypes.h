@@ -26,3 +26,15 @@ enum class EDFMainMenuClassPickDestination : uint8
 	/** Start dungeon run with selected class. */
 	RunDungeon
 };
+
+/** Z-order de AddToViewport no menu principal (maior = desenha por cima). */
+namespace DFMainMenuUI
+{
+	constexpr int32 ViewportZ_Splash = 0;
+	constexpr int32 ViewportZ_Main = 5;
+	constexpr int32 ViewportZ_Credits = 15;
+	constexpr int32 ViewportZ_SaveSlot = 20;
+	/** WBP_ClassSelection — acima dos slots para capturar input; em modo mundo direto os widgets abaixo são ocultos. */
+	constexpr int32 ViewportZ_ClassSelection = 25;
+	constexpr int32 ViewportZ_ConfirmDialog = 100;
+}

@@ -2617,37 +2617,247 @@ Layout:
 - UHorizontalBox* SlotRow: 3x WBP_SaveSlotCard side by side
 - UButton* BackButton ← return to main menu without selecting
 
-WBP_SaveSlotCard (one per slot index 0-2):
-Occupied slot:
-- UImage* ClassPortraitArt         ← portrait of last played class
-- UTextBlock* SlotLabel            ← "Perfil 1"
-- UTextBlock* ClassNameText        ← "Guerreiro"
+─── WBP_SaveSlotCard (one per slot index 0-2) ─────────────────
+
+Two visual states controlled by RefreshSlotData():
+
+━━━ OCCUPIED SLOT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Widgets:
+- UImage* ClassPortraitArt         ← class-specific portrait art
+- UTextBlock* SlotLabel            ← "Perfil 1" / "Perfil 2" / "Perfil 3"
+- UTextBlock* ClassNameText        ← "Guerreiro" (localized class name)
 - UTextBlock* MetaLevelText        ← "Nexus Nv. 7"
-- UTextBlock* LastFloorText        ← "Último andar: 6" or "Vitória!" if won
+- UProgressBar* MetaXPBar          ← MetaXP / NextLevelThreshold (0..1)
+- UTextBlock* LastFloorText        ← "Último andar: 6" OR "☆ Vitória!" (gold)
 - UTextBlock* TotalRunsText        ← "23 runs · 8 vitórias"
 - UTextBlock* PlayTimeText         ← "47h 23min jogadas"
-- UTextBlock* LastPlayedText       ← "Jogado há 2 dias"
-- UProgressBar* MetaXPBar          ← current MetaXP progress
-- TArray<UImage*> UnlockedClassIcons ← small icons of unlocked classes
-- UButton* SelectButton            ← "Jogar" → SelectSlot(Index) → main menu
-- UButton* DeleteButton (small, bottom corner) ← 🗑️ → WBP_ConfirmDialog
+- UTextBlock* LastPlayedText       ← "Jogado há 2 dias" (relative time)
+- UWrapBox* UnlockedClassIcons     ← small 24x24 icons per unlocked class
+- UButton* PlayButton              ← "▶ Jogar"
+- UButton* NewRunButton            ← "＋ Nova Run" (smaller, secondary)
+- UButton* DeleteButton            ← 🗑️ icon (bottom-right corner, small)
+- UImage* ActiveRunBadge           ← "Run em andamento" badge (if bHasActiveRun)
 
-Empty slot:
-- UImage* EmptySlotArt             ← dim dungeon silhouette / question mark
-- UTextBlock* SlotLabel            ← "Perfil 2"
-- UTextBlock* EmptyText            ← "Vazio — Iniciar Nova Aventura"
-- UButton* SelectButton            ← "Criar Perfil" → SelectSlot(Index) → ClassSelection
+━━━ EMPTY SLOT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Widgets:
+- UImage* EmptySlotArt             ← dim dungeon silhouette art
+- UTextBlock* SlotLabel            ← "Perfil 1"
+- UTextBlock* EmptyText            ← "Slot Vazio"
+- UTextBlock* HintText             ← "Clique para criar um novo perfil"
+- UButton* CreateButton            ← "＋ Criar Perfil"
+- (all occupied widgets hidden via SetVisibility(Collapsed))
 
-Selected state (after clicking):
-- Gold border highlight animates
-- Brief scale-up (1.0 → 1.05 → 1.0)
-- Then transitions to main menu or class selection
+─── How card populates data ───────────────────────────────────
 
-Delete flow:
-- Delete button → WBP_ConfirmDialog:
-  "Apagar Perfil 1? Todo o progresso será perdido permanentemente."
-  [Apagar] [Cancelar]
-- On confirm: DeleteSlot(Index) → slot becomes empty, card updates
+Function RefreshSlotData(int32 InSlotIndex):
+  Called on: NativeConstruct + OnSlotChanged delegate + after delete
+
+  1. SlotIndex = InSlotIndex
+  2. SaveData = UDFSaveSlotManagerSubsystem::GetSlotData(SlotIndex)
+
+  3. If SaveData == nullptr (empty slot):
+     → SetVisibility(Collapsed) all occupied widgets
+     → SetVisibility(Visible) all empty widgets
+     → return
+
+  4. If SaveData valid (occupied slot):
+     → SetVisibility(Visible) all occupied widgets
+     → SetVisibility(Collapsed) all empty widgets
+
+     Populate each field:
+     ClassPortraitArt:
+       → UDFClassSelectionSubsystem::GetClassData(SaveData->LastRunClass)
+       → Set portrait texture from FDFClassTableRow.ClassPortrait
+
+     SlotLabel:        "Perfil " + FString::FromInt(SlotIndex + 1)
+     ClassNameText:    GetClassData(LastRunClass).ClassName (localized FText)
+     MetaLevelText:    "Nexus Nv. " + FString::FromInt(SaveData->MetaLevel)
+     MetaXPBar:        SaveData->MetaXP / GetNextLevelXP(SaveData->MetaLevel)
+
+     LastFloorText:
+       → If SaveData->TotalRunsWon > 0 AND SaveData->bLastRunWasVictory:
+         "☆ Vitória no Andar " + SaveData->LastRunFloor (gold color)
+       → Else if SaveData->bHasActiveRun:
+         "Run ativa: Andar " + SaveData->LastRunFloor (white)
+       → Else:
+         "Melhor andar: " + SaveData->BestFloor (grey)
+
+     TotalRunsText:
+       → FString::Printf("%d runs · %d vitórias",
+           SaveData->TotalRunsCompleted, SaveData->TotalRunsWon)
+
+     PlayTimeText:
+       → Convert SaveData->TotalPlayTimeSeconds to hours/minutes:
+         int32 Hours = TotalSeconds / 3600
+         int32 Minutes = (TotalSeconds % 3600) / 60
+         → FString::Printf("%dh %dmin jogadas", Hours, Minutes)
+
+     LastPlayedText:
+       → FTimespan Delta = FDateTime::Now() - SaveData->LastPlayedDate
+       → If Delta.GetDays() == 0 && Delta.GetHours() < 1:
+           "Jogado há " + Delta.GetMinutes() + " minutos"
+       → Else if Delta.GetDays() == 0:
+           "Jogado há " + Delta.GetHours() + " horas"
+       → Else if Delta.GetDays() == 1:
+           "Jogado ontem"
+       → Else:
+           "Jogado há " + Delta.GetDays() + " dias"
+
+     UnlockedClassIcons:
+       → Clear WrapBox children
+       → For each FName in SaveData->UnlockedClasses:
+           Spawn UImage (24x24) with class icon texture
+           AddChild to WrapBox
+
+     ActiveRunBadge:
+       → SetVisibility(SaveData->bHasActiveRun ? Visible : Collapsed)
+
+─── Button Logic per occupied slot ────────────────────────────
+
+▶ PlayButton ("Jogar") — continues last session:
+  OnClicked:
+  1. UDFSaveSlotManagerSubsystem::SelectSlot(SlotIndex)
+     → Loads full SaveGame for this slot as active save
+  2. If SaveData->bHasActiveRun:
+     → No confirmation needed — resumes directly
+     → UDFWorldTransitionSubsystem::TravelToNexus(ETravelReason::FirstLaunch)
+     → Nexus loads with existing run state from SaveGame
+  3. If !bHasActiveRun:
+     → Same as NewRunButton flow below (no run to resume)
+     → Auto-redirect to class selection
+
+＋ NewRunButton ("Nova Run") — starts fresh run on this slot:
+  OnClicked:
+  1. If SaveData->bHasActiveRun:
+     → Show WBP_ConfirmDialog:
+       Title: "Abandonar Run Atual?"
+       Body: "Você está no Andar {LastRunFloor} com {ClassName}.
+              Iniciar uma nova run encerrará esta run.
+              Seu progresso permanente (Nexus, conquistas) será mantido."
+       [Confirmar] [Cancelar]
+     → On cancel: return (do nothing)
+  2. UDFSaveSlotManagerSubsystem::SelectSlot(SlotIndex)
+  3. ActiveSave->bHasActiveRun = false
+     ActiveSave->LastRunClass = NAME_None
+     UDFSaveSlotManagerSubsystem::SaveActiveSlot()
+  4. Open WBP_ClassSelection (Prompt 72) as overlay (ZOrder=20)
+     → WBP_SaveSlotSelection remains behind
+  5. WBP_ClassSelection::OnClassConfirmed(FName ClassName):
+     → Close WBP_ClassSelection
+     → UDFWorldTransitionSubsystem::TravelToRun(ClassName)
+
+🗑️ DeleteButton — deletes this save slot:
+  OnClicked:
+  1. Show WBP_ConfirmDialog:
+     Title: "Apagar Perfil {SlotIndex+1}?"
+     Body: "Todo o progresso será perdido permanentemente.
+            Nexus Nv.{MetaLevel} · {TotalRuns} runs · {TotalWins} vitórias
+            Esta ação não pode ser desfeita."
+     [⚠️ Apagar Permanentemente] (red button) [Cancelar]
+  2. On confirm:
+     → UDFSaveSlotManagerSubsystem::DeleteSlot(SlotIndex)
+     → RefreshSlotData(SlotIndex) → card switches to empty state
+     → Play slot-deleted SFX (paper crumple sound)
+     → Brief screen flash (red vignette 0.2s)
+
+─── Button Logic for empty slot ───────────────────────────────
+
+＋ CreateButton ("Criar Perfil"):
+  OnClicked:
+  1. UDFSaveSlotManagerSubsystem::SelectSlot(SlotIndex)
+     → Creates new empty UDFSaveGame for this slot
+     → bIsFirstLaunch = true for this slot
+  2. Open WBP_ClassSelection (Prompt 72) as overlay
+     → Shows all available classes (Guerreiro + Mago unlocked by default)
+     → Other classes locked until earned on THIS slot
+  3. WBP_ClassSelection::OnClassConfirmed(FName ClassName):
+     → Close WBP_ClassSelection
+     → ActiveSave->LastRunClass = ClassName
+     → UDFSaveSlotManagerSubsystem::SaveActiveSlot()
+     → UDFWorldTransitionSubsystem::TravelToNexus(ETravelReason::FirstLaunch)
+     → Nexus plays first-time intro sequence (Prompt 47)
+
+─── WBP_SaveSlotSelection — full interaction flow ─────────────
+
+NativeConstruct:
+  1. UDFSaveSlotManagerSubsystem::LoadAllSlotHeaders()
+  2. For each slot 0-2: SlotCards[i]->RefreshSlotData(i)
+  3. Subscribe to UDFSaveSlotManagerSubsystem::OnSlotChanged delegate
+     → On slot change: RefreshSlotData for that slot
+
+OnSlotChanged(int32 SlotIndex):
+  → SlotCards[SlotIndex]->RefreshSlotData(SlotIndex)
+  → Play card-refresh animation (brief fade)
+
+Screen modes:
+
+ESlotScreenMode::SelectToPlay (default):
+  - Title: "Selecionar Perfil"
+  - All PlayButton + NewRunButton + CreateButton: Visible
+  - DeleteButton: Visible (always accessible)
+  - BackButton: "← Voltar" → close screen, return to main menu
+
+ESlotScreenMode::ManageProfiles:
+  - Title: "Gerenciar Perfis"
+  - PlayButton + NewRunButton + CreateButton: Collapsed
+  - DeleteButton: more prominent (larger, labeled "Apagar")
+  - BackButton: "← Voltar"
+  - Hint text below cards: "Selecione um perfil para apagá-lo"
+
+─── Complete New Save Flow (step by step) ─────────────────────
+
+Step 1 — Player clicks "Nova Aventura" on WBP_MainMenu
+  → WBP_SaveSlotSelection opens (mode: SelectToPlay)
+  → Shows 3 cards with current state
+
+Step 2 — Player selects slot:
+  A) Empty slot → CreateButton → go to Step 3
+  B) Occupied slot → NewRunButton:
+     → If has active run: ConfirmDialog → on confirm → go to Step 3
+     → If no active run: go directly to Step 3
+
+Step 3 — WBP_ClassSelection opens (over WBP_SaveSlotSelection)
+  → SlotManager already has active slot set
+  → Player sees classes available for THIS slot's unlock state
+  → Player picks class, reviews stats/abilities
+  → Clicks "⚔️ Iniciar Aventura"
+
+Step 4 — Optional: Challenge selection
+  → If WBP_ChallengeBoard was used before: active challenge shown in ClassSelection
+  → ConfirmDialog if challenge active: "Iniciar com desafio: Iron Man?"
+
+Step 5 — Confirm
+  → WBP_ClassSelection::OnClassConfirmed:
+     ActiveSave->LastRunClass = SelectedClass
+     ActiveSave->bHasActiveRun = true
+     ActiveSave->bIsFirstLaunch = false (if was true)
+     UDFSaveSlotManagerSubsystem::SaveActiveSlot()
+  → TravelToRun(SelectedClass) or TravelToNexus(FirstLaunch) if first time
+
+Step 6 — Loading screen (WBP_LoadingScreen Prompt 48)
+  → Shows selected class art + lore text + dungeon tip
+
+Step 7 — Game starts
+  → ADFRunGameMode or ADFNexusGameMode loads
+  → Player is in game
+
+─── Edge cases to handle ──────────────────────────────────────
+
+Save file corruption:
+  → In LoadAllSlotHeaders: wrap each load in try-catch
+  → If load fails: treat slot as empty + log error
+  → Show warning toast: "Perfil {N}: arquivo corrompido — dados perdidos"
+
+Version mismatch:
+  → UDFSaveGame::IsCompatible() check on load
+  → If incompatible: show warning in card:
+    "Salvo em versão antiga ({OldVersion})"
+    PlayButton still works but shows ⚠️ icon
+    Option to delete and start fresh
+
+All 3 slots occupied, player wants a 4th:
+  → Not possible — 3 is the max
+  → "Gerenciar Perfis" button is highlighted to hint deletion
 
 ─── WBP_MainMenu — updated flow with slots ────────────────────
 Updated button behavior:

@@ -44,6 +44,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|MainMenu|UI")
 	void RestoreMainMenuFocus();
 
+	/**
+	 * Retira Main + slots do viewport (@c RemoveFromParent) para o 3D aparecer sob WBP_ClassSelection.
+	 * Com false, volta a @c AddToViewport com Z @c DFMainMenuUI (só o que estava visível antes).
+	 * @return true se removeu ou repôs widgets; false se não havia nada a fazer.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DF|MainMenu|UI")
+	bool SuppressUnderlyingMenuForClassSelectionWorldPreview(bool bSuppress);
+
+	/** Após fechar escolha de classe (modo mundo): foco em slots se visíveis, senão menu principal. */
+	UFUNCTION(BlueprintCallable, Category = "DF|MainMenu|UI")
+	void RestoreFocusAfterClassSelectionWorldPreview();
+
 	/** Blueprint child sets classes in Defaults; parent C++ is @c WBP_*. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DF|MainMenu|UI")
 	TSubclassOf<UDFSplashScreenUserWidget> SplashWidgetClass = nullptr;
@@ -88,4 +100,8 @@ protected:
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|MainMenu|UI")
 	TObjectPtr<UUserWidget> Achievements = nullptr;
+
+	bool bDetachedMenusForWorldClassSelection = false;
+	bool bHadMainInViewportBeforeWorldClassSelection = false;
+	bool bHadSaveSlotInViewportBeforeWorldClassSelection = false;
 };

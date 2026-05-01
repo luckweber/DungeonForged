@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/GameModes/MainMenu/UDFSaveSlotSelectionUserWidget.cpp
 #include "GameModes/MainMenu/UDFSaveSlotSelectionUserWidget.h"
+#include "DungeonForgedModule.h"
 #include "GameModes/MainMenu/UDFSaveSlotCardUserWidget.h"
 #include "GameModes/MainMenu/ADFMainMenuHUD.h"
 #include "GameModes/MainMenu/UDFConfirmDialogUserWidget.h"
@@ -11,7 +12,6 @@
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
 #include "Blueprint/UserWidget.h"
-#include "Logging/LogMacros.h"
 
 void UDFSaveSlotSelectionUserWidget::ResolveWidgetBindings()
 {
@@ -48,6 +48,14 @@ void UDFSaveSlotSelectionUserWidget::ResolveWidgetBindings()
 void UDFSaveSlotSelectionUserWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+	// Sem isso, FInputModeUIOnly::SetWidgetToFocus(TakeWidget()) emite o erro
+	// "Attempting to focus Non-Focusable widget SObjectWidget".
+	SetIsFocusable(true);
+	if (APlayerController* const PC = GetOwningPlayer())
+	{
+		SetUserFocus(PC);
+		SetKeyboardFocus();
+	}
 	if (BackButton)
 	{
 		BackButton->OnClicked.AddDynamic(this, &UDFSaveSlotSelectionUserWidget::OnBackClicked);
@@ -121,12 +129,16 @@ void UDFSaveSlotSelectionUserWidget::RefreshFromSubsystem()
 	UpdateTitle();
 	if (SlotCard0 && SlotCard1 && SlotCard2)
 	{
+		DF_LOG(Log, "[DF|MainMenu|SaveSlotSelection] RefreshFromSubsystem: caminho manual SlotCard0..2 modo=%u",
+			static_cast<uint32>(CurrentMode));
 		SlotCard0->RefreshSlotData(0, CurrentMode);
 		SlotCard1->RefreshSlotData(1, CurrentMode);
 		SlotCard2->RefreshSlotData(2, CurrentMode);
 	}
 	else
 	{
+		DF_LOG(Log, "[DF|MainMenu|SaveSlotSelection] RefreshFromSubsystem: caminho RebuildCardWidgets (SlotRow/cartoes manuais incompletos) modo=%u",
+			static_cast<uint32>(CurrentMode));
 		RebuildCardWidgets();
 	}
 }

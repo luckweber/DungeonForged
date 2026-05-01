@@ -18,6 +18,7 @@ public class DungeonForged : ModuleRules
 			// Core engine
 			"Core",
 			"CoreUObject",
+			"DeveloperSettings",
 			"Engine",
 			"PhysicsCore",
 			"InputCore",

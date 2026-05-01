@@ -24,6 +24,14 @@ void UDFClassPreviewRotatorComponent::AddYawInput(const float Delta)
 	TargetYaw = FMath::Clamp(TargetYaw + Delta * 0.5f, -180.f, 180.f);
 }
 
+void UDFClassPreviewRotatorComponent::SyncYawFromOwner()
+{
+	if (AActor* const O = GetOwner())
+	{
+		CurrentYaw = TargetYaw = O->GetActorRotation().Yaw;
+	}
+}
+
 void UDFClassPreviewRotatorComponent::AddZoomInput(const float Delta)
 {
 	if (!SpringArm)

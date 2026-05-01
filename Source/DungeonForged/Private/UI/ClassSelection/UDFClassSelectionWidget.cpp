@@ -27,6 +27,7 @@
 #include "Layout/Geometry.h"
 #include "Engine/DataTable.h"
 #include "Data/DFDataTableStructs.h"
+#include "GameFramework/PlayerController.h"
 
 static int32 DfFindRunHistoryForClass(const UDFSaveGame* Save, const FName ClassName, int32& OutBestFloor, int32& OutWins)
 {
@@ -56,15 +57,34 @@ static int32 DfFindRunHistoryForClass(const UDFSaveGame* Save, const FName Class
 void UDFClassSelectionWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+	// Evita erro InputMode:UIOnly ao focar SObjectWidget (mesmo padrao que outros menus).
+	SetIsFocusable(true);
+	if (APlayerController* const PC = GetOwningPlayer())
+	{
+		SetUserFocus(PC);
+		SetKeyboardFocus();
+	}
 	if (BackButton) BackButton->OnClicked.AddDynamic(this, &UDFClassSelectionWidget::OnBackClicked);
 	if (ConfirmButton) ConfirmButton->OnClicked.AddDynamic(this, &UDFClassSelectionWidget::OnConfirmClicked);
 	if (GetWorld())
 	{
 		if (UDFClassSelectionSubsystem* const Sub = GetWorld()->GetSubsystem<UDFClassSelectionSubsystem>())
 		{
-			if (UTextureRenderTarget2D* const RT = Sub->GetRenderTarget())
+			if (Sub->IsPreviewUsingSceneCapture())
 			{
-				if (PreviewRenderTarget) PreviewRenderTarget->SetBrushResourceObject(RT);
+				if (UTextureRenderTarget2D* const RT = Sub->GetRenderTarget())
+				{
+					if (PreviewRenderTarget)
+					{
+						PreviewRenderTarget->SetBrushResourceObject(RT);
+						PreviewRenderTarget->SetVisibility(ESlateVisibility::Visible);
+					}
+				}
+			}
+			else if (PreviewRenderTarget)
+			{
+				PreviewRenderTarget->SetBrushResourceObject(nullptr);
+				PreviewRenderTarget->SetVisibility(ESlateVisibility::Collapsed);
 			}
 		}
 	}
@@ -73,7 +93,8 @@ void UDFClassSelectionWidget::NativeConstruct()
 		AbilityTooltip = CreateWidget<UDFClassAbilityTooltipWidget>(this, UDFClassAbilityTooltipWidget::StaticClass());
 		if (AbilityTooltip)
 		{
-			AbilityTooltip->AddToViewport(20);
+			// Acima do proprio WBP_ClassSelection (ver Z em UDFClassSelectionSubsystem::OpenClassSelection).
+			AbilityTooltip->AddToViewport(35);
 			AbilityTooltip->SetVisibility(ESlateVisibility::Collapsed);
 		}
 	}
@@ -116,9 +137,21 @@ void UDFClassSelectionWidget::RefreshAll()
 	{
 		if (UDFClassSelectionSubsystem* const Sub = W->GetSubsystem<UDFClassSelectionSubsystem>())
 		{
-			if (UTextureRenderTarget2D* const RT = Sub->GetRenderTarget())
+			if (Sub->IsPreviewUsingSceneCapture())
 			{
-				if (PreviewRenderTarget) PreviewRenderTarget->SetBrushResourceObject(RT);
+				if (UTextureRenderTarget2D* const RT = Sub->GetRenderTarget())
+				{
+					if (PreviewRenderTarget)
+					{
+						PreviewRenderTarget->SetBrushResourceObject(RT);
+						PreviewRenderTarget->SetVisibility(ESlateVisibility::Visible);
+					}
+				}
+			}
+			else if (PreviewRenderTarget)
+			{
+				PreviewRenderTarget->SetBrushResourceObject(nullptr);
+				PreviewRenderTarget->SetVisibility(ESlateVisibility::Collapsed);
 			}
 		}
 	}

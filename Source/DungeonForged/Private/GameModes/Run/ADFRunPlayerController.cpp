@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/GameModes/Run/ADFRunPlayerController.cpp
 #include "GameModes/Run/ADFRunPlayerController.h"
+#include "DungeonForgedModule.h"
 #include "GameModes/Run/UDFVictoryScreenWidget.h"
 #include "GameModes/Run/UDFDefeatScreenWidget.h"
 #include "World/DFWorldTypes.h"
@@ -37,6 +38,7 @@ void ADFRunPlayerController::SetupInputModeUI()
 	FInputModeUIOnly M;
 	if (UUserWidget* const W = CharacterScreenInstance ? CharacterScreenInstance : PauseMenuInstance)
 	{
+		DFPrepareWidgetForUIModeFocus(W);
 		M.SetWidgetToFocus(W->TakeWidget());
 	}
 	SetInputMode(M);
@@ -81,6 +83,7 @@ void ADFRunPlayerController::OnPause()
 		UGameplayStatics::SetGamePaused(GetWorld(), true);
 		SetShowMouseCursor(true);
 		FInputModeUIOnly M;
+		DFPrepareWidgetForUIModeFocus(PauseMenuInstance);
 		M.SetWidgetToFocus(PauseMenuInstance->TakeWidget());
 		SetInputMode(M);
 	}
