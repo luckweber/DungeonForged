@@ -85,6 +85,7 @@ class DUNGEONFORGED_API UDFRunManager : public UGameInstanceSubsystem
 	GENERATED_BODY()
 
 public:
+	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
 	/** DataTable asset (e.g. DT_Classes) using FDFClassTableRow. */

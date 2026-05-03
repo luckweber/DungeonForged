@@ -22,6 +22,8 @@ class DUNGEONFORGED_API UDFWorldTransitionSubsystem : public UGameInstanceSubsys
 	GENERATED_BODY()
 
 public:
+	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+
 	/** @c ETravelReason queued for the active transition (Nexus, floor, or run end). */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|World")
 	ETravelReason PendingReason = ETravelReason::None;
@@ -33,12 +35,12 @@ public:
 	UPROPERTY(BlueprintReadWrite, Category = "DF|World")
 	bool bIsTransitioning = false;
 
-	/** Short or long map path (e.g. /Game/Maps/Nexus or Nexus). */
+	/** Short or long map path (e.g. /Game/DungeonForged/Maps/L_Nexus). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|World")
-	FString NexusMapName = TEXT("Nexus");
+	FString NexusMapName = TEXT("/Game/DungeonForged/Maps/L_Nexus");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|World")
-	FString RunMapName = TEXT("DungeonRun");
+	FString RunMapName = TEXT("/Game/DungeonForged/Maps/L_DungeonRun");
 
 	/**
 	 * Return to the Nexus. Server / local authority. Runs @a FinalizeRunData for Victory / Defeat / Abandon.

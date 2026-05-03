@@ -1,8 +1,9 @@
 // Source/DungeonForged/Private/World/UDFWorldTransitionSubsystem.cpp
 #include "World/UDFWorldTransitionSubsystem.h"
-#include "Network/UDFGameInstance.h"
+#include "DungeonForgedModule.h"
 #include "Run/DFRunManager.h"
 #include "Run/DFSaveGame.h"
+#include "Settings/UDFWorldDeveloperSettings.h"
 #include "World/UDFLoadingScreenSubsystem.h"
 #include "GameModes/Run/ADFRunGameState.h"
 #include "Engine/Engine.h"
@@ -40,6 +41,18 @@
   Explora o Nexus, nova run
 */
 
+void UDFWorldTransitionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
+{
+	Super::Initialize(Collection);
+	if (const UDFWorldDeveloperSettings* const Dev = GetDefault<UDFWorldDeveloperSettings>())
+	{
+		NexusMapName = UDFWorldDeveloperSettings::ResolveMapPath(Dev->NexusMap, NexusMapName);
+		RunMapName = UDFWorldDeveloperSettings::ResolveMapPath(Dev->RunMap, RunMapName);
+	}
+	DF_LOG(Log, "[DF|WorldTransition] Initialize: NexusMapName='%s' RunMapName='%s'",
+		*NexusMapName, *RunMapName);
+}
+
 void UDFWorldTransitionSubsystem::OpenMapByName(const FString& Map)
 {
 	UGameInstance* const GI = GetGameInstance();
@@ -53,6 +66,15 @@ void UDFWorldTransitionSubsystem::OpenMapByName(const FString& Map)
 		{
 			return;
 		}
+		if (Map.IsEmpty())
+		{
+			DF_LOG(Error,
+				"[DF|WorldTransition] OpenMapByName: nome de mapa vazio. Configure NexusMapName / RunMapName "
+				"no UDFWorldTransitionSubsystem (defaults em /Game/DungeonForged/Maps/...).");
+			bIsTransitioning = false;
+			return;
+		}
+		DF_LOG(Log, "[DF|WorldTransition] OpenMapByName: '%s'", *Map);
 		UGameplayStatics::OpenLevel(GI, FName(*Map), true);
 	}
 }
@@ -89,15 +111,7 @@ void UDFWorldTransitionSubsystem::TravelToNexus(const ETravelReason Reason)
 	{
 		L->ShowLoadingScreen(Reason, 1, 10);
 	}
-	FString Map = NexusMapName;
-	if (Map.IsEmpty())
-	{
-		if (const UDFGameInstance* const DFGI = Cast<UDFGameInstance>(GI))
-		{
-			Map = DFGI->MainMenuMapName;
-		}
-	}
-	OpenMapByName(Map);
+	OpenMapByName(NexusMapName);
 }
 
 void UDFWorldTransitionSubsystem::TravelToRun(const FName SelectedClass)

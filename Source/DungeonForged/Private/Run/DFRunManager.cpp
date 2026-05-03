@@ -1,8 +1,10 @@
 // Source/DungeonForged/Private/Run/DFRunManager.cpp
 
 #include "Run/DFRunManager.h"
+#include "DungeonForgedModule.h"
 #include "Run/DFSaveGame.h"
 #include "Run/UDFSaveSlotManagerSubsystem.h"
+#include "Settings/UDFRunDeveloperSettings.h"
 #include "Engine/GameInstance.h"
 #include "World/DFWorldTypes.h"
 #include "GameModes/Nexus/DFNexusTypes.h"
@@ -23,6 +25,38 @@
 #include "AbilitySystemComponent.h"
 #include "HAL/PlatformTime.h"
 DEFINE_LOG_CATEGORY_STATIC(LogDFRun, Log, All);
+
+void UDFRunManager::Initialize(FSubsystemCollectionBase& Collection)
+{
+	Super::Initialize(Collection);
+	if (const UDFRunDeveloperSettings* const Dev = GetDefault<UDFRunDeveloperSettings>())
+	{
+		if (!ClassDataTable && !Dev->ClassDataTable.IsNull())
+		{
+			ClassDataTable = Dev->ClassDataTable.LoadSynchronous();
+		}
+		if (!AbilityDataTable && !Dev->AbilityDataTable.IsNull())
+		{
+			AbilityDataTable = Dev->AbilityDataTable.LoadSynchronous();
+		}
+		if (!ItemDataTable && !Dev->ItemDataTable.IsNull())
+		{
+			ItemDataTable = Dev->ItemDataTable.LoadSynchronous();
+		}
+		if (!NexusMetaLevelsTable && !Dev->NexusMetaLevelsTable.IsNull())
+		{
+			NexusMetaLevelsTable = Dev->NexusMetaLevelsTable.LoadSynchronous();
+		}
+		DeathScreenDelaySeconds = Dev->DeathScreenDelaySeconds;
+	}
+	DF_LOG(Log,
+		"[DF|RunManager] Initialize: ClassDT=%s AbilityDT=%s ItemDT=%s NexusLevelsDT=%s DeathDelay=%.2fs",
+		ClassDataTable ? *ClassDataTable->GetPathName() : TEXT("(none)"),
+		AbilityDataTable ? *AbilityDataTable->GetPathName() : TEXT("(none)"),
+		ItemDataTable ? *ItemDataTable->GetPathName() : TEXT("(none)"),
+		NexusMetaLevelsTable ? *NexusMetaLevelsTable->GetPathName() : TEXT("(none)"),
+		DeathScreenDelaySeconds);
+}
 
 void UDFRunManager::Deinitialize()
 {

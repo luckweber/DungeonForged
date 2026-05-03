@@ -30,11 +30,11 @@ public:
 
 	/** `ServerTravel` when hosting without null OSS, or if a session already exists. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Session")
-	FString DefaultHostTravelURL = TEXT("/Game/Maps/Entry?listen");
+	FString DefaultHostTravelURL = TEXT("/Game/DungeonForged/Maps/L_Nexus?listen");
 
-	/** `OpenLevel` when leaving. */
+	/** `OpenLevel` when leaving (i.e. returning to the main menu). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Session")
-	FString MainMenuMapName = TEXT("/Game/Maps/Entry");
+	FString MainMenuMapName = TEXT("/Game/DungeonForged/Maps/L_MainMenu");
 
 	UFUNCTION(BlueprintCallable, Category = "DF|Session")
 	void HostSession();

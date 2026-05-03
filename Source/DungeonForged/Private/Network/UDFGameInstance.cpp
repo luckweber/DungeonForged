@@ -2,7 +2,9 @@
 
 #include "Network/UDFGameInstance.h"
 #include "AbilitySystemGlobals.h"
+#include "DungeonForgedModule.h"
 #include "GAS/DFGameplayTags.h"
+#include "Settings/UDFWorldDeveloperSettings.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 #include "OnlineSubsystem.h"
@@ -14,6 +16,20 @@ void UDFGameInstance::Init()
 	Super::Init();
 	FDFGameplayTags::RegisterGameplayTags();
 	UAbilitySystemGlobals::Get().InitGlobalData();
+
+	if (const UDFWorldDeveloperSettings* const Dev = GetDefault<UDFWorldDeveloperSettings>())
+	{
+		MainMenuMapName = UDFWorldDeveloperSettings::ResolveMapPath(Dev->MainMenuMap, MainMenuMapName);
+
+		const TSoftObjectPtr<UWorld>& HostMap = Dev->HostTravelMap.IsNull() ? Dev->MainMenuMap : Dev->HostTravelMap;
+		const FString HostMapPath = UDFWorldDeveloperSettings::ResolveMapPath(HostMap, FString());
+		if (!HostMapPath.IsEmpty())
+		{
+			DefaultHostTravelURL = HostMapPath + Dev->HostTravelOptions;
+		}
+	}
+	DF_LOG(Log, "[DF|GameInstance] Init: MainMenuMapName='%s' DefaultHostTravelURL='%s'",
+		*MainMenuMapName, *DefaultHostTravelURL);
 }
 
 void UDFGameInstance::StartListenTravel()

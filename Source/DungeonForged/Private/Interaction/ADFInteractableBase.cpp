@@ -150,7 +150,7 @@ void ADFInteractableBase::SetPromptData(const FText& Action, UTexture2D* KeyIcon
 
 void ADFInteractableBase::RefreshPrompt() const
 {
-	SetPromptData(GetInteractionText(), DefaultKeyIcon);
+	SetPromptData(IDFInteractable::Execute_GetInteractionText(this), DefaultKeyIcon);
 }
 
 void ADFInteractableBase::Interact_Implementation(ACharacter* const Interactor)
