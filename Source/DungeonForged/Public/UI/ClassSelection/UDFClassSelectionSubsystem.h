@@ -26,6 +26,7 @@ class UTextureRenderTarget2D;
  * Exemplo:
  * @code{.ini}
  * [/Script/DungeonForged.DFClassSelectionSubsystem]
+ * PreviewDisplayMode=WorldWithPlayerCamera
  * ClassSelectionWidgetClass=/Game/DungeonForged/UI/ClassSelection/WBP_ClassSelection.WBP_ClassSelection_C
  * PreviewPawnClass=/Game/.../BP_ClassPreview.BP_ClassPreview_C  (@c ADFClassPreviewCharacter recomendado)
  * @endcode
@@ -82,25 +83,49 @@ public:
 	float PreviewFillLightLumens = 2000.f;
 
 	/**
-	 * Se verdadeiro: SpringArm + SceneCapture → Render Target no UMG (centro do WBP).
-	 * Se falso: pawn iluminado no mundo — típico Main Menu com painéis laterais e centro transparente / sem Image RT.
+	 * SceneCaptureUMG: SpringArm + SceneCapture → Render Target na Image @c PreviewRenderTarget.
+	 * WorldWithPlayerCamera: pawn no mundo por baixo/semi-transparente ao UMG — sem RT.
+	 * WorldShowcaseCamera: pawn na posição/tag @c ClassSelectionPreview e @c SetViewTarget no actor tag @c ClassSelectionPreviewCamera.
 	 */
 	UPROPERTY(Config, EditAnywhere, Category = "DF|ClassSelection|Preview")
-	bool bPreviewUsesSceneCapture = false;
+	EDFClassPreviewDisplayMode PreviewDisplayMode = EDFClassPreviewDisplayMode::WorldWithPlayerCamera;
 
-	/** Distância à frente da câmara em modo mundo direto (ignorado se existir actor tag ClassSelectionPreview). */
-	UPROPERTY(EditAnywhere, Category = "DF|ClassSelection|Preview|World", meta = (EditCondition = "!bPreviewUsesSceneCapture", EditConditionHides))
+	/**
+	 * Distância ao longo do forward da câmara só em WorldWithPlayerCamera (ignorado com tag ClassSelectionPreview no mapa ou em showcase).
+	 */
+	UPROPERTY(EditAnywhere, Category = "DF|ClassSelection|Preview|World", meta =
+		(EditCondition = "PreviewDisplayMode == EDFClassPreviewDisplayMode::WorldWithPlayerCamera", EditConditionHides))
 	float WorldPreviewDistanceFromCamera = 380.f;
 
-	/** If null, a transient RT is created (somente quando @a bPreviewUsesSceneCapture). */
-	UPROPERTY(EditAnywhere, Category = "DF|ClassSelection|Preview", meta = (EditCondition = "bPreviewUsesSceneCapture", EditConditionHides))
+	/** If null, a transient RT is created (somente SceneCaptureUMG). */
+	UPROPERTY(EditAnywhere, Category = "DF|ClassSelection|Preview", meta =
+		(EditCondition = "PreviewDisplayMode == EDFClassPreviewDisplayMode::SceneCaptureUMG", EditConditionHides))
 	TObjectPtr<UTextureRenderTarget2D> PreviewRenderTarget = nullptr;
 
-	UPROPERTY(EditAnywhere, Category = "DF|ClassSelection|Preview", meta = (EditCondition = "bPreviewUsesSceneCapture", EditConditionHides))
+	UPROPERTY(EditAnywhere, Category = "DF|ClassSelection|Preview", meta =
+		(EditCondition = "PreviewDisplayMode == EDFClassPreviewDisplayMode::SceneCaptureUMG", EditConditionHides))
 	int32 RenderTargetWidth = 1024;
 
-	UPROPERTY(EditAnywhere, Category = "DF|ClassSelection|Preview", meta = (EditCondition = "bPreviewUsesSceneCapture", EditConditionHides))
+	UPROPERTY(EditAnywhere, Category = "DF|ClassSelection|Preview", meta =
+		(EditCondition = "PreviewDisplayMode == EDFClassPreviewDisplayMode::SceneCaptureUMG", EditConditionHides))
 	int32 RenderTargetHeight = 1024;
+
+	/** Actor no mapa cuja primeira @c UCineCamera ou @c UCamera pode ser vista com @c SetViewTarget quando em modo showcase. */
+	UPROPERTY(EditAnywhere, Category = "DF|ClassSelection|Preview|Showcase", meta =
+		(EditCondition = "PreviewDisplayMode == EDFClassPreviewDisplayMode::WorldShowcaseCamera", EditConditionHides))
+	FName ShowcaseCameraActorTag = FName(TEXT("ClassSelectionPreviewCamera"));
+
+	/** Segundos de blend ao entrar na câmera showcase. */
+	UPROPERTY(EditAnywhere, Category = "DF|ClassSelection|Preview|Showcase", meta =
+		(EditCondition = "PreviewDisplayMode == EDFClassPreviewDisplayMode::WorldShowcaseCamera", EditConditionHides,
+			ClampMin = "0"))
+	float ShowcaseCameraBlendInSeconds = 0.45f;
+
+	/** Ao fechar seleção ou destruir o subsistema, blend de volta ao alvo gravado antes do showcase. */
+	UPROPERTY(EditAnywhere, Category = "DF|ClassSelection|Preview|Showcase", meta =
+		(EditCondition = "PreviewDisplayMode == EDFClassPreviewDisplayMode::WorldShowcaseCamera", EditConditionHides,
+			ClampMin = "0"))
+	float ShowcaseCameraRestoreSeconds = 0.35f;
 
 	/** Widget class: parent @c UDFClassSelectionWidget; resolvido via @c ClassSelectionWidgetSoftPath se vazio. */
 	UPROPERTY(Config, EditAnywhere, Category = "DF|ClassSelection|UI")
@@ -139,7 +164,13 @@ public:
 	UTextureRenderTarget2D* GetRenderTarget() const { return ActiveRenderTarget; }
 
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "DF|ClassSelection|Preview")
-	bool IsPreviewUsingSceneCapture() const { return bPreviewUsesSceneCapture; }
+	bool IsPreviewUsingSceneCapture() const
+	{
+		return PreviewDisplayMode == EDFClassPreviewDisplayMode::SceneCaptureUMG;
+	}
+
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "DF|ClassSelection|Preview")
+	EDFClassPreviewDisplayMode GetPreviewDisplayMode() const { return PreviewDisplayMode; }
 
 	/** When opening class selection from the main menu, set where to travel on confirm. */
 	UFUNCTION(BlueprintCallable, Category = "DF|ClassSelection|MainMenu")
@@ -162,6 +193,8 @@ public:
 
 protected:
 	void ApplyUiTag(APlayerController* PC, bool bAdd);
+	void ApplyShowcaseCameraIfNeeded(APlayerController* PC);
+	void RestoreShowcaseCameraIfNeeded();
 	void SpawnPreviewPawn();
 	void DestroyPreviewPawn();
 	/** Primeira classe desbloqueada na DT → mesh/tint/animação no preview (antes só havia mesh do BP ao clicar). */
@@ -208,4 +241,11 @@ protected:
 
 	/** Main menu escondeu Main/SaveSlot para o cenário 3D aparecer sob WBP_ClassSelection. */
 	bool bMainMenuLayersSuppressedForWorldPreview = false;
+
+	/** Modo WorldShowcaseCamera: grava vista antes da transição para restaurar no close. */
+	bool bShowcaseCameraActive = false;
+
+	TWeakObjectPtr<APlayerController> ShowcaseOwningPlayerController;
+
+	TWeakObjectPtr<AActor> ShowcaseViewTargetPrior;
 };

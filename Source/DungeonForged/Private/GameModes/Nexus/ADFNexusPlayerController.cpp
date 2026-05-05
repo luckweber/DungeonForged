@@ -12,10 +12,11 @@
 #include "World/UDFWorldTransitionSubsystem.h"
 #include "Interaction/UDFInteractionComponent.h"
 #include "Blueprint/UserWidget.h"
+#include "Kismet/GameplayStatics.h"
 
 ADFNexusPlayerController::ADFNexusPlayerController()
 {
-	bShowMouseCursor = true;
+	bShowMouseCursor = false;
 }
 
 void ADFNexusPlayerController::OnPossess(APawn* const InPawn)
@@ -23,11 +24,10 @@ void ADFNexusPlayerController::OnPossess(APawn* const InPawn)
 	Super::OnPossess(InPawn);
 	if (IsLocalController())
 	{
-		FInputModeGameAndUI M;
-		M.SetHideCursorDuringCapture(false);
-		M.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-		SetInputMode(M);
-		SetShowMouseCursor(true);
+		// Action controls: camera look + movement; no software cursor stealing delta.
+		UGameplayStatics::SetGamePaused(GetWorld(), false);
+		SetShowMouseCursor(false);
+		SetInputMode(FInputModeGameOnly());
 		if (UEnhancedInputLocalPlayerSubsystem* const Sub =
 				ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
 		{

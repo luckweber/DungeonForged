@@ -34,6 +34,84 @@
 static bool DfIsUnlockedByRules(FName ClassName, const UDFSaveGame* Save);
 static FText DfGetUnlockText(FName ClassName, const UDFSaveGame* Save);
 
+static const TCHAR* DfPreviewDisplayModeLabel(const EDFClassPreviewDisplayMode M)
+{
+	switch (M)
+	{
+	case EDFClassPreviewDisplayMode::SceneCaptureUMG:
+		return TEXT("SceneCaptureUMG");
+	case EDFClassPreviewDisplayMode::WorldWithPlayerCamera:
+		return TEXT("WorldWithPlayerCamera");
+	case EDFClassPreviewDisplayMode::WorldShowcaseCamera:
+		return TEXT("WorldShowcaseCamera");
+	default:
+		return TEXT("?");
+	}
+}
+
+void UDFClassSelectionSubsystem::ApplyShowcaseCameraIfNeeded(APlayerController* const PC)
+{
+	UWorld* const W = GetWorld();
+	if (!PC || !W || PreviewDisplayMode != EDFClassPreviewDisplayMode::WorldShowcaseCamera)
+	{
+		return;
+	}
+	if (ShowcaseCameraActorTag.IsNone())
+	{
+		DF_LOG(Warning,
+			"[DF|ClassSelection] ShowcaseCamera: ShowcaseCameraActorTag vazio — defina uma tag ou use um CameraActor marcado.");
+		return;
+	}
+	TArray<AActor*> Tagged;
+	UGameplayStatics::GetAllActorsWithTag(W, ShowcaseCameraActorTag, Tagged);
+	if (!Tagged.Num() || !Tagged[0])
+	{
+		DF_LOG(Warning,
+			"[DF|ClassSelection] ShowcaseCamera: nenhum actor com tag '%s' — coloque UCineCamera/USceneCapture opcional aqui.",
+			*ShowcaseCameraActorTag.ToString());
+		return;
+	}
+
+	RestoreShowcaseCameraIfNeeded();
+
+	ShowcaseViewTargetPrior = PC->GetViewTarget();
+	ShowcaseOwningPlayerController = PC;
+	PC->SetViewTargetWithBlend(
+		Tagged[0], ShowcaseCameraBlendInSeconds, EViewTargetBlendFunction::VTBlend_Cubic, 0.f, false);
+	bShowcaseCameraActive = true;
+}
+
+void UDFClassSelectionSubsystem::RestoreShowcaseCameraIfNeeded()
+{
+	if (!bShowcaseCameraActive)
+	{
+		return;
+	}
+
+	APlayerController* const PC = ShowcaseOwningPlayerController.Get();
+	bShowcaseCameraActive = false;
+	ShowcaseOwningPlayerController.Reset();
+
+	TWeakObjectPtr<AActor> PriorWeak = ShowcaseViewTargetPrior;
+	ShowcaseViewTargetPrior.Reset();
+
+	if (!PC)
+	{
+		return;
+	}
+
+	AActor* RestoreTo = PriorWeak.IsValid() ? PriorWeak.Get() : nullptr;
+	if (!IsValid(RestoreTo))
+	{
+		RestoreTo = PC->GetPawn();
+	}
+	if (IsValid(RestoreTo))
+	{
+		PC->SetViewTargetWithBlend(
+			RestoreTo, ShowcaseCameraRestoreSeconds, EViewTargetBlendFunction::VTBlend_Cubic, 0.f, false);
+	}
+}
+
 void UDFClassSelectionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -59,12 +137,14 @@ void UDFClassSelectionSubsystem::Initialize(FSubsystemCollectionBase& Collection
 		{
 			ClassTable = Dev->ClassDataTable.LoadSynchronous();
 		}
+		bPreviewUseFillLight = Dev->bPreviewUseFillLight;
+		PreviewDisplayMode = Dev->PreviewDisplayMode;
 	}
 
 	DF_LOG(Log,
-		"[DF|ClassSelection] Initialize: PreviewPawnClass=%s SceneCapture=%s ClassSelectionWidgetClass=%s SoftPath=%s ClassTable=%s",
+		"[DF|ClassSelection] Initialize: PreviewPawnClass=%s DisplayMode=%s ClassSelectionWidgetClass=%s SoftPath=%s ClassTable=%s",
 		PreviewPawnClass ? *PreviewPawnClass->GetPathName() : TEXT("(none)"),
-		bPreviewUsesSceneCapture ? TEXT("sim") : TEXT("nao"),
+		DfPreviewDisplayModeLabel(PreviewDisplayMode),
 		ClassSelectionWidgetClass ? *ClassSelectionWidgetClass->GetPathName() : TEXT("(none)"),
 		*ClassSelectionWidgetSoftPath.ToString(),
 		ClassTable ? *ClassTable->GetPathName() : TEXT("(none)"));
@@ -72,6 +152,7 @@ void UDFClassSelectionSubsystem::Initialize(FSubsystemCollectionBase& Collection
 
 void UDFClassSelectionSubsystem::Deinitialize()
 {
+	RestoreShowcaseCameraIfNeeded();
 	if (bMainMenuLayersSuppressedForWorldPreview)
 	{
 		if (UWorld* const W = GetWorld())
@@ -295,7 +376,7 @@ void UDFClassSelectionSubsystem::OpenClassSelection()
 
 	ActiveWorldPreviewDistance = WorldPreviewDistanceFromCamera;
 	ActiveRenderTarget = nullptr;
-	if (bPreviewUsesSceneCapture)
+	if (PreviewDisplayMode == EDFClassPreviewDisplayMode::SceneCaptureUMG)
 	{
 		if (UTextureRenderTarget2D* const RT = PreviewRenderTarget)
 		{
@@ -318,7 +399,12 @@ void UDFClassSelectionSubsystem::OpenClassSelection()
 		EnsureInitialPreviewClass();
 	}
 
-	if (!bPreviewUsesSceneCapture)
+	if (APlayerController* const PCShowcase = UGameplayStatics::GetPlayerController(W, 0))
+	{
+		ApplyShowcaseCameraIfNeeded(PCShowcase);
+	}
+
+	if (PreviewDisplayMode != EDFClassPreviewDisplayMode::SceneCaptureUMG)
 	{
 		if (APlayerController* const PC = UGameplayStatics::GetPlayerController(W, 0))
 		{
@@ -385,6 +471,8 @@ void UDFClassSelectionSubsystem::CloseClassSelection(const bool bConfirm)
 		SelectedClass.IsNone() ? TEXT("(nenhuma)") : *SelectedClass.ToString(),
 		static_cast<uint32>(MainMenuClassDestination));
 	UWorld* const W = GetWorld();
+
+	RestoreShowcaseCameraIfNeeded();
 
 	const bool bTravelingFromMainMenuClassPick =
 		bConfirm
@@ -460,14 +548,12 @@ void UDFClassSelectionSubsystem::CloseClassSelection(const bool bConfirm)
 	SelectedClass = NAME_None;
 	if (APlayerController* const PC = W ? UGameplayStatics::GetPlayerController(W, 0) : nullptr)
 	{
-		if (ACharacter* const C = PC->GetPawn<ACharacter>())
+		if (PC->GetPawn<ACharacter>())
 		{
-			FInputModeGameAndUI M;
-			M.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-			M.SetHideCursorDuringCapture(false);
-			PC->SetInputMode(M);
+			// Return to action controls after UI (GameAndUI + cursor was fighting camera look).
+			PC->SetShowMouseCursor(false);
+			PC->SetInputMode(FInputModeGameOnly());
 		}
-		PC->SetShowMouseCursor(true);
 	}
 }
 
@@ -509,7 +595,7 @@ void UDFClassSelectionSubsystem::SpawnPreviewPawn()
 	DF_LOG(Log, "[DF|ClassSelection] SpawnPreviewPawn: OK %s em %s modo=%s tagAnchor=%s",
 		*SpawnedPreviewPawn->GetName(),
 		*SpawnLoc.ToString(),
-		bPreviewUsesSceneCapture ? TEXT("SceneCapture") : TEXT("WorldDirect"),
+		DfPreviewDisplayModeLabel(PreviewDisplayMode),
 		bPreviewSpawnUsedTaggedAnchor ? TEXT("sim") : TEXT("nao"));
 	SpawnedPreviewPawn->SpawnCollisionHandlingMethod = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	SpawnedPreviewPawn->SetActorEnableCollision(false);
@@ -530,7 +616,7 @@ void UDFClassSelectionSubsystem::SpawnPreviewPawn()
 		}
 	}
 
-	if (bPreviewUsesSceneCapture)
+	if (PreviewDisplayMode == EDFClassPreviewDisplayMode::SceneCaptureUMG)
 	{
 		PreviewSpringArm = NewObject<USpringArmComponent>(SpawnedPreviewPawn, TEXT("ClassPreviewArm"));
 		PreviewSpringArm->bUsePawnControlRotation = false;
@@ -560,7 +646,10 @@ void UDFClassSelectionSubsystem::SpawnPreviewPawn()
 	{
 		PreviewSpringArm = nullptr;
 		PreviewSceneCapture = nullptr;
-		if (!bPreviewSpawnUsedTaggedAnchor)
+		const bool bFollowPlayerPlacement =
+			PreviewDisplayMode == EDFClassPreviewDisplayMode::WorldWithPlayerCamera
+			&& !bPreviewSpawnUsedTaggedAnchor;
+		if (bFollowPlayerPlacement)
 		{
 			if (APlayerController* const PC = UGameplayStatics::GetPlayerController(W, 0))
 			{
@@ -581,7 +670,7 @@ void UDFClassSelectionSubsystem::SpawnPreviewPawn()
 
 void UDFClassSelectionSubsystem::PositionPreviewForDirectWorldView(APlayerController* const PC)
 {
-	if (!SpawnedPreviewPawn || !PC || bPreviewUsesSceneCapture)
+	if (!SpawnedPreviewPawn || !PC || PreviewDisplayMode != EDFClassPreviewDisplayMode::WorldWithPlayerCamera)
 	{
 		return;
 	}
@@ -716,7 +805,11 @@ void UDFClassSelectionSubsystem::RotatePreview(const float YawDelta)
 
 void UDFClassSelectionSubsystem::ZoomPreview(const float Delta)
 {
-	if (bPreviewUsesSceneCapture)
+	if (PreviewDisplayMode == EDFClassPreviewDisplayMode::WorldShowcaseCamera)
+	{
+		return;
+	}
+	if (PreviewDisplayMode == EDFClassPreviewDisplayMode::SceneCaptureUMG)
 	{
 		if (Rotator)
 		{

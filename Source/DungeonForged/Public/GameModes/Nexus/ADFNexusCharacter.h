@@ -15,7 +15,7 @@ class DUNGEONFORGED_API ADFNexusCharacter : public ACharacter
 	GENERATED_BODY()
 
 public:
-	ADFNexusCharacter();
+	ADFNexusCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Nexus|Camera")
 	TObjectPtr<USpringArmComponent> SpringArm = nullptr;

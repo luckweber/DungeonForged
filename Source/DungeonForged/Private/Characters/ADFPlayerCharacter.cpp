@@ -50,12 +50,14 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.f);
 
 	bUseControllerRotationPitch = false;
-	bUseControllerRotationYaw = true;
+	bUseControllerRotationYaw = false;
 	bUseControllerRotationRoll = false;
 
 	if (UCharacterMovementComponent* Move = GetCharacterMovement())
 	{
-		Move->bOrientRotationToMovement = false;
+		// Camera-relative move input + capsule turns toward velocity (Stellar Blade / Ninja Gaiden style).
+		Move->bOrientRotationToMovement = true;
+		Move->bUseControllerDesiredRotation = false;
 	}
 
 	CameraBoom = CreateDefaultSubobject<UDFCameraComponent>(TEXT("CameraBoom"));

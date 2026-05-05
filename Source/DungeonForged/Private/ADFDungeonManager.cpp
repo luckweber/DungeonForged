@@ -5,15 +5,85 @@
 #include "Characters/ADFPlayerState.h"
 #include "Characters/ADFEnemyBase.h"
 #include "UI/UDFAbilitySelectionSubsystem.h"
+#include "Components/CapsuleComponent.h"
 #include "Data/PCGPointData.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "CollisionQueryParams.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/Character.h"
 #include "GameFramework/PlayerController.h"
 #include "PCGComponent.h"
 #include "PCGData.h"
 #include "TimerManager.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
+
+namespace
+{
+	float GetEnemySpawnCapsuleHalfHeight(TSubclassOf<AActor> const Class)
+	{
+		if (!Class)
+		{
+			return 0.f;
+		}
+		if (AActor const* const DefaultActor = Class->GetDefaultObject<AActor>())
+		{
+			if (ACharacter const* const Char = Cast<ACharacter>(DefaultActor))
+			{
+				if (UCapsuleComponent const* const Cap = Char->GetCapsuleComponent())
+				{
+					return Cap->GetUnscaledCapsuleHalfHeight();
+				}
+			}
+		}
+		return 0.f;
+	}
+
+	/** Centro da cápsula do Character: ImpactPoint/Z + half-height (+ offset). Duas tentativas de canal para pisos só WorldStatic/Dynamic Block. */
+	void AdjustEnemySpawnTransform(
+		UWorld* const World,
+		FTransform& T,
+		TSubclassOf<AActor> EnemyClass,
+		bool const bSnap,
+		float const TraceUpCm,
+		float const TraceDownCm,
+		float const VerticalOffsetCm)
+	{
+		if (!bSnap || !World || !EnemyClass)
+		{
+			return;
+		}
+		FVector const Loc = T.GetLocation();
+		FVector const Start(Loc.X, Loc.Y, Loc.Z + TraceUpCm);
+		FVector const End(Loc.X, Loc.Y, Loc.Z - TraceDownCm);
+
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(DFDungeonSnapEnemySpawnToFloor), false);
+		Params.bReturnPhysicalMaterial = false;
+
+		FHitResult Hit;
+		bool bGot = World->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params);
+		if (!bGot || !Hit.IsValidBlockingHit())
+		{
+			static ECollisionChannel const kFallbackChannels[] = { ECC_WorldStatic, ECC_WorldDynamic };
+			for (ECollisionChannel const Ch : kFallbackChannels)
+			{
+				if (World->LineTraceSingleByChannel(Hit, Start, End, Ch, Params) && Hit.IsValidBlockingHit())
+				{
+					bGot = true;
+					break;
+				}
+			}
+		}
+		if (!bGot || !Hit.IsValidBlockingHit())
+		{
+			return;
+		}
+		const float HalfH = GetEnemySpawnCapsuleHalfHeight(EnemyClass);
+		FVector NewLoc = Hit.Location;
+		NewLoc.Z += HalfH + VerticalOffsetCm;
+		T.SetLocation(NewLoc);
+	}
+}
 
 void UDFDungeonManager::Deinitialize()
 {
@@ -278,7 +348,11 @@ void UDFDungeonManager::SpawnEnemies(const FDFDungeonFloorRow& FloorData)
 			}
 			const FTransform& T = SpawnPoints[PointIndex % SpawnPoints.Num()];
 			++PointIndex;
-			AActor* const Spawned = World->SpawnActor<AActor>(ER->EnemyClass, T, Params);
+			FTransform SpawnTm(T);
+			AdjustEnemySpawnTransform(
+				World, SpawnTm, ER->EnemyClass, bSnapEnemySpawnsToWorldGeometry,
+				EnemySpawnSnapTraceUpCm, EnemySpawnSnapTraceDownCm, EnemySpawnVerticalOffsetCm);
+			AActor* const Spawned = World->SpawnActor<AActor>(ER->EnemyClass, SpawnTm, Params);
 			if (Spawned)
 			{
 				RegisterSpawnedEnemy(Spawned);
@@ -299,7 +373,11 @@ void UDFDungeonManager::SpawnEnemies(const FDFDungeonFloorRow& FloorData)
 			{
 				const FTransform& T = SpawnPoints[PointIndex % SpawnPoints.Num()];
 				++PointIndex;
-				AActor* const Spawned = World->SpawnActor<AActor>(BossRow->EnemyClass, T, Params);
+				FTransform SpawnTm(T);
+				AdjustEnemySpawnTransform(
+					World, SpawnTm, BossRow->EnemyClass, bSnapEnemySpawnsToWorldGeometry,
+					EnemySpawnSnapTraceUpCm, EnemySpawnSnapTraceDownCm, EnemySpawnVerticalOffsetCm);
+				AActor* const Spawned = World->SpawnActor<AActor>(BossRow->EnemyClass, SpawnTm, Params);
 				if (Spawned)
 				{
 					RegisterSpawnedEnemy(Spawned);

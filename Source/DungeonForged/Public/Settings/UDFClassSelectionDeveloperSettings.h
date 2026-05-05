@@ -6,6 +6,7 @@
 #include "GameFramework/Character.h"
 #include "Blueprint/UserWidget.h"
 #include "Engine/DeveloperSettings.h"
+#include "GameModes/MainMenu/DFMainMenuTypes.h"
 #include "UDFClassSelectionDeveloperSettings.generated.h"
 
 /**
@@ -27,6 +28,10 @@ public:
 	UPROPERTY(EditAnywhere, Config, Category = "Preview")
 	TSubclassOf<ACharacter> PreviewPawnClass;
 
+	/** Sobrescreve @c [/Script/DungeonForged.DFClassSelectionSubsystem] PreviewDisplayMode em @c Initialize. */
+	UPROPERTY(EditAnywhere, Config, Category = "Preview")
+	EDFClassPreviewDisplayMode PreviewDisplayMode = EDFClassPreviewDisplayMode::WorldWithPlayerCamera;
+
 	/** Se definido, substitui ClassSelectionWidgetClass do subsistema / Game.ini. */
 	UPROPERTY(EditAnywhere, Config, Category = "UI")
 	TSubclassOf<UUserWidget> ClassSelectionWidgetClass;
@@ -34,4 +39,8 @@ public:
 	/** Se valido, substitui ClassSelectionWidgetSoftPath (vazio = deixa o valor de LoadConfig / C++ do subsistema). */
 	UPROPERTY(EditAnywhere, Config, Category = "UI")
 	FSoftClassPath ClassSelectionWidgetSoftPath;
+
+	/** Se true, usa fill light na preview. */
+	UPROPERTY(EditAnywhere, Config, Category = "UI")
+    bool bPreviewUseFillLight = true;
 };

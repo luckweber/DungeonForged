@@ -104,4 +104,7 @@ public:
 	/** Client: re-enter run (implementation: travel URL / save slot). */
 	UFUNCTION(BlueprintCallable, Category = "Run|UI")
 	void RequestPlayAgain();
+
+protected:
+	virtual void OnPossess(APawn* InPawn) override;
 };

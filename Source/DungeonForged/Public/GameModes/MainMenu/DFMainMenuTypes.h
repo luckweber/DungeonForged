@@ -27,6 +27,18 @@ enum class EDFMainMenuClassPickDestination : uint8
 	RunDungeon
 };
 
+/** Como mostrar o personagem 3D durante @c OpenClassSelection. */
+UENUM(BlueprintType)
+enum class EDFClassPreviewDisplayMode : uint8
+{
+	SceneCaptureUMG UMETA(DisplayName = "Scene capture → UMG (Render Target na Image)"),
+
+	WorldWithPlayerCamera UMETA(DisplayName = "Mundo — pawn à frente da câmera do jogador (UI centro transparente)"),
+
+	WorldShowcaseCamera UMETA(DisplayName =
+		"Palco mundo + câmera cinematográfica (estilo Genshin/showcase na cena)"),
+};
+
 /** Z-order de AddToViewport no menu principal (maior = desenha por cima). */
 namespace DFMainMenuUI
 {

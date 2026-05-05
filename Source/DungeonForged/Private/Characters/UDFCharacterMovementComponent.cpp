@@ -16,6 +16,8 @@ UDFCharacterMovementComponent::UDFCharacterMovementComponent(const FObjectInitia
 	PrimaryComponentTick.bCanEverTick = true;
 	MaxWalkSpeed = WalkSpeed;
 	MaxWalkSpeedCrouched = CrouchSpeed;
+	// Snappy but smooth turn toward movement (hack-and-slash / action third-person).
+	RotationRate = FRotator(0.f, 720.f, 0.f);
 }
 
 FNetworkPredictionData_Client* UDFCharacterMovementComponent::GetPredictionData_Client() const

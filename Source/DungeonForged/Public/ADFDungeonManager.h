@@ -127,6 +127,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Dungeon|Spawning")
 	TArray<FTransform> SpawnPointsPreview;
 
+	/**
+	 * Rastreio vertical até geometria mundo (Visibility) e coloca Z no chão antes de SpawnActor — mitiga pontos PCG fora das meshes modulares.
+	 * Capsule ao centro: usa meia-altura por defeito do @c EnemyClass quando for Character.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Dungeon|Spawning")
+	bool bSnapEnemySpawnsToWorldGeometry = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Dungeon|Spawning", meta=(EditCondition="bSnapEnemySpawnsToWorldGeometry"))
+	float EnemySpawnSnapTraceUpCm = 4000.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Dungeon|Spawning", meta=(EditCondition="bSnapEnemySpawnsToWorldGeometry"))
+	float EnemySpawnSnapTraceDownCm = 100000.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Dungeon|Spawning", meta=(EditCondition="bSnapEnemySpawnsToWorldGeometry"))
+	float EnemySpawnVerticalOffsetCm = 2.f;
+
 	UPROPERTY(BlueprintAssignable, Category = "DF|Dungeon|Events")
 	FOnRunEnemyKilled OnRunEnemyKilled;
 

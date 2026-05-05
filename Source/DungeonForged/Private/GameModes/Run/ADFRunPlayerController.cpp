@@ -13,6 +13,16 @@
 
 ADFRunPlayerController::ADFRunPlayerController() = default;
 
+void ADFRunPlayerController::OnPossess(APawn* InPawn)
+{
+	Super::OnPossess(InPawn);
+	if (IsLocalController())
+	{
+		SetShowMouseCursor(false);
+		SetInputMode(FInputModeGameOnly());
+	}
+}
+
 void ADFRunPlayerController::SetupInputModeGameplay()
 {
 	UGameplayStatics::SetGamePaused(GetWorld(), false);
