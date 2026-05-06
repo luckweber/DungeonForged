@@ -10,6 +10,6 @@ public class DungeonForgedEditorTarget : TargetRules
 		Type = TargetType.Editor;
 		DefaultBuildSettings = BuildSettingsVersion.V5;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_4;
-		ExtraModuleNames.Add("DungeonForged");
+		ExtraModuleNames.AddRange(new string[] { "DungeonForged", "DungeonForgedEditor" });
 	}
 }

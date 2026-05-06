@@ -70,6 +70,10 @@ public class DungeonForged : ModuleRules
 				"ToolMenus",
 				"EditorStyle",
 				"UMGEditor",
+				"AssetRegistry",
+				"AssetTools",
+				"RenderCore",
+				"Blutility",
 			});
 		}
 	}

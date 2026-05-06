@@ -8,6 +8,11 @@
 			"Name": "DungeonForged",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "DungeonForgedEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
 		}
 	],
 	"Plugins": [
@@ -37,6 +42,11 @@
 		{
 			"Name": "GameplayCameras",
 			"Enabled": true
+		},
+		{
+			"Name": "IconCreator",
+			"Enabled": true,
+			"MarketplaceURL": "com.epicgames.launcher://ue/Fab/product/1509c8dc-fed5-452b-abdb-b96a6bba4a7a"
 		}
 	]
 }
