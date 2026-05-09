@@ -2,9 +2,12 @@
 #include "UI/ClassSelection/UDFClassSelectionSubsystem.h"
 #include "Settings/UDFClassSelectionDeveloperSettings.h"
 #include "GameModes/MainMenu/ADFMainMenuHUD.h"
+#include "GameModes/Nexus/ADFNexusHUD.h"
 #include "DungeonForgedModule.h"
 #include "UI/ClassSelection/UDFClassSelectionWidget.h"
 #include "UI/ClassSelection/UDFClassPreviewRotatorComponent.h"
+#include "Camera/CameraComponent.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Components/PointLightComponent.h"
 #include "GameFramework/Character.h"
@@ -49,6 +52,73 @@ static const TCHAR* DfPreviewDisplayModeLabel(const EDFClassPreviewDisplayMode M
 	}
 }
 
+/** Prefer actor with this tag that has a UCameraComponent (Cine incl.). */
+static AActor* DfFindShowcaseCameraViewTarget(UWorld* const W, const FName ActorTag)
+{
+	if (!W || ActorTag.IsNone())
+	{
+		return nullptr;
+	}
+	TArray<AActor*> Tagged;
+	UGameplayStatics::GetAllActorsWithTag(W, ActorTag, Tagged);
+	for (AActor* const A : Tagged)
+	{
+		if (A && A->FindComponentByClass<UCameraComponent>())
+		{
+			return A;
+		}
+	}
+	return nullptr;
+}
+
+void UDFClassSelectionSubsystem::ClearShowcaseFadeChain()
+{
+	if (UWorld* const W = GetWorld())
+	{
+		W->GetTimerManager().ClearTimer(ShowcaseFadeChainTimerHandle);
+	}
+	ShowcaseFadeEnterViewTarget.Reset();
+	ShowcaseFadeRestoreOrchestrationPC.Reset();
+	ShowcaseFadeRestoreViewTargetPrior.Reset();
+}
+
+void UDFClassSelectionSubsystem::OnShowcaseEnterFadeOutElapsed()
+{
+	APlayerController* const PC = ShowcaseOwningPlayerController.Get();
+	AActor* const VT = ShowcaseFadeEnterViewTarget.Get();
+	ShowcaseFadeEnterViewTarget.Reset();
+	if (!PC || !IsValid(VT))
+	{
+		return;
+	}
+	PC->SetViewTargetWithBlend(
+		VT, 0.f, EViewTargetBlendFunction::VTBlend_Linear, 0.f, false);
+	if (APlayerCameraManager* const PCM = PC->PlayerCameraManager)
+	{
+		const float FadeIn = FMath::Max(ShowcaseFadeInSeconds, KINDA_SMALL_NUMBER);
+		PCM->StartCameraFade(1.f, 0.f, FadeIn, FLinearColor::Black, false, true);
+	}
+}
+
+void UDFClassSelectionSubsystem::OnShowcaseRestoreFadeOutElapsed()
+{
+	APlayerController* const PC = ShowcaseFadeRestoreOrchestrationPC.Get();
+	AActor* const R = ShowcaseFadeRestoreViewTargetPrior.Get();
+	ShowcaseFadeRestoreOrchestrationPC.Reset();
+	ShowcaseFadeRestoreViewTargetPrior.Reset();
+	if (!PC || !IsValid(R))
+	{
+		return;
+	}
+	PC->SetViewTargetWithBlend(
+		R, 0.f, EViewTargetBlendFunction::VTBlend_Linear, 0.f, false);
+	if (APlayerCameraManager* const PCM = PC->PlayerCameraManager)
+	{
+		const float FadeIn = FMath::Max(ShowcaseFadeInSeconds, KINDA_SMALL_NUMBER);
+		PCM->StartCameraFade(1.f, 0.f, FadeIn, FLinearColor::Black, false, true);
+	}
+}
+
 void UDFClassSelectionSubsystem::ApplyShowcaseCameraIfNeeded(APlayerController* const PC)
 {
 	UWorld* const W = GetWorld();
@@ -62,27 +132,66 @@ void UDFClassSelectionSubsystem::ApplyShowcaseCameraIfNeeded(APlayerController* 
 			"[DF|ClassSelection] ShowcaseCamera: ShowcaseCameraActorTag vazio — defina uma tag ou use um CameraActor marcado.");
 		return;
 	}
-	TArray<AActor*> Tagged;
-	UGameplayStatics::GetAllActorsWithTag(W, ShowcaseCameraActorTag, Tagged);
-	if (!Tagged.Num() || !Tagged[0])
+
+	AActor* ViewTarget = DfFindShowcaseCameraViewTarget(W, ShowcaseCameraActorTag);
+	FName ViewTargetSourceTag = ShowcaseCameraActorTag;
+	if (!ViewTarget)
+	{
+		static const FName PreviewAnchorTag(TEXT("ClassSelectionPreview"));
+		ViewTarget = DfFindShowcaseCameraViewTarget(W, PreviewAnchorTag);
+		ViewTargetSourceTag = PreviewAnchorTag;
+	}
+
+	if (!ViewTarget)
 	{
 		DF_LOG(Warning,
-			"[DF|ClassSelection] ShowcaseCamera: nenhum actor com tag '%s' — coloque UCineCamera/USceneCapture opcional aqui.",
+			"[DF|ClassSelection] ShowcaseCamera: sem view target com CameraComponent — tag primária '%s' ou fallback 'ClassSelectionPreview'. "
+			"Marca o actor com tag 'ClassSelectionPreviewCamera' (mesmo BP que a âncora) e adiciona Cine Camera ou Camera no actor com 'ClassSelectionPreview'.",
 			*ShowcaseCameraActorTag.ToString());
 		return;
 	}
+
+	DF_LOG(Log, "[DF|ClassSelection] ShowcaseCamera: ViewTarget=%s (tag usada na procura: %s)",
+		*ViewTarget->GetName(), *ViewTargetSourceTag.ToString());
 
 	RestoreShowcaseCameraIfNeeded();
 
 	ShowcaseViewTargetPrior = PC->GetViewTarget();
 	ShowcaseOwningPlayerController = PC;
-	PC->SetViewTargetWithBlend(
-		Tagged[0], ShowcaseCameraBlendInSeconds, EViewTargetBlendFunction::VTBlend_Cubic, 0.f, false);
 	bShowcaseCameraActive = true;
+
+	APlayerCameraManager* const PCM = PC->PlayerCameraManager;
+	const bool bFadeCut = bShowcaseUseFadeCutTransition && ShowcaseFadeOutSeconds > 0.f && PCM;
+	if (PCM)
+	{
+		PCM->StopCameraFade();
+	}
+	if (bFadeCut)
+	{
+		ShowcaseFadeEnterViewTarget = ViewTarget;
+		PCM->StartCameraFade(0.f, 1.f, ShowcaseFadeOutSeconds, FLinearColor::Black, false, true);
+		W->GetTimerManager().SetTimer(
+			ShowcaseFadeChainTimerHandle,
+			this,
+			&UDFClassSelectionSubsystem::OnShowcaseEnterFadeOutElapsed,
+			ShowcaseFadeOutSeconds,
+			false);
+		return;
+	}
+
+	const float EnterBlendSecs = bShowcaseUseFadeCutTransition ? 0.f : ShowcaseCameraBlendInSeconds;
+	PC->SetViewTargetWithBlend(
+		ViewTarget,
+		EnterBlendSecs,
+		EViewTargetBlendFunction::VTBlend_Cubic,
+		0.f,
+		false);
 }
 
 void UDFClassSelectionSubsystem::RestoreShowcaseCameraIfNeeded()
 {
+	ClearShowcaseFadeChain();
+
 	if (!bShowcaseCameraActive)
 	{
 		return;
@@ -95,6 +204,11 @@ void UDFClassSelectionSubsystem::RestoreShowcaseCameraIfNeeded()
 	TWeakObjectPtr<AActor> PriorWeak = ShowcaseViewTargetPrior;
 	ShowcaseViewTargetPrior.Reset();
 
+	if (PC && PC->PlayerCameraManager)
+	{
+		PC->PlayerCameraManager->StopCameraFade();
+	}
+
 	if (!PC)
 	{
 		return;
@@ -105,11 +219,41 @@ void UDFClassSelectionSubsystem::RestoreShowcaseCameraIfNeeded()
 	{
 		RestoreTo = PC->GetPawn();
 	}
-	if (IsValid(RestoreTo))
+	if (!IsValid(RestoreTo))
 	{
-		PC->SetViewTargetWithBlend(
-			RestoreTo, ShowcaseCameraRestoreSeconds, EViewTargetBlendFunction::VTBlend_Cubic, 0.f, false);
+		return;
 	}
+
+	UWorld* const W = GetWorld();
+	APlayerCameraManager* const PCM = PC->PlayerCameraManager;
+
+	const bool bFadeRestore =
+		W && PreviewDisplayMode == EDFClassPreviewDisplayMode::WorldShowcaseCamera && bShowcaseUseFadeCutTransition
+		&& ShowcaseFadeOutSeconds > 0.f && PCM;
+
+	if (bFadeRestore)
+	{
+		ShowcaseFadeRestoreOrchestrationPC = PC;
+		ShowcaseFadeRestoreViewTargetPrior = RestoreTo;
+		PCM->StartCameraFade(0.f, 1.f, ShowcaseFadeOutSeconds, FLinearColor::Black, false, true);
+		W->GetTimerManager().SetTimer(
+			ShowcaseFadeChainTimerHandle,
+			this,
+			&UDFClassSelectionSubsystem::OnShowcaseRestoreFadeOutElapsed,
+			ShowcaseFadeOutSeconds,
+			false);
+		return;
+	}
+
+	const float RestoreBlendSecs =
+		(PreviewDisplayMode == EDFClassPreviewDisplayMode::WorldShowcaseCamera && bShowcaseUseFadeCutTransition)
+		 ? 0.f : ShowcaseCameraRestoreSeconds;
+	PC->SetViewTargetWithBlend(
+		RestoreTo,
+		RestoreBlendSecs,
+		EViewTargetBlendFunction::VTBlend_Cubic,
+		0.f,
+		false);
 }
 
 void UDFClassSelectionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -166,6 +310,20 @@ void UDFClassSelectionSubsystem::Deinitialize()
 			}
 		}
 		bMainMenuLayersSuppressedForWorldPreview = false;
+	}
+	if (bNexusHudSuppressedForClassSelection)
+	{
+		if (UWorld* const Wd = GetWorld())
+		{
+			if (APlayerController* const PC = UGameplayStatics::GetPlayerController(Wd, 0))
+			{
+				if (ADFNexusHUD* const NH = Cast<ADFNexusHUD>(PC->GetHUD()))
+				{
+					NH->SetRootWidgetHiddenForClassSelection(false);
+				}
+			}
+		}
+		bNexusHudSuppressedForClassSelection = false;
 	}
 	if (UWorld* const W = GetWorld())
 	{
@@ -369,6 +527,11 @@ void UDFClassSelectionSubsystem::OpenClassSelection()
 	if (APlayerController* const PC = UGameplayStatics::GetPlayerController(W, 0))
 	{
 		ApplyUiTag(PC, true);
+		if (ADFNexusHUD* const NH = Cast<ADFNexusHUD>(PC->GetHUD()))
+		{
+			NH->SetRootWidgetHiddenForClassSelection(true);
+			bNexusHudSuppressedForClassSelection = true;
+		}
 	}
 
 	PreviousGlobalTimeDilation = UGameplayStatics::GetGlobalTimeDilation(W);
@@ -390,14 +553,22 @@ void UDFClassSelectionSubsystem::OpenClassSelection()
 	}
 
 	SpawnPreviewPawn();
-	if (SelectedClass.IsNone() == false)
+	if (SelectedClass.IsNone())
 	{
-		UpdatePreviewForClass(SelectedClass);
+		const FName FirstUnlocked = FindFirstUnlockedClassName();
+		if (!FirstUnlocked.IsNone())
+		{
+			SelectedClass = FirstUnlocked;
+		}
+		else
+		{
+			DF_LOG(Warning,
+				"[DF|ClassSelection] OpenClassSelection: nenhuma classe desbloqueada na DT (%s); preview fica malha por defeito do BP.",
+				ClassTable ? *ClassTable->GetName() : TEXT("(sem tabela)"));
+		}
 	}
-	else
-	{
-		EnsureInitialPreviewClass();
-	}
+	W->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateUObject(
+		this, &UDFClassSelectionSubsystem::ReapplySelectedClassPreviewAfterActorInit));
 
 	if (APlayerController* const PCShowcase = UGameplayStatics::GetPlayerController(W, 0))
 	{
@@ -494,6 +665,17 @@ void UDFClassSelectionSubsystem::CloseClassSelection(const bool bConfirm)
 	}
 	bMainMenuLayersSuppressedForWorldPreview = false;
 
+	if (bNexusHudSuppressedForClassSelection && W)
+	{
+		if (APlayerController* const PC = UGameplayStatics::GetPlayerController(W, 0))
+		{
+			if (ADFNexusHUD* const NH = Cast<ADFNexusHUD>(PC->GetHUD()))
+			{
+				NH->SetRootWidgetHiddenForClassSelection(false);
+			}
+		}
+		bNexusHudSuppressedForClassSelection = false;
+	}
 	if (W)
 	{
 		UGameplayStatics::SetGlobalTimeDilation(W, PreviousGlobalTimeDilation > 0.f ? PreviousGlobalTimeDilation : 1.f);
@@ -685,16 +867,12 @@ void UDFClassSelectionSubsystem::PositionPreviewForDirectWorldView(APlayerContro
 	SpawnedPreviewPawn->SetActorRotation(FRotator(0.f, Yaw, 0.f));
 }
 
-void UDFClassSelectionSubsystem::EnsureInitialPreviewClass()
+FName UDFClassSelectionSubsystem::FindFirstUnlockedClassName() const
 {
-	if (!SpawnedPreviewPawn || SelectedClass.IsNone() == false)
-	{
-		return;
-	}
-	UDataTable* const DT = GetClassTable();
+	const UDataTable* const DT = GetClassTable();
 	if (!DT)
 	{
-		return;
+		return NAME_None;
 	}
 	TArray<FName> RowNames;
 	DT->GetRowMap().GetKeys(RowNames);
@@ -703,10 +881,19 @@ void UDFClassSelectionSubsystem::EnsureInitialPreviewClass()
 	{
 		if (IsClassUnlocked(N))
 		{
-			UpdatePreviewForClass(N);
-			break;
+			return N;
 		}
 	}
+	return NAME_None;
+}
+
+void UDFClassSelectionSubsystem::ReapplySelectedClassPreviewAfterActorInit()
+{
+	if (!SpawnedPreviewPawn || SelectedClass.IsNone())
+	{
+		return;
+	}
+	UpdatePreviewForClass(SelectedClass);
 }
 
 void UDFClassSelectionSubsystem::DestroyPreviewPawn()
@@ -728,6 +915,13 @@ void UDFClassSelectionSubsystem::UpdatePreviewForClass(const FName ClassName)
 	if (!Row || !SpawnedPreviewPawn)
 	{
 		return;
+	}
+	if (!Row->CharacterMesh)
+	{
+		DF_LOG(Warning,
+			"[DF|ClassSelection] UpdatePreviewForClass: linha '%s' sem CharacterMesh — DT_Class / FDFClassTableRow.CharacterMesh deve apontar "
+			"para malha compatível com o skeleton de PreviewPawnClass.",
+			*ClassName.ToString());
 	}
 	if (USkeletalMeshComponent* const Mesh = SpawnedPreviewPawn->GetMesh())
 	{

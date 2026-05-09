@@ -85,7 +85,9 @@ public:
 	/**
 	 * SceneCaptureUMG: SpringArm + SceneCapture → Render Target na Image @c PreviewRenderTarget.
 	 * WorldWithPlayerCamera: pawn no mundo por baixo/semi-transparente ao UMG — sem RT.
-	 * WorldShowcaseCamera: pawn na posição/tag @c ClassSelectionPreview e @c SetViewTarget no actor tag @c ClassSelectionPreviewCamera.
+	 * WorldShowcaseCamera: pawn na posição/tag @c ClassSelectionPreview ; @c SetViewTarget num actor com **UCameraComponent**
+	 * marcado com @c ShowcaseCameraActorTag (defeito @c ClassSelectionPreviewCamera), ou — em fallback — primeiro actor com tag
+	 * @c ClassSelectionPreview que tenha câmara.
 	 */
 	UPROPERTY(Config, EditAnywhere, Category = "DF|ClassSelection|Preview")
 	EDFClassPreviewDisplayMode PreviewDisplayMode = EDFClassPreviewDisplayMode::WorldWithPlayerCamera;
@@ -115,13 +117,32 @@ public:
 		(EditCondition = "PreviewDisplayMode == EDFClassPreviewDisplayMode::WorldShowcaseCamera", EditConditionHides))
 	FName ShowcaseCameraActorTag = FName(TEXT("ClassSelectionPreviewCamera"));
 
-	/** Segundos de blend ao entrar na câmera showcase. */
+	/** Segundos de blend ao entrar na câmara showcase se @c bShowcaseUseFadeCutTransition estiver desligado. */
 	UPROPERTY(EditAnywhere, Category = "DF|ClassSelection|Preview|Showcase", meta =
 		(EditCondition = "PreviewDisplayMode == EDFClassPreviewDisplayMode::WorldShowcaseCamera", EditConditionHides,
 			ClampMin = "0"))
 	float ShowcaseCameraBlendInSeconds = 0.45f;
 
-	/** Ao fechar seleção ou destruir o subsistema, blend de volta ao alvo gravado antes do showcase. */
+	/** Fade preto + @c SetViewTarget instantâneo em vez do blend até à vitrine ("voar pelo mapa"). */
+	UPROPERTY(EditAnywhere, Category = "DF|ClassSelection|Preview|Showcase", meta =
+		(EditCondition = "PreviewDisplayMode == EDFClassPreviewDisplayMode::WorldShowcaseCamera", EditConditionHides))
+	bool bShowcaseUseFadeCutTransition = true;
+
+	/** Fade a preto antes do corte ao entrar / sair do showcase. */
+	UPROPERTY(EditAnywhere, Category = "DF|ClassSelection|Preview|Showcase", meta =
+		(EditCondition =
+			 "PreviewDisplayMode == EDFClassPreviewDisplayMode::WorldShowcaseCamera && bShowcaseUseFadeCutTransition",
+			 EditConditionHides, ClampMin = "0"))
+	float ShowcaseFadeOutSeconds = 0.22f;
+
+	/** Fade de volta após mudar view target no showcase. */
+	UPROPERTY(EditAnywhere, Category = "DF|ClassSelection|Preview|Showcase", meta =
+		(EditCondition =
+			 "PreviewDisplayMode == EDFClassPreviewDisplayMode::WorldShowcaseCamera && bShowcaseUseFadeCutTransition",
+			 EditConditionHides, ClampMin = "0"))
+	float ShowcaseFadeInSeconds = 0.22f;
+
+	/** Ao fechar seleção ou destruir o subsistema, blend ou fade de volta ao alvo gravado antes do showcase. */
 	UPROPERTY(EditAnywhere, Category = "DF|ClassSelection|Preview|Showcase", meta =
 		(EditCondition = "PreviewDisplayMode == EDFClassPreviewDisplayMode::WorldShowcaseCamera", EditConditionHides,
 			ClampMin = "0"))
@@ -195,10 +216,17 @@ protected:
 	void ApplyUiTag(APlayerController* PC, bool bAdd);
 	void ApplyShowcaseCameraIfNeeded(APlayerController* PC);
 	void RestoreShowcaseCameraIfNeeded();
+	void ClearShowcaseFadeChain();
+	UFUNCTION()
+	void OnShowcaseEnterFadeOutElapsed();
+	UFUNCTION()
+	void OnShowcaseRestoreFadeOutElapsed();
 	void SpawnPreviewPawn();
 	void DestroyPreviewPawn();
-	/** Primeira classe desbloqueada na DT → mesh/tint/animação no preview (antes só havia mesh do BP ao clicar). */
-	void EnsureInitialPreviewClass();
+	FName FindFirstUnlockedClassName() const;
+	/** Um tick depois do spawn por @c SpawnPreviewPawn — reaplica malha/animações depois do @c BeginPlay do BP preview. */
+	UFUNCTION()
+	void ReapplySelectedClassPreviewAfterActorInit();
 	void PositionPreviewForDirectWorldView(APlayerController* PC);
 	void EnsureSaveLoaded();
 	void EnsureClassTable();
@@ -242,10 +270,23 @@ protected:
 	/** Main menu escondeu Main/SaveSlot para o cenário 3D aparecer sob WBP_ClassSelection. */
 	bool bMainMenuLayersSuppressedForWorldPreview = false;
 
+	/** ADFNexusHUD ocultou o root (Meta XP etc.) durante a seleção. */
+	bool bNexusHudSuppressedForClassSelection = false;
+
 	/** Modo WorldShowcaseCamera: grava vista antes da transição para restaurar no close. */
 	bool bShowcaseCameraActive = false;
 
 	TWeakObjectPtr<APlayerController> ShowcaseOwningPlayerController;
 
 	TWeakObjectPtr<AActor> ShowcaseViewTargetPrior;
+
+	FTimerHandle ShowcaseFadeChainTimerHandle;
+
+	/** Alvo de @c SetViewTarget após fade-out ao entrar no showcase (evita dangling se o mundo reciclar durante o fade). */
+	TWeakObjectPtr<AActor> ShowcaseFadeEnterViewTarget;
+
+	/** Snapshots apenas durante cadeia de fade ao restaurar showcase. */
+	TWeakObjectPtr<APlayerController> ShowcaseFadeRestoreOrchestrationPC;
+
+	TWeakObjectPtr<AActor> ShowcaseFadeRestoreViewTargetPrior;
 };

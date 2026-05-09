@@ -2,6 +2,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/Texture2D.h"
 #include "UObject/Object.h"
 #include "UDFNexusClassListObject.generated.h"
 
@@ -25,4 +26,8 @@ public:
 
 	UPROPERTY(BlueprintReadWrite, Category = "Nexus|UI")
 	FText LockHint;
+
+	/** Cópia de @c FDFClassTableRow::ClassPortrait para o @c UDFNexusClassCardWidget. */
+	UPROPERTY(BlueprintReadWrite, Category = "Nexus|UI")
+	TObjectPtr<UTexture2D> ClassPortrait = nullptr;
 };

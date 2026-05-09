@@ -2,9 +2,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Types/SlateEnums.h"
 #include "GameFramework/HUD.h"
 #include "GameModes/Nexus/DFNexusTypes.h"
 #include "TimerManager.h"
+#include "UI/Combat/UDFCombatTextWidget.h"
 #include "ADFNexusHUD.generated.h"
 
 class UUserWidget;
@@ -43,6 +45,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Nexus|UI")
 	void DequeueAndShowNextNotification();
 
+	/** Esconde o root (ex. barra Meta XP) durante @c UDFClassSelectionSubsystem::OpenClassSelection. */
+	UFUNCTION(BlueprintCallable, Category = "Nexus|UI")
+	void SetRootWidgetHiddenForClassSelection(bool InHidden);
+
 protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UDFNexusHUDWidget> RootWidget = nullptr;
@@ -53,6 +59,9 @@ protected:
 	TArray<FDFPendingUnlockEntry> NotificationQueue;
 	bool bNotificationShowing = false;
 	FTimerHandle NotificationChainTimer;
+
+	bool bRootHiddenForClassSelection = false;
+	ESlateVisibility CachedRootVisibilityBeforeClassSelection = ESlateVisibility::SelfHitTestInvisible;
 
 	UFUNCTION()
 	void OnNotificationChainStep();

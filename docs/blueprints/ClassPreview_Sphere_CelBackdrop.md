@@ -79,7 +79,11 @@ Um truque comum para reforço “anime”:
 
 ## 5. Integração com o DungeonForged (preview de classe)
 
-- O **spawn** do personagem de preview segue **`ClassSelectionPreview`** (âncora) e opcionalmente **`ClassSelectionPreviewCamera`** — ver código e `docs/blueprints/ClassSelection_Setup.md`.
+- O **spawn** do personagem usa a tag **`ClassSelectionPreview`** (âncora só posição/rotação).
+- A **vista do jogador** (`SetViewTarget`) em `WorldShowcaseCamera` procura, por ordem:
+  1. Actor com **`ClassSelectionPreviewCamera`** (ou o valor de *Showcase Camera Actor Tag* no subsistema) **e** com componente **Camera** ou **Cine Camera**;
+  2. Se não houver, o **mesmo** tipo de procura na tag **`ClassSelectionPreview`** — podes usar um único BP com âncora + câmara e só a tag `ClassSelectionPreview`, desde que tenha **Camera Component**.
+- Opcional: duas tags no mesmo actor (**`ClassSelectionPreview`** + **`ClassSelectionPreviewCamera`**) se quiseres separar semanticamente âncora vs câmara no mapa.
 - Coloca a esfera no **mesmo espaço local** dessa âncora:
   - Podes **tornar** a esfera **filha** do actor Empty com a tag **`ClassSelectionPreview`** no editor (**Attach**), assim move tudo junto.
 - Garante que a **layer de colisão** da esfera **não bloqueie** pawn/câmaras (collision **NoCollision** ou **Overlap only** conforme precisares).

@@ -51,6 +51,29 @@ void ADFNexusHUD::BeginPlay()
 	}
 }
 
+void ADFNexusHUD::SetRootWidgetHiddenForClassSelection(const bool InHidden)
+{
+	if (!RootWidget)
+	{
+		return;
+	}
+	if (InHidden)
+	{
+		if (!bRootHiddenForClassSelection)
+		{
+			CachedRootVisibilityBeforeClassSelection = RootWidget->GetVisibility();
+			bRootHiddenForClassSelection = true;
+		}
+		RootWidget->SetVisibility(ESlateVisibility::Collapsed);
+		return;
+	}
+	if (bRootHiddenForClassSelection)
+	{
+		bRootHiddenForClassSelection = false;
+		RootWidget->SetVisibility(CachedRootVisibilityBeforeClassSelection);
+	}
+}
+
 void ADFNexusHUD::QueueUnlockNotificationForEntry(const FDFPendingUnlockEntry& Entry)
 {
 	NotificationQueue.Add(Entry);

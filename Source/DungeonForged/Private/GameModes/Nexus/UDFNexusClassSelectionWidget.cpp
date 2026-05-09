@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/GameModes/Nexus/UDFNexusClassSelectionWidget.cpp
 #include "GameModes/Nexus/UDFNexusClassSelectionWidget.h"
+#include "GameModes/Nexus/UDFNexusClassDetailPanelWidget.h"
 #include "GameModes/Nexus/ADFNexusPlayerController.h"
 #include "GameModes/Nexus/UDFNexusClassListObject.h"
 #include "UI/ClassSelection/UDFClassSelectionSubsystem.h"
@@ -8,6 +9,8 @@
 #include "Components/Button.h"
 #include "Components/Image.h"
 #include "Components/TileView.h"
+#include "Components/Widget.h"
+#include "Components/PanelWidget.h"
 #include "Engine/DataTable.h"
 #include "Engine/TextureRenderTarget2D.h"
 
@@ -37,6 +40,60 @@ static UDFNexusClassListObject* PickInitialTilePayload(const FName DesiredRow,
 		if (O && !O->bLocked)
 		{
 			return O;
+		}
+	}
+	return nullptr;
+}
+
+static void GatherUmgDescendants(UWidget* const W, TArray<UWidget*>& Out)
+{
+	if (!W)
+	{
+		return;
+	}
+	Out.Add(W);
+	if (UPanelWidget* const P = Cast<UPanelWidget>(W))
+	{
+		for (int32 i = 0; i < P->GetChildrenCount(); ++i)
+		{
+			GatherUmgDescendants(P->GetChildAt(i), Out);
+		}
+	}
+}
+
+static UDFNexusClassDetailPanelWidget* ResolveDetailPanel(UUserWidget* const Owner,
+	TObjectPtr<UDFNexusClassDetailPanelWidget> BindCandidate)
+{
+	if (BindCandidate)
+	{
+		return BindCandidate.Get();
+	}
+	static const TCHAR* CandidateNames[] = {
+		TEXT("ClassDetailPanel"),
+		TEXT("BP_DFNexusClassDetailPanelWidget"),
+		TEXT("DFNexusClassDetailPanelWidget"),
+		TEXT("WBP_UDFNexusClassDetailPanelWidget"),
+	};
+	for (const TCHAR* N : CandidateNames)
+	{
+		if (UWidget* const Wdg = Owner->GetWidgetFromName(FName(N)))
+		{
+			if (UDFNexusClassDetailPanelWidget* const D = Cast<UDFNexusClassDetailPanelWidget>(Wdg))
+			{
+				return D;
+			}
+		}
+	}
+	if (UWidget* const R = Owner->GetRootWidget())
+	{
+		TArray<UWidget*> Descendants;
+		GatherUmgDescendants(R, Descendants);
+		for (UWidget* Wid : Descendants)
+		{
+			if (UDFNexusClassDetailPanelWidget* const D = Cast<UDFNexusClassDetailPanelWidget>(Wid))
+			{
+				return D;
+			}
 		}
 	}
 	return nullptr;
@@ -83,6 +140,8 @@ void UDFNexusClassSelectionWidget::RebuildClassTileItemsFromSubsystem()
 			"[DF|Nexus|ClassTile] DT de classes ausente — verifique DFRunManager::ClassDataTable / Project Settings Dungeon Forged | "
 			"Class Selection.");
 		ClassTileView->ClearListItems();
+		CurrentSelected = NAME_None;
+		SyncClassDetailPanel();
 		return;
 	}
 	TArray<FName> RowNames;
@@ -103,6 +162,7 @@ void UDFNexusClassSelectionWidget::RebuildClassTileItemsFromSubsystem()
 		O->ClassRow = RowName;
 		O->Name = Row->ClassName;
 		O->Blurb = Row->ClassDescription;
+		O->ClassPortrait = Row->ClassPortrait;
 		O->bLocked = !Sub->IsClassUnlocked(RowName);
 		O->LockHint = Sub->GetUnlockConditionText(RowName);
 		OwnedItems.Add(O);
@@ -115,6 +175,11 @@ void UDFNexusClassSelectionWidget::RebuildClassTileItemsFromSubsystem()
 	{
 		ClassTileView->SetSelectedItem(Pick);
 		SetSelectedClassRow(Pick->ClassRow);
+	}
+	else
+	{
+		CurrentSelected = NAME_None;
+		SyncClassDetailPanel();
 	}
 }
 
@@ -141,6 +206,21 @@ void UDFNexusClassSelectionWidget::SetSelectedClassRow(const FName ClassRow)
 			ClassRow.IsNone() == false && Sub && Sub->IsClassUnlocked(ClassRow);
 		StartRunButton->SetIsEnabled(bCanStart);
 	}
+
+	SyncClassDetailPanel();
+}
+
+void UDFNexusClassSelectionWidget::SyncClassDetailPanel()
+{
+	UDFNexusClassDetailPanelWidget* const Panel = ResolveDetailPanel(this, ClassDetailPanel);
+	if (!Panel)
+	{
+		DF_LOG(Warning,
+			"[DF|Nexus|ClassSel] Painel de detalhe nao encontrado. Coloca um UserWidget com pai C++ UDFNexusClassDetailPanelWidget e, no WBP, renomeia para ClassDetailPanel "
+			"— ou mantem o nome BP_DFNexusClassDetailPanelWidget (resolvido automaticamente).");
+		return;
+	}
+	Panel->RefreshForClass(CurrentSelected);
 }
 
 void UDFNexusClassSelectionWidget::RefreshPreviewBrushFromSubsystem()

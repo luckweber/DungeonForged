@@ -9,6 +9,7 @@ class UButton;
 class UImage;
 class UTileView;
 class UDFNexusClassListObject;
+class UDFNexusClassDetailPanelWidget;
 
 UCLASS(Blueprintable)
 class DUNGEONFORGED_API UDFNexusClassSelectionWidget : public UUserWidget
@@ -50,6 +51,10 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
 	TObjectPtr<UButton> UpgradesButton = nullptr;
 
+	/** Opcional — parent @c UDFNexusClassDetailPanelWidget ou derivado descrito/desenhado ao lado das tiles (textos + barras dos stats da DT). */
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
+	TObjectPtr<UDFNexusClassDetailPanelWidget> ClassDetailPanel = nullptr;
+
 	FName CurrentSelected = NAME_None;
 
 	void RefreshPreviewBrushFromSubsystem();
@@ -64,4 +69,7 @@ protected:
 	void OnUpgradesClicked();
 
 	void OnClassTileSelectionChanged(UObject* Item);
+
+	/** Atualiza painel de texto/stats (opcional). Reutiliza os nomes BindWidget do detalhe — ver @c UDFNexusClassDetailPanelWidget. */
+	void SyncClassDetailPanel();
 };
