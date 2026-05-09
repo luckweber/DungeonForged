@@ -2,6 +2,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/DataTable.h"
+#include "Engine/Texture2D.h"
 #include "GameModes/Run/DFRunTypes.h"
 #include "DFWorldTypes.generated.h"
 
@@ -58,3 +60,46 @@ namespace DFWorldTransition
 		}
 	}
 } // namespace DFWorldTransition
+
+/** Uma entrada de texto para o painel de dicas do @ref UDFLoadingScreenSubsystem (DataTable opcional em Project Settings). */
+USTRUCT(BlueprintType)
+struct DUNGEONFORGED_API FDFLoadingScreenTipPair
+{
+	GENERATED_BODY()
+
+	/** Opcional; vazio ⇒ rótulo padrão "Dica". */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loading")
+	FText TipLabel;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loading")
+	FText TipBody;
+
+	/** Sobrescreve @c RowBackgroundTexture da linha se resolvível. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loading")
+	TSoftObjectPtr<UTexture2D> BackgroundOverride;
+};
+
+/**
+ * Linha de DT (Project Settings → Dungeon Forged | Loading Screen).
+ * Mesmo @a ForReason pode repetir entre linhas; todas entram no sorteio.
+ */
+USTRUCT(BlueprintType)
+struct DUNGEONFORGED_API FDFLoadingScreenTipsRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	/** Entra no pool de dicas independentemente do @c ETravelReason atual. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loading")
+	bool bAlwaysIncludeInPool = false;
+
+	/** Matching pela viagem apenas quando @c bAlwaysIncludeInPool é false. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loading")
+	ETravelReason ForReason = ETravelReason::FirstLaunch;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loading")
+	TArray<FDFLoadingScreenTipPair> Tips;
+
+	/** Fallback de fundo @c BackgroundArt quando a entrada não tem @c BackgroundOverride. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Loading")
+	TSoftObjectPtr<UTexture2D> RowBackgroundTexture;
+};

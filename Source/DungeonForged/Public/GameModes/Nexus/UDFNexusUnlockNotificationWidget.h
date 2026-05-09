@@ -25,16 +25,16 @@ public:
 protected:
 	virtual void NativeConstruct() override;
 
-	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidget))
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
 	TObjectPtr<UImage> UnlockIcon = nullptr;
 
-	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidget))
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> TitleText = nullptr;
 
-	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidget))
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> NameText = nullptr;
 
-	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetAnim, AllowPrivateAccess = true))
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetAnimOptional), Category = "Nexus|UI")
 	TObjectPtr<UWidgetAnimation> SlideInAnim = nullptr;
 
 private:

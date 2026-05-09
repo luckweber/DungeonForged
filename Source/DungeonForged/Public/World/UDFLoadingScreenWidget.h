@@ -23,12 +23,14 @@ class DUNGEONFORGED_API UDFLoadingScreenWidget : public UUserWidget
 public:
 	void ResetForTravel();
 
-	/** 0–1 primary bar; holds near 0.85 with stutter until @a bSnapComplete. */
+	/** 0–1 bar + % texto. Progresso fictício vem de @ref UDFLoadingScreenSubsystem::OnLoadingProgressTicker (CoreTicker). Snap = 100% imediato no fim da carga. */
 	void SetLoadingProgress(float Pct, bool bSnapComplete);
 
 	void SetLoadingTitleText(const FText& T);
 	void SetFlavorText(const FText& T);
 	void SetTip(const FText& Label, const FText& Body);
+	/** Sobrescreve @a BackgroundArt se @a Texture válido e widget existente; preserva arte do BP se nullptr. */
+	void SetOptionalBackgroundFromTexture(class UTexture2D* Texture);
 	void SetFloorCopy(int32 Floor, int32 MaxFloors, const FText& DifficultyLine);
 	void SetRunProgress(float Pct01);
 	void SetEnemyPreviewTextures(int32 Count, class UTexture2D* A, class UTexture2D* B, class UTexture2D* C);
@@ -43,7 +45,6 @@ public:
 
 protected:
 	virtual void NativeConstruct() override;
-	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UImage> BackgroundArt = nullptr;
@@ -72,6 +73,7 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> FloorNumber = nullptr;
 
+	/** Opcional: linha "ANDAR N / M" em viagens @c NextFloor (evita roubar @c FloorNumber quando este mostra %). */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> FloorDifficulty = nullptr;
 
@@ -88,9 +90,5 @@ protected:
 	TObjectPtr<UWidgetAnimation> LogoBreathAnim = nullptr;
 
 private:
-	float TargetProgress = 0.f;
-	float DisplayedProgress = 0.f;
-	float StutterTimer = 0.f;
-	uint8 bSnapRequest : 1 = false;
 	uint8 bBreathStarted : 1 = false;
 };

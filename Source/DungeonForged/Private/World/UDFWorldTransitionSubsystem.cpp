@@ -9,6 +9,7 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
+#include "TimerManager.h"
 
 /*
   PRIMEIRO LAUNCH
@@ -51,6 +52,56 @@ void UDFWorldTransitionSubsystem::Initialize(FSubsystemCollectionBase& Collectio
 	}
 	DF_LOG(Log, "[DF|WorldTransition] Initialize: NexusMapName='%s' RunMapName='%s'",
 		*NexusMapName, *RunMapName);
+}
+
+void UDFWorldTransitionSubsystem::Deinitialize()
+{
+	if (UGameInstance* const GI = GetGameInstance())
+	{
+		if (UWorld* const W = GI->GetWorld())
+		{
+			W->GetTimerManager().ClearTimer(DeferredOpenMapTimer);
+		}
+	}
+	DeferredMapToOpen.Reset();
+	Super::Deinitialize();
+}
+
+void UDFWorldTransitionSubsystem::ScheduleOpenMapAfterPaint(const FString& Map)
+{
+	UGameInstance* const GI = GetGameInstance();
+	UWorld* const W = GI ? GI->GetWorld() : nullptr;
+	if (!W)
+	{
+		OpenMapByName(Map);
+		return;
+	}
+	if (W->GetNetMode() == NM_Client)
+	{
+		return;
+	}
+	if (DeferredOpenMapTimer.IsValid())
+	{
+		W->GetTimerManager().ClearTimer(DeferredOpenMapTimer);
+	}
+	DeferredMapToOpen = Map;
+	DF_LOG(Log,
+		"[DF|WorldTransition] Agenda OpenLevel (50ms): permite desenhar a UI de loading antes do hitch sincrono.");
+	W->GetTimerManager().SetTimer(
+		DeferredOpenMapTimer,
+		FTimerDelegate::CreateUObject(this, &UDFWorldTransitionSubsystem::ExecuteDeferredOpenMap),
+		0.05f,
+		false);
+}
+
+void UDFWorldTransitionSubsystem::ExecuteDeferredOpenMap()
+{
+	FString Copy = MoveTemp(DeferredMapToOpen);
+	DeferredMapToOpen.Reset();
+	if (!Copy.IsEmpty())
+	{
+		OpenMapByName(Copy);
+	}
 }
 
 void UDFWorldTransitionSubsystem::OpenMapByName(const FString& Map)
@@ -111,7 +162,7 @@ void UDFWorldTransitionSubsystem::TravelToNexus(const ETravelReason Reason)
 	{
 		L->ShowLoadingScreen(Reason, 1, 10);
 	}
-	OpenMapByName(NexusMapName);
+	ScheduleOpenMapAfterPaint(NexusMapName);
 }
 
 void UDFWorldTransitionSubsystem::TravelToRun(const FName SelectedClass)
@@ -147,7 +198,7 @@ void UDFWorldTransitionSubsystem::TravelToRun(const FName SelectedClass)
 	{
 		L->ShowLoadingScreen(ETravelReason::NewRun, 1, 10);
 	}
-	OpenMapByName(RunMapName);
+	ScheduleOpenMapAfterPaint(RunMapName);
 }
 
 void UDFWorldTransitionSubsystem::TravelToNextFloor(const int32 NextFloor, const int32 MaxFloors)
@@ -180,7 +231,7 @@ void UDFWorldTransitionSubsystem::TravelToNextFloor(const int32 NextFloor, const
 	{
 		L->ShowLoadingScreen(ETravelReason::NextFloor, NextFloor, MaxFloors);
 	}
-	OpenMapByName(RunMapName);
+	ScheduleOpenMapAfterPaint(RunMapName);
 }
 
 void UDFWorldTransitionSubsystem::FinalizeRunData(const ETravelReason Reason)

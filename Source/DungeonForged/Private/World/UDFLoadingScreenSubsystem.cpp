@@ -2,37 +2,198 @@
 #include "World/UDFLoadingScreenSubsystem.h"
 #include "World/UDFLoadingScreenWidget.h"
 #include "World/UDFWorldTransitionSubsystem.h"
+#include "Settings/UDFLoadingScreenDeveloperSettings.h"
+#include "DungeonForgedModule.h"
+#include "Blueprint/UserWidget.h"
+#include "Containers/Ticker.h"
+#include "Engine/DataTable.h"
 #include "Engine/GameInstance.h"
+#include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
-#include "UObject/UObjectGlobals.h"
-#include "HAL/PlatformTime.h"
 #include "TimerManager.h"
+#include "Components/ProgressBar.h"
+#include "Components/TextBlock.h"
+#include "HAL/PlatformTime.h"
+
+namespace
+{
+
+struct FCollectedLoadingTipPresentation
+{
+	FText Label = FText::GetEmpty();
+	FText Body = FText::GetEmpty();
+	TSoftObjectPtr<UTexture2D> BgPreferred;
+};
+
+static TArray<FCollectedLoadingTipPresentation> GatherLoadingTipChoices(
+	const UDataTable* const Dt, const ETravelReason Reason)
+{
+	TArray<FCollectedLoadingTipPresentation> Pool;
+	if (!Dt)
+	{
+		return Pool;
+	}
+	Dt->ForeachRow<FDFLoadingScreenTipsRow>(TEXT("GatherLoadingTips"),
+		[&Pool, Reason](const FName& /*RowName*/, const FDFLoadingScreenTipsRow& R)
+		{
+			const bool bMatchReason = R.bAlwaysIncludeInPool || R.ForReason == Reason;
+
+			auto PushBgOnly = [&Pool](const FDFLoadingScreenTipsRow& RowRef)
+				{
+					if (RowRef.RowBackgroundTexture.IsNull())
+					{
+						return;
+					}
+					FCollectedLoadingTipPresentation BgOnly;
+					BgOnly.BgPreferred = RowRef.RowBackgroundTexture;
+					Pool.Add(MoveTemp(BgOnly));
+				};
+
+			if (!bMatchReason)
+			{
+				return;
+			}
+			bool bAddedFromTips = false;
+			for (const FDFLoadingScreenTipPair& Tip : R.Tips)
+			{
+				if (Tip.TipBody.IsEmpty())
+				{
+					continue;
+				}
+				FCollectedLoadingTipPresentation C;
+				C.Label = Tip.TipLabel;
+				C.Body = Tip.TipBody;
+				C.BgPreferred =
+					Tip.BackgroundOverride.IsNull() ? R.RowBackgroundTexture : Tip.BackgroundOverride;
+				Pool.Add(MoveTemp(C));
+				bAddedFromTips = true;
+			}
+			if (!bAddedFromTips)
+			{
+				PushBgOnly(R);
+			}
+		});
+	return Pool;
+}
+
+static bool PickRandomPresentationFromTable(const UDataTable* const Dt, const ETravelReason Reason,
+	FText& OutLabel, FText& OutBody, UTexture2D*& OutBg)
+{
+	OutBg = nullptr;
+	const TArray<FCollectedLoadingTipPresentation> Pool = GatherLoadingTipChoices(Dt, Reason);
+	const int32 N = Pool.Num();
+	if (N <= 0)
+	{
+		return false;
+	}
+	const int32 Idx = FMath::RandHelper(N);
+	const FCollectedLoadingTipPresentation& W = Pool[Idx];
+	const FText DefaultLbl = NSLOCTEXT("DF", "LoadTipLabel", "Dica");
+	static const auto DefaultTipBody =
+		NSLOCTEXT("DF", "LoadTipBody", "Use o terreno. Quebrar a linha de visao nega o encanto inimigo.");
+	OutLabel = W.Label.IsEmpty() ? DefaultLbl : W.Label;
+	OutBody = W.Body.IsEmpty() ? DefaultTipBody : W.Body;
+	if (!W.BgPreferred.IsNull())
+	{
+		OutBg = Cast<UTexture2D>(W.BgPreferred.LoadSynchronous());
+	}
+	return true;
+}
+
+template <typename TWidget>
+static TWidget* ResolveWidgetByAliases(UUserWidget* const Root,
+	std::initializer_list<const TCHAR*> const Aliases)
+{
+	if (!Root)
+	{
+		return nullptr;
+	}
+	for (const TCHAR* const Name : Aliases)
+	{
+		if (UWidget* const Candidate = Root->GetWidgetFromName(FName(Name)))
+		{
+			return Cast<TWidget>(Candidate);
+		}
+	}
+	return nullptr;
+}
+
+} // namespace
 
 void UDFLoadingScreenSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	ApplyDeveloperLoadingDefaults();
 	PostLoadMapHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(
 		this, &UDFLoadingScreenSubsystem::HandlePostLoadMapWithWorld);
 }
 
+void UDFLoadingScreenSubsystem::ApplyDeveloperLoadingDefaults()
+{
+	CachedTipsTable = nullptr;
+	UDFLoadingScreenDeveloperSettings* const DevCfg = GetMutableDefault<UDFLoadingScreenDeveloperSettings>();
+	if (!DevCfg)
+	{
+		return;
+	}
+	// Garantir que DefaultGame.ini (secao [/Script/DungeonForged.DFLoadingScreenDeveloperSettings]) entre no CDO.
+	DevCfg->LoadConfig(DevCfg->GetClass());
+
+	if (DevCfg->LoadingScreenWidgetClass)
+	{
+		LoadingScreenClass = DevCfg->LoadingScreenWidgetClass;
+	}
+	if (DevCfg->LoadingScreenWidgetSoftPath.IsValid())
+	{
+		if (UClass* const Loaded = DevCfg->LoadingScreenWidgetSoftPath.TryLoadClass<UUserWidget>())
+		{
+			LoadingScreenClass = Loaded;
+		}
+		else
+		{
+			DF_LOG(Warning,
+				"[DF|Loading] LoadingScreenWidgetSoftPath nao encontrado: %s",
+				*DevCfg->LoadingScreenWidgetSoftPath.ToString());
+		}
+	}
+
+	if (!LoadingScreenClass)
+	{
+		DF_LOG(Warning,
+			"[DF|Loading] Sem LoadingScreenWidgetClass apos ler Project Settings / DefaultGame.ini. "
+			"Use formato /Game/.../BP_X.BP_X_C ou preencha Soft Path.");
+	}
+
+	MinLoadingTime = DevCfg->MinLoadingTime;
+	CachedTipsTable = DevCfg->TipsTable.LoadSynchronous();
+	if (!DevCfg->TipsTable.IsNull() && !CachedTipsTable)
+	{
+		DF_LOG(Warning,
+			"[DF|Loading] TipsTable configurada mas nao carregavel: %s",
+			*DevCfg->TipsTable.ToString());
+	}
+}
+
 void UDFLoadingScreenSubsystem::Deinitialize()
 {
+	ClearFallbackBindings();
 	if (PostLoadMapHandle.IsValid())
 	{
 		FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(PostLoadMapHandle);
 		PostLoadMapHandle.Reset();
 	}
+	CancelLoadingProgressTicker();
 	if (UGameInstance* const GI = GetGameInstance())
 	{
 		if (UWorld* const W = GI->GetWorld())
 		{
-			W->GetTimerManager().ClearTimer(ProgressTimer);
 			W->GetTimerManager().ClearTimer(MinTimeTimer);
 			W->GetTimerManager().ClearTimer(FadeTimer);
 		}
 	}
+	CachedTipsTable = nullptr;
 	Super::Deinitialize();
 }
 
@@ -65,10 +226,38 @@ void UDFLoadingScreenSubsystem::ShowLoadingScreen(
 	}
 	if (!PC)
 	{
+		DF_LOG(Warning,
+			"[DF|Loading] Sem PlayerController ao mostrar overlay (ex.: servidor dedicado). Transicao deve continuar sem UI.");
+		if (UDFWorldTransitionSubsystem* const T = GI->GetSubsystem<UDFWorldTransitionSubsystem>())
+		{
+			T->NotifyLoadingFinished();
+		}
 		return;
 	}
 	ActiveLoadingScreen = CreateWidget<UUserWidget>(PC, LoadingScreenClass);
+	ClearFallbackBindings();
 	ActiveLoadingCxx = Cast<UDFLoadingScreenWidget>(ActiveLoadingScreen);
+	if (ActiveLoadingScreen && !ActiveLoadingCxx)
+	{
+		DF_LOG(Warning,
+			"[DF|Loading] O widget %s deve herdar de UDFLoadingScreenWidget para titulo/barra pela API C++. Tentando Fallback por nome (LoadingBar, FloorNumber)...",
+			*LoadingScreenClass->GetPathName());
+		TryDiscoverFallbackControls(ActiveLoadingScreen);
+		if (FallbackLoadingBar.IsValid())
+		{
+			FallbackLoadingBar->SetPercent(0.f);
+		}
+		if (FallbackPctText.IsValid())
+		{
+			FallbackPctText->SetText(
+				FText::Format(NSLOCTEXT("DF", "LoadingPctFmt", "{0}%"), FText::AsNumber(0)));
+		}
+		if (!FallbackLoadingBar.IsValid())
+		{
+			DF_LOG(Warning,
+				"[DF|Loading] Sem ProgressBar encontrado nos aliases (ex.: LoadingBar). Barra pode ficar fixa.");
+		}
+	}
 	if (ActiveLoadingCxx)
 	{
 		ActiveLoadingCxx->ResetForTravel();
@@ -111,40 +300,113 @@ void UDFLoadingScreenSubsystem::ShowLoadingScreen(
 			ActiveLoadingCxx->SetFlavorText(FText::GetEmpty());
 			break;
 		}
-		ActiveLoadingCxx->SetTip(
-			NSLOCTEXT("DF", "LoadTipLabel", "Dica"),
-			NSLOCTEXT("DF", "LoadTipBody", "Use o terreno. Quebrar a linha de visao nega o encanto inimigo."));
+		FText TipLabelChosen;
+		FText TipBodyChosen;
+		UTexture2D* TipBgChosen = nullptr;
+		if (!PickRandomPresentationFromTable(CachedTipsTable.Get(), Reason, TipLabelChosen, TipBodyChosen, TipBgChosen))
+		{
+			TipLabelChosen = NSLOCTEXT("DF", "LoadTipLabel", "Dica");
+			TipBodyChosen = NSLOCTEXT(
+				"DF", "LoadTipBody", "Use o terreno. Quebrar a linha de visao nega o encanto inimigo.");
+			TipBgChosen = nullptr;
+		}
+		ActiveLoadingCxx->SetTip(TipLabelChosen, TipBodyChosen);
+		if (TipBgChosen)
+		{
+			ActiveLoadingCxx->SetOptionalBackgroundFromTexture(TipBgChosen);
+		}
 	}
+	const bool bCxxPath = ActiveLoadingCxx != nullptr;
+	DF_LOG(Display,
+		"[DF|Loading] Overlay: Razao=%d Classe=%s C++widget=%s FallbackBar=%s FallbackPctTxt=%s",
+		static_cast<int32>(Reason),
+		LoadingScreenClass ? *LoadingScreenClass->GetPathName() : TEXT("<null>"),
+		bCxxPath ? TEXT("sim") : TEXT("nao"),
+		FallbackLoadingBar.IsValid() ? TEXT("sim") : TEXT("nao"),
+		FallbackPctText.IsValid() ? TEXT("sim") : TEXT("nao"));
 	ActiveLoadingScreen->AddToViewport(100);
 	FInputModeUIOnly M;
 	PC->SetInputMode(M);
 	PC->SetShowMouseCursor(false);
-	// 0 -> 0.9 over 1.5s in steps
+
+	CancelLoadingProgressTicker();
 	LerpStepIndex = 0;
-	if (UWorld* const W = GI->GetWorld())
+	bMapLoaded = false;
+	CurrentFilledPct = 0.f;
+	ProgressTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateUObject(this, &UDFLoadingScreenSubsystem::OnLoadingProgressTicker), 0.05f);
+
+	if (!ProgressTickerHandle.IsValid())
 	{
-		ProgressTickDelegate = FTimerDelegate::CreateUObject(this, &UDFLoadingScreenSubsystem::LerpProgressStep);
-		W->GetTimerManager().SetTimer(ProgressTimer, ProgressTickDelegate, 0.05f, true);
+		DF_LOG(Warning, "[DF|Loading] Falha ao registar ticker de progresso CoreTicker.");
 	}
 }
 
-void UDFLoadingScreenSubsystem::LerpProgressStep()
+void UDFLoadingScreenSubsystem::CancelLoadingProgressTicker()
 {
-	UGameInstance* const GI = GetGameInstance();
-	if (!ActiveLoadingCxx || !GI)
+	if (!ProgressTickerHandle.IsValid())
 	{
 		return;
 	}
-	++LerpStepIndex;
-	const float Alpha = FMath::Clamp(static_cast<float>(LerpStepIndex) / static_cast<float>(LerpStepCount), 0.f, 1.f);
-	ActiveLoadingCxx->SetLoadingProgress(Alpha * 0.9f, false);
-	if (LerpStepIndex >= LerpStepCount)
+	FTSTicker::GetCoreTicker().RemoveTicker(ProgressTickerHandle);
+	ProgressTickerHandle.Reset();
+}
+
+bool UDFLoadingScreenSubsystem::OnLoadingProgressTicker(float /*DeltaTime*/)
+{
+	UGameInstance* const GI = GetGameInstance();
+	if (!GI || !ActiveLoadingScreen)
 	{
-		if (UWorld* const W = GI->GetWorld())
-		{
-			W->GetTimerManager().ClearTimer(ProgressTimer);
-		}
+		return false;
 	}
+
+	if (!ActiveLoadingCxx && !FallbackLoadingBar.IsValid())
+	{
+		return false;
+	}
+
+	static constexpr float kStepSecs = 0.05f;
+	static constexpr float kFakeTop = 0.9f;
+	static constexpr float kFakeSpeed = 2.5f;
+	static constexpr float kFillSpeed = 6.f;
+
+	auto ApplyShown = [this](const float Pct)
+		{
+			if (ActiveLoadingCxx)
+			{
+				ActiveLoadingCxx->SetLoadingProgress(Pct, false);
+			}
+			else if (FallbackLoadingBar.IsValid())
+			{
+				FallbackSetLoadingProgress(Pct, false);
+			}
+		};
+
+	if (!bMapLoaded)
+	{
+		if (LerpStepIndex < LerpStepCount)
+		{
+			++LerpStepIndex;
+		}
+		const float FakeTarget =
+			FMath::Clamp(static_cast<float>(LerpStepIndex) / static_cast<float>(LerpStepCount), 0.f, 1.f) * kFakeTop;
+		CurrentFilledPct = FMath::FInterpTo(CurrentFilledPct, FakeTarget, kStepSecs, kFakeSpeed);
+		ApplyShown(FMath::Clamp(CurrentFilledPct, 0.f, 1.f));
+		return true;
+	}
+
+	CurrentFilledPct = FMath::FInterpTo(CurrentFilledPct, 1.f, kStepSecs, kFillSpeed);
+	ApplyShown(FMath::Clamp(CurrentFilledPct, 0.f, 1.f));
+
+	if (CurrentFilledPct >= 0.999f)
+	{
+		CurrentFilledPct = 1.f;
+		ApplyShown(1.f);
+		HideLoadingScreen();
+		return false;
+	}
+
+	return true;
 }
 
 void UDFLoadingScreenSubsystem::HandlePostLoadMapWithWorld(UWorld* const LoadedWorld)
@@ -157,25 +419,13 @@ void UDFLoadingScreenSubsystem::HandlePostLoadMapWithWorld(UWorld* const LoadedW
 	{
 		return;
 	}
-	if (UGameInstance* const GI = GetGameInstance())
-	{
-		if (UWorld* const W = GI->GetWorld())
-		{
-			W->GetTimerManager().ClearTimer(ProgressTimer);
-		}
-	}
-	if (ActiveLoadingCxx)
-	{
-		ActiveLoadingCxx->SetLoadingProgress(1.f, true);
-	}
-	// Slight delay so percent paints before hide pipeline
-	FTimerHandle H;
-	LoadedWorld->GetTimerManager().SetTimer(
-		H, FTimerDelegate::CreateUObject(this, &UDFLoadingScreenSubsystem::HideLoadingScreen), 0.05f, false);
+	// Nao cancelar o CoreTicker: fase 2 anima ate 100% antes de HideLoadingScreen.
+	bMapLoaded = true;
 }
 
 void UDFLoadingScreenSubsystem::HideLoadingScreen()
 {
+	CancelLoadingProgressTicker();
 	UGameInstance* const GI = GetGameInstance();
 	if (!GI)
 	{
@@ -236,11 +486,72 @@ void UDFLoadingScreenSubsystem::OnFadeOutRemoveWidget()
 	}
 	ActiveLoadingScreen = nullptr;
 	ActiveLoadingCxx = nullptr;
+	ClearFallbackBindings();
+	bMapLoaded = false;
+	CurrentFilledPct = 0.f;
 	if (UGameInstance* const G = GetGameInstance())
 	{
 		if (UDFWorldTransitionSubsystem* const T = G->GetSubsystem<UDFWorldTransitionSubsystem>())
 		{
 			T->NotifyLoadingFinished();
 		}
+	}
+}
+
+void UDFLoadingScreenSubsystem::ClearFallbackBindings()
+{
+	FallbackLoadingBar.Reset();
+	FallbackPctText.Reset();
+}
+
+void UDFLoadingScreenSubsystem::TryDiscoverFallbackControls(UUserWidget* const ScreenRoot)
+{
+	if (!ScreenRoot)
+	{
+		return;
+	}
+
+	UProgressBar* const Bar = ResolveWidgetByAliases<UProgressBar>(ScreenRoot,
+		{
+			TEXT("LoadingBar"),
+			TEXT("PB_Loading"),
+			TEXT("Progress_LoadingBar"),
+			TEXT("ProgressBar_Loading"),
+			TEXT("ProgressBar"),
+		});
+
+	UTextBlock* const PctTxt = ResolveWidgetByAliases<UTextBlock>(ScreenRoot,
+		{
+			TEXT("FloorNumber"),
+			TEXT("LoadingPct"),
+			TEXT("PercentLabel"),
+			TEXT("Txt_Percent"),
+			TEXT("Txt_Percentage"),
+			TEXT("Text_Pct"),
+			TEXT("LoadingPercent"),
+		});
+
+	if (Bar)
+	{
+		FallbackLoadingBar = Bar;
+	}
+	if (PctTxt)
+	{
+		FallbackPctText = PctTxt;
+	}
+}
+
+void UDFLoadingScreenSubsystem::FallbackSetLoadingProgress(const float Pct, const bool bSnapComplete)
+{
+	const float ShownPct = bSnapComplete ? 1.f : FMath::Clamp(Pct, 0.f, 1.f);
+	if (FallbackLoadingBar.IsValid())
+	{
+		FallbackLoadingBar->SetPercent(ShownPct);
+	}
+	if (FallbackPctText.IsValid())
+	{
+		FallbackPctText->SetText(FText::Format(
+			NSLOCTEXT("DF", "LoadingPctFmt", "{0}%"),
+			FText::AsNumber(FMath::Clamp(FMath::RoundToInt(ShownPct * 100.f), 0, 100))));
 	}
 }

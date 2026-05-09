@@ -5,10 +5,32 @@
 #include "GameModes/Nexus/UDFNexusUnlockNotificationWidget.h"
 #include "Interaction/UDFInteractionPromptWidget.h"
 #include "Blueprint/UserWidget.h"
+#include "Components/Overlay.h"
+#include "Components/OverlaySlot.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "TimerManager.h"
+
+namespace
+{
+
+static bool UnlockEntryShouldShowNotification(const FDFPendingUnlockEntry& E)
+{
+	switch (E.Type)
+	{
+	case ENexusPendingUnlockType::UnlockClass:
+		return !E.ClassRow.IsNone();
+	case ENexusPendingUnlockType::UnlockNPC:
+		return !E.NPCId.IsNone();
+	case ENexusPendingUnlockType::UnlockUpgrade:
+		return !E.UpgradeRow.IsNone();
+	default:
+		return false;
+	}
+}
+
+} // namespace
 
 ADFNexusHUD::ADFNexusHUD()
 	: bNotificationShowing(false)
@@ -76,6 +98,10 @@ void ADFNexusHUD::SetRootWidgetHiddenForClassSelection(const bool InHidden)
 
 void ADFNexusHUD::QueueUnlockNotificationForEntry(const FDFPendingUnlockEntry& Entry)
 {
+	if (!UnlockEntryShouldShowNotification(Entry))
+	{
+		return;
+	}
 	NotificationQueue.Add(Entry);
 	if (!bNotificationShowing)
 	{
@@ -89,41 +115,106 @@ void ADFNexusHUD::DequeueAndShowNextNotification()
 	{
 		return;
 	}
+	auto CollapseTray = [this]
+		{
+			if (RootWidget)
+			{
+				RootWidget->SetNotificationTrayVisible(false);
+			}
+		};
+
 	if (NotificationQueue.Num() == 0)
 	{
 		bNotificationShowing = false;
+		CollapseTray();
 		return;
 	}
+
 	bNotificationShowing = true;
+
+	while (NotificationQueue.Num() > 0 && !UnlockEntryShouldShowNotification(NotificationQueue[0]))
+	{
+		NotificationQueue.RemoveAt(0);
+	}
+
+	if (NotificationQueue.Num() == 0)
+	{
+		bNotificationShowing = false;
+		CollapseTray();
+		return;
+	}
+
 	const FDFPendingUnlockEntry E = NotificationQueue[0];
 	NotificationQueue.RemoveAt(0);
 	if (!UnlockNotificationClass)
 	{
 		if (UWorld* const W = GetWorld())
 		{
-			W->GetTimerManager().SetTimer(NotificationChainTimer, this, &ADFNexusHUD::OnNotificationChainStep, 0.1f, false);
+			W->GetTimerManager().SetTimer(
+				NotificationChainTimer, this, &ADFNexusHUD::OnNotificationChainStep, 0.1f, false);
 		}
 		return;
 	}
-	UDFNexusUnlockNotificationWidget* const Widget = CreateWidget<UDFNexusUnlockNotificationWidget>(PlayerOwner, UnlockNotificationClass);
+
+	UDFNexusUnlockNotificationWidget* const Widget =
+		CreateWidget<UDFNexusUnlockNotificationWidget>(PlayerOwner, UnlockNotificationClass);
 	if (Widget)
 	{
 		FText T = NSLOCTEXT("DFNexus", "Unlock", "Novo desbloqueio");
 		FText N = FText::GetEmpty();
 		switch (E.Type)
 		{
-		case ENexusPendingUnlockType::UnlockClass: T = NSLOCTEXT("DFNexus", "UnlockClass", "Nova classe!"); N = FText::FromName(E.ClassRow); break;
-		case ENexusPendingUnlockType::UnlockNPC: T = NSLOCTEXT("DFNexus", "UnlockNPC", "NPC!"); N = FText::FromName(E.NPCId); break;
-		case ENexusPendingUnlockType::UnlockUpgrade: T = NSLOCTEXT("DFNexus", "UnlockUp", "Upgrade!"); N = FText::FromName(E.UpgradeRow); break;
-		default: break;
+		case ENexusPendingUnlockType::UnlockClass:
+			T = NSLOCTEXT("DFNexus", "UnlockClass", "Nova classe!");
+			N =
+				E.ClassRow.IsNone()
+					? NSLOCTEXT("DFNexus", "UnlockGeneric", "(sem nome de linha no save)")
+					: FText::FromName(E.ClassRow);
+			break;
+		case ENexusPendingUnlockType::UnlockNPC:
+			T = NSLOCTEXT("DFNexus", "UnlockNPC", "NPC desbloqueado!");
+			N =
+				E.NPCId.IsNone()
+					? NSLOCTEXT("DFNexus", "UnlockGenericNPC", "(sem ID do NPC no save)")
+					: FText::FromName(E.NPCId);
+			break;
+		case ENexusPendingUnlockType::UnlockUpgrade:
+			T = NSLOCTEXT("DFNexus", "UnlockUp", "Novo upgrade!");
+			N =
+				E.UpgradeRow.IsNone()
+					? NSLOCTEXT("DFNexus", "UnlockGenericUp", "(sem nome de linha no save)")
+					: FText::FromName(E.UpgradeRow);
+			break;
+		default:
+			N = NSLOCTEXT("DFNexus", "UnlockUnknown", "(tipo invalido em PendingUnlocks)");
+			break;
 		}
+
 		Widget->SetUnlockContent(T, N, nullptr);
-		Widget->AddToViewport(30);
+
+		UOverlay* const Tray = RootWidget ? RootWidget->GetNotificationOverlay() : nullptr;
+		if (Tray)
+		{
+			RootWidget->SetNotificationTrayVisible(true);
+			Tray->AddChildToOverlay(Widget);
+			if (UOverlaySlot* const OvSlot = Cast<UOverlaySlot>(Widget->Slot))
+			{
+				OvSlot->SetHorizontalAlignment(HAlign_Fill);
+				OvSlot->SetVerticalAlignment(VAlign_Top);
+				OvSlot->SetPadding(FMargin(0.f, 12.f));
+			}
+		}
+		else
+		{
+			Widget->AddToViewport(30);
+		}
+
 		Widget->PlayShowThenHide(4.f);
 	}
 	if (UWorld* const W = GetWorld())
 	{
-		W->GetTimerManager().SetTimer(NotificationChainTimer, this, &ADFNexusHUD::OnNotificationChainStep, 4.1f, false);
+		W->GetTimerManager().SetTimer(
+			NotificationChainTimer, this, &ADFNexusHUD::OnNotificationChainStep, 4.1f, false);
 	}
 }
 

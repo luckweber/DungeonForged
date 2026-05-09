@@ -27,7 +27,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Nexus|UI")
 	class UOverlay* GetNotificationOverlay() const { return NotificationOverlay; }
 
+	UFUNCTION(BlueprintCallable, Category = "Nexus|UI")
+	void SetNotificationTrayVisible(bool bVisible);
+
 protected:
+
+	virtual void NativeConstruct() override;
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UTextBlock> MetaLevelText = nullptr;
 

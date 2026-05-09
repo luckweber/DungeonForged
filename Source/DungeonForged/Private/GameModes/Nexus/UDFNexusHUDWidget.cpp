@@ -2,7 +2,23 @@
 #include "GameModes/Nexus/UDFNexusHUDWidget.h"
 #include "Components/TextBlock.h"
 #include "Components/ProgressBar.h"
-#include "Internationalization/Text.h"
+#include "Components/Overlay.h"
+
+void UDFNexusHUDWidget::NativeConstruct()
+{
+	Super::NativeConstruct();
+	SetNotificationTrayVisible(false);
+}
+
+void UDFNexusHUDWidget::SetNotificationTrayVisible(const bool bVisible)
+{
+	if (!NotificationOverlay)
+	{
+		return;
+	}
+	NotificationOverlay->SetVisibility(
+		bVisible ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+}
 
 void UDFNexusHUDWidget::SetMetaInfo(
 	const int32 MetaLevel,

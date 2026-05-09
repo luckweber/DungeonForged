@@ -14,17 +14,24 @@ void UDFNexusUnlockNotificationWidget::NativeConstruct()
 void UDFNexusUnlockNotificationWidget::SetUnlockContent(
 	const FText& Title, const FText& Name, UTexture2D* const OptionalIcon)
 {
-	if (TitleText)
+	UTextBlock* const TitleTb =
+		TitleText ? TitleText.Get() : Cast<UTextBlock>(GetWidgetFromName(TEXT("TitleText")));
+	UTextBlock* const NameTb =
+		NameText ? NameText.Get() : Cast<UTextBlock>(GetWidgetFromName(TEXT("NameText")));
+	UImage* const Icon =
+		UnlockIcon ? UnlockIcon.Get() : Cast<UImage>(GetWidgetFromName(TEXT("UnlockIcon")));
+
+	if (TitleTb)
 	{
-		TitleText->SetText(Title);
+		TitleTb->SetText(Title);
 	}
-	if (NameText)
+	if (NameTb)
 	{
-		NameText->SetText(Name);
+		NameTb->SetText(Name);
 	}
-	if (UnlockIcon && OptionalIcon)
+	if (Icon && OptionalIcon)
 	{
-		UnlockIcon->SetBrushFromTexture(OptionalIcon, false);
+		Icon->SetBrushFromTexture(OptionalIcon, false);
 	}
 }
 
@@ -36,7 +43,12 @@ void UDFNexusUnlockNotificationWidget::PlayShowThenHide(const float DisplaySecon
 	}
 	if (UWorld* const W = GetWorld())
 	{
-		W->GetTimerManager().SetTimer(AutoHideHandle, this, &UDFNexusUnlockNotificationWidget::HideSelf, FMath::Max(0.2f, DisplaySeconds), false);
+		W->GetTimerManager().SetTimer(
+			AutoHideHandle,
+			this,
+			&UDFNexusUnlockNotificationWidget::HideSelf,
+			FMath::Max(0.2f, DisplaySeconds),
+			false);
 	}
 }
 

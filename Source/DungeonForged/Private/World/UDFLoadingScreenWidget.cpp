@@ -22,50 +22,32 @@ void UDFLoadingScreenWidget::NativeConstruct()
 	}
 }
 
-void UDFLoadingScreenWidget::NativeTick(const FGeometry& MyGeometry, float const InDeltaTime)
-{
-	Super::NativeTick(MyGeometry, InDeltaTime);
-	if (!LoadingBar)
-	{
-		return;
-	}
-	// Smooth approach; slow "stutter" band before snap
-	if (DisplayedProgress < 0.84f)
-	{
-		DisplayedProgress = FMath::FInterpTo(DisplayedProgress, FMath::Min(TargetProgress, 0.9f), InDeltaTime, 2.5f);
-	}
-	else if (DisplayedProgress < 0.9f && !bSnapRequest)
-	{
-		StutterTimer += InDeltaTime;
-		const float Wobble = FMath::Sin(StutterTimer * 12.f) * 0.002f;
-		DisplayedProgress = FMath::Clamp(0.85f + Wobble, 0.f, 0.9f);
-	}
-	else if (bSnapRequest)
-	{
-		DisplayedProgress = FMath::FInterpTo(DisplayedProgress, 1.f, InDeltaTime, 6.f);
-	}
-	LoadingBar->SetPercent(FMath::Clamp(DisplayedProgress, 0.f, 1.f));
-}
-
 void UDFLoadingScreenWidget::ResetForTravel()
 {
-	TargetProgress = 0.f;
-	DisplayedProgress = 0.f;
-	StutterTimer = 0.f;
-	bSnapRequest = false;
 	if (LoadingBar)
 	{
 		LoadingBar->SetPercent(0.f);
+	}
+	if (FloorNumber)
+	{
+		FloorNumber->SetText(
+			FText::Format(NSLOCTEXT("DF", "LoadingPctFmt", "{0}%"), FText::AsNumber(0)));
 	}
 	SetRootVisualAlpha(1.f);
 }
 
 void UDFLoadingScreenWidget::SetLoadingProgress(const float Pct, const bool bSnapComplete)
 {
-	TargetProgress = FMath::Clamp(Pct, 0.f, 1.f);
-	if (bSnapComplete)
+	const float ShownPct = bSnapComplete ? 1.f : FMath::Clamp(Pct, 0.f, 1.f);
+	if (LoadingBar)
 	{
-		bSnapRequest = true;
+		LoadingBar->SetPercent(ShownPct);
+	}
+	if (FloorNumber)
+	{
+		FloorNumber->SetText(FText::Format(
+			NSLOCTEXT("DF", "LoadingPctFmt", "{0}%"),
+			FText::AsNumber(FMath::Clamp(FMath::RoundToInt(ShownPct * 100.f), 0, 100))));
 	}
 }
 
@@ -97,19 +79,29 @@ void UDFLoadingScreenWidget::SetTip(const FText& Label, const FText& Body)
 	}
 }
 
+void UDFLoadingScreenWidget::SetOptionalBackgroundFromTexture(UTexture2D* const Texture)
+{
+	if (!BackgroundArt || !Texture)
+	{
+		return;
+	}
+	BackgroundArt->SetBrushFromTexture(Texture, false);
+}
+
 void UDFLoadingScreenWidget::SetFloorCopy(
 	const int32 Floor, const int32 MaxFloors, const FText& DifficultyLine)
 {
-	if (FloorNumber)
-	{
-		FloorNumber->SetText(FText::Format(
-			NSLOCTEXT("DF", "LoadingFloorFmt", "ANDAR {0} / {1}"),
-			FText::AsNumber(Floor),
-			FText::AsNumber(MaxFloors)));
-	}
+	const FText AndarLine = FText::Format(
+		NSLOCTEXT("DF", "LoadingFloorFmt", "ANDAR {0} / {1}"),
+		FText::AsNumber(Floor),
+		FText::AsNumber(MaxFloors));
 	if (FloorDifficulty)
 	{
-		FloorDifficulty->SetText(DifficultyLine);
+		FloorDifficulty->SetText(DifficultyLine.IsEmpty() ? AndarLine : DifficultyLine);
+	}
+	else if (FloorNumber)
+	{
+		FloorNumber->SetText(AndarLine);
 	}
 }
 

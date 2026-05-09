@@ -23,6 +23,7 @@ class DUNGEONFORGED_API UDFWorldTransitionSubsystem : public UGameInstanceSubsys
 
 public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+	virtual void Deinitialize() override;
 
 	/** @c ETravelReason queued for the active transition (Nexus, floor, or run end). */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|World")
@@ -77,5 +78,16 @@ public:
 	void SaveCheckpoint(ECheckpointType Type);
 
 protected:
+	void ScheduleOpenMapAfterPaint(const FString& Map);
+
+	UFUNCTION()
+	void ExecuteDeferredOpenMap();
+
 	void OpenMapByName(const FString& Map);
+
+	/** Pending target for @ref ExecuteDeferredOpenMap (avoid OpenLevel same tick as loading UI AddToViewport). */
+	UPROPERTY(Transient)
+	FString DeferredMapToOpen;
+
+	FTimerHandle DeferredOpenMapTimer;
 };
