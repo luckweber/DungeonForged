@@ -234,6 +234,16 @@ void UDFMeleeTraceComponent::TickTrace(float /*DeltaTime*/)
 			continue;
 		}
 		HitActorsThisSwing.Add(HitActor);
+#if ENABLE_DRAW_DEBUG
+		if (bDrawDebugTrace)
+		{
+			const float PersistSec = 2.f;
+			const FVector Mark = H.ImpactPoint.IsNearlyZero() ? H.Location : H.ImpactPoint;
+			DrawDebugSphere(World, Mark, 10.f, 10, FColor::Cyan, false, PersistSec, 0, 1.5f);
+			const FVector N = H.ImpactNormal.IsNearlyZero() ? FVector::UpVector : H.ImpactNormal.GetSafeNormal();
+			DrawDebugDirectionalArrow(World, Mark, Mark + N * 35.f, 24.f, FColor::Magenta, false, PersistSec, 0, 1.25f);
+		}
+#endif
 		ApplyDamageToTarget(HitActor, CachedDamageSpec, &H);
 	}
 }

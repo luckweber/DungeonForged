@@ -56,6 +56,12 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Ability_Warrior_IronSkin;
 	static FGameplayTag Ability_Warrior_Charge;
 	static FGameplayTag Ability_Warrior_Execute;
+	static FGameplayTag Ability_Warrior_MeleeSwing;
+	static FGameplayTag Ability_Equipment;
+	static FGameplayTag Ability_Equipment_DrawWeapon;
+	static FGameplayTag Ability_Equipment_StowWeapon;
+	/** Toggle weapon sheathe: equip WeaponItemRowWhenUnarmed else unequip Weapon slot — see UDFAbility_EquipmentWeaponToggle. */
+	static FGameplayTag Ability_Equipment_WeaponToggle;
 	/** Failsafe when activation blocked by range (e.g. charge). */
 	static FGameplayTag Ability_Failed_Range;
 	// Mage

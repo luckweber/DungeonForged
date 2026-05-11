@@ -3,6 +3,7 @@
 
 #include "CoreMinimal.h"
 #include "Animation/AnimInstance.h"
+#include "Animation/DFAnimSetTypes.h"
 #include "Animation/UDFLocomotionTypes.h"
 #include "UDFAnimInstance.generated.h"
 
@@ -10,6 +11,7 @@ class ACharacter;
 class UAbilitySystemComponent;
 class UDFCharacterMovementComponent;
 struct FGameplayTag;
+
 
 UCLASS(Blueprintable)
 class DUNGEONFORGED_API UUDFAnimInstance : public UAnimInstance
@@ -21,6 +23,12 @@ public:
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
 	virtual void NativeThreadSafeUpdateAnimation(float DeltaSeconds) override;
 
+	UFUNCTION(BlueprintCallable, Category = "DF|Anim Set")
+	void ApplyAnimSet(const FUDAnimSet& NewAnimSet);
+
+	UFUNCTION(BlueprintCallable, Category = "DF|Anim Set")
+	void RevertToDefaultAnimSet();
+
 	/** Root-motion montage: stash current movement and enter MOVE_Custom (for PhysCustom in project CMC). */
 	UFUNCTION(BlueprintCallable, Category = "DF|RootMotion")
 	void PushAnimNotifiedCustomMovement();
@@ -31,6 +39,14 @@ public:
 
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "DF|Locomotion")
 	bool HasTag(const FGameplayTag& Tag) const;
+
+	// ── Default (unarmed) Anim Set ──
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "DF|Anim Set")
+	FUDAnimSet DefaultAnimSet;
+
+	/** Copy updated at init and via Apply/Revert — use Break ActiveAnimSet in AnimGraph for dynamic locomotion BS. */
+	UPROPERTY(BlueprintReadOnly, Category = "DF|Anim Set")
+	FUDAnimSet ActiveAnimSet;
 
 protected:
 	/** Yaw change rate of the actor, used to bank lean into turns. */
@@ -44,6 +60,13 @@ protected:
 	/** Fills MovementDirection; use bUseEightWay for 8-wedge vs 4-cardinal. */
 	UFUNCTION(BlueprintCallable, Category = "DF|Locomotion")
 	void DetermineMovementDirection(bool bUseEightWay = true);
+
+	/** Manual layer link (e.g. debug); item-driven sync uses SyncEquippedWeaponAnimLayerFromOwner. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Equipment|Animation")
+	void LinkWeaponAnimLayerClass(TSubclassOf<UAnimInstance> AnimLayerClass);
+
+	UFUNCTION(BlueprintCallable, Category = "DF|Equipment|Animation")
+	void UnlinkWeaponAnimLayerClass();
 
 	/** Line trace from foot sockets and pelvis: GroundDistance, foot Z offsets. */
 	UFUNCTION(BlueprintCallable, Category = "DF|Locomotion")
@@ -104,6 +127,14 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|State")
 	bool bIsStunned = false;
 
+	/** True when Weapon equipment slot has an item (for upper-body / blend poses). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Equipment")
+	bool bHasWeaponEquipped = false;
+
+	/** Row name in DT_Items for the equipped weapon; None if unarmed. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Equipment")
+	FName EquippedWeaponItemRow = NAME_None;
+
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion")
 	bool bShouldStrafe = false;
 
@@ -157,6 +188,11 @@ protected:
 private:
 	float LastActorYaw = 0.f;
 	bool bLastYawInit = false;
+
+	void SyncEquippedWeaponAnimLayerFromOwner();
+
+	/** Layer class last applied via LinkAnimClassLayers (from item or manual). */
+	TSubclassOf<UAnimInstance> CachedLinkedWeaponLayerClass;
 
 	// Root motion notify stash
 	bool bStashedForAnimRoot = false;

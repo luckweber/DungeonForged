@@ -3,6 +3,7 @@
 
 #include "CoreMinimal.h"
 #include "Equipment/ADFEquipmentPreviewActor.h"
+#include "Input/Reply.h"
 #include "UI/UDFUserWidgetBase.h"
 #include "UDFCharacterScreenWidget.generated.h"
 
@@ -42,6 +43,7 @@ public:
 protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
+	virtual FReply NativeOnPreviewKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UImage> PaperDollImage = nullptr;

@@ -21,6 +21,7 @@
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "Animation/AnimInstance.h"
+#include "Characters/ADFPlayerCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
@@ -930,6 +931,10 @@ void UDFClassSelectionSubsystem::UpdatePreviewForClass(const FName ClassName)
 			Mesh->SetSkeletalMesh(Row->CharacterMesh);
 		}
 		ApplyClassTintToPreview(Row->PreviewCosmeticTint);
+		if (ADFPlayerCharacter* const Hero = Cast<ADFPlayerCharacter>(SpawnedPreviewPawn))
+		{
+			Hero->RefreshWeaponAndOffHandSocketAttachments();
+		}
 	}
 	PlayClassIdleAnimation(*Row);
 	SpawnClassChangeVfx(*Row);

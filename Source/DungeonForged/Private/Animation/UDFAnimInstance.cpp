@@ -2,8 +2,13 @@
 #include "Animation/UDFAnimInstance.h"
 
 #include "Animation/UDFLocomotionTypes.h"
+#include "Characters/ADFPlayerCharacter.h"
 #include "Characters/UDFCharacterMovementComponent.h"
+#include "Data/DFDataTableStructs.h"
+#include "Equipment/DFEquipmentTypes.h"
+#include "Equipment/UDFEquipmentComponent.h"
 #include "GAS/DFGameplayTags.h"
+#include "Animation/AnimInstance.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
 #include "GameFramework/Character.h"
@@ -23,6 +28,21 @@ void UUDFAnimInstance::NativeInitializeAnimation()
 		OwningAbilitySystem = IAS->GetAbilitySystemComponent();
 	}
 	bLastYawInit = false;
+
+	ActiveAnimSet = DefaultAnimSet;
+}
+
+void UUDFAnimInstance::ApplyAnimSet(const FUDAnimSet& NewAnimSet)
+{
+	if (NewAnimSet.IsValid())
+	{
+		ActiveAnimSet = NewAnimSet;
+	}
+}
+
+void UUDFAnimInstance::RevertToDefaultAnimSet()
+{
+	ActiveAnimSet = DefaultAnimSet;
 }
 
 void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
@@ -97,6 +117,76 @@ void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 	CalculateAimOffsets();
 	DetermineMovementDirection(bShouldStrafe);
 	UpdateFootIK(DeltaSeconds);
+	SyncEquippedWeaponAnimLayerFromOwner();
+}
+
+void UUDFAnimInstance::SyncEquippedWeaponAnimLayerFromOwner()
+{
+	bHasWeaponEquipped = false;
+	EquippedWeaponItemRow = NAME_None;
+	TSubclassOf<UAnimInstance> DesiredLayer;
+
+	if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(OwningCharacter.Get()))
+	{
+		if (UDFEquipmentComponent* Eq = PC->Equipment; Eq && !Eq->IsSlotEmpty(EEquipmentSlot::Weapon))
+		{
+			bHasWeaponEquipped = true;
+			EquippedWeaponItemRow = Eq->EquippedItems.FindRef(EEquipmentSlot::Weapon);
+
+			FDFItemTableRow Row;
+			if (Eq->TryGetEquippedItemData(EEquipmentSlot::Weapon, Row))
+			{
+				DesiredLayer = Row.WeaponLinkedAnimLayerClass;
+			}
+		}
+	}
+
+	if (DesiredLayer == CachedLinkedWeaponLayerClass)
+	{
+		return;
+	}
+
+	if (CachedLinkedWeaponLayerClass)
+	{
+		UnlinkAnimClassLayers(CachedLinkedWeaponLayerClass);
+		CachedLinkedWeaponLayerClass = nullptr;
+	}
+
+	if (DesiredLayer)
+	{
+		LinkAnimClassLayers(DesiredLayer);
+		CachedLinkedWeaponLayerClass = DesiredLayer;
+	}
+}
+
+void UUDFAnimInstance::LinkWeaponAnimLayerClass(TSubclassOf<UAnimInstance> AnimLayerClass)
+{
+	if (!AnimLayerClass)
+	{
+		UnlinkWeaponAnimLayerClass();
+		return;
+	}
+	if (AnimLayerClass == CachedLinkedWeaponLayerClass)
+	{
+		return;
+	}
+	if (CachedLinkedWeaponLayerClass)
+	{
+		UnlinkAnimClassLayers(CachedLinkedWeaponLayerClass);
+		CachedLinkedWeaponLayerClass = nullptr;
+	}
+	LinkAnimClassLayers(AnimLayerClass);
+	CachedLinkedWeaponLayerClass = AnimLayerClass;
+}
+
+void UUDFAnimInstance::UnlinkWeaponAnimLayerClass()
+{
+	if (!CachedLinkedWeaponLayerClass)
+	{
+		return;
+	}
+	UnlinkAnimClassLayers(CachedLinkedWeaponLayerClass);
+	CachedLinkedWeaponLayerClass = nullptr;
 }
 
 void UUDFAnimInstance::NativeThreadSafeUpdateAnimation(const float DeltaSeconds)

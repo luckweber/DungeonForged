@@ -2,6 +2,8 @@
 
 C++ support classes live under `Animation/`: `UUDFAnimInstance`, `UUDFAnimInstance_Enemy`, and anim notifies. This document is the spec for the **ABP_Player** and blend spaces the Blueprint should mirror.
 
+**Armed vs unarmed (Anim Layer Interface, linked layers, DT item field):** see `docs/animation/Player_Armed_Unarmed_Layers.md`.
+
 ## Blend space: `BS_Locomotion_8Way`
 
 - **Type:** 2D `UBlendSpace` (or `AimOffset`-style 2D sampling if you prefer a custom asset; standard is 2D Blend Space).

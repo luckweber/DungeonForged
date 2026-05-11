@@ -4,7 +4,7 @@
 #include "CoreMinimal.h"
 #include "DFLocalizationTypes.generated.h"
 
-/** Supported spoken UI languages (culture + StringTable set). Default: Portuguese (Brazil). */
+/** Supported spoken UI languages (culture + StringTable set). Persisted preference defaults to English. */
 UENUM(BlueprintType)
 enum class EDFLanguage : uint8
 {

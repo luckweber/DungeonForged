@@ -8,6 +8,7 @@
 #include "Boss/ADFBossBase.h"
 #include "Characters/ADFEnemyBase.h"
 #include "Characters/ADFPlayerCharacter.h"
+#include "Combat/UDFMeleeTraceComponent.h"
 #include "Debug/UDFDebugComponent.h"
 #include "Characters/ADFPlayerController.h"
 #include "Characters/ADFPlayerState.h"
@@ -558,6 +559,67 @@ static void Cmd_df_clearcd(TArray<FString> const& /*Args*/)
 	}
 }
 
+static void Cmd_df_meleedebug(TArray<FString> const& Args)
+{
+	UWorld* const W = GetCheatWorld();
+	APlayerController* const PC = GetLocalPC(W);
+	if (!PC)
+	{
+		DF_LOG(Warning, "df.meleedebug: no local PlayerController");
+		return;
+	}
+
+	if (Args.Num() > 0)
+	{
+		const FString A0 = Args[0].ToLower();
+		if (A0 == TEXT("collision") || A0 == TEXT("col"))
+		{
+			static bool bCollisionVis = false;
+			bCollisionVis = !bCollisionVis;
+			PC->ConsoleCommand(FString::Printf(TEXT("ShowFlag.Collision %d"), bCollisionVis ? 1 : 0));
+			DF_LOG(Log, "df.meleedebug: ShowFlag.Collision = %s (run again to toggle off)", bCollisionVis ? TEXT("1") : TEXT("0"));
+			return;
+		}
+	}
+
+	ADFPlayerCharacter* const P = GetLocalDFPawn(W);
+	if (!P || !P->MeleeTrace)
+	{
+		DF_LOG(Warning, "df.meleedebug: no ADFPlayerCharacter pawn or MeleeTrace");
+		return;
+	}
+
+	UDFMeleeTraceComponent* const M = P->MeleeTrace;
+	if (Args.Num() > 0)
+	{
+		const FString A = Args[0].ToLower();
+		if (A == TEXT("1") || A == TEXT("true") || A == TEXT("on"))
+		{
+			M->bDrawDebugTrace = true;
+		}
+		else if (A == TEXT("0") || A == TEXT("false") || A == TEXT("off"))
+		{
+			M->bDrawDebugTrace = false;
+		}
+		else
+		{
+			M->bDrawDebugTrace = !M->bDrawDebugTrace;
+		}
+	}
+	else
+	{
+		M->bDrawDebugTrace = !M->bDrawDebugTrace;
+	}
+
+	const TCHAR* MeshName = TEXT("(fallback body mesh)");
+	if (M->SkeletalMesh)
+	{
+		MeshName = *M->SkeletalMesh->GetName();
+	}
+	DF_LOG(Log, "df.meleedebug: bDrawDebugTrace=%d | radius=%.1f | %s -> %s | mesh=%s",
+		M->bDrawDebugTrace ? 1 : 0, M->TraceRadius, *M->TraceStartSocket.ToString(), *M->TraceEndSocket.ToString(), MeshName);
+}
+
 static FAutoConsoleCommand GCmdGod(
 	TEXT("df.god"),
 	TEXT("df.god [0|1]"),
@@ -638,6 +700,10 @@ static FAutoConsoleCommand GCmdClearCd(
 	TEXT("df.clearcd"),
 	TEXT(""),
 	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_clearcd));
+static FAutoConsoleCommand GCmdMeleeDebug(
+	TEXT("df.MeleeDebug"),
+	TEXT("Toggle sphere-sweep melee debug. df.MeleeDebug [0|1|on|off] | collision — toggles viewport ShowFlag.Collision"),
+	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_meleedebug));
 
 } // namespace
 

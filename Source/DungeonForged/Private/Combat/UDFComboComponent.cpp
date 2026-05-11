@@ -1,11 +1,17 @@
 // Source/DungeonForged/Private/Combat/UDFComboComponent.cpp
 #include "Combat/UDFComboComponent.h"
+#include "AbilitySystemComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Characters/ADFPlayerCharacter.h"
 #include "Combat/UDFMeleeTraceComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
+#include "Equipment/DFEquipmentTypes.h"
+#include "Equipment/UDFEquipmentComponent.h"
 #include "GameFramework/Character.h"
+#include "GameplayTagContainer.h"
+#include "GAS/DFGameplayTags.h"
 #include "TimerManager.h"
 
 UDFComboComponent::UDFComboComponent()
@@ -87,8 +93,87 @@ void UDFComboComponent::OnAttackInput()
 	}
 	if (!bPlayingComboMontage)
 	{
+		PrimeMeleeSwingAbilityChain();
+		const ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(GetOwner());
+		if (!PC || !PC->bDisableWarriorMeleeSwingGameplayAbility)
+		{
+			if (TryActivatePrimaryMeleeGameplayAbility())
+			{
+				return;
+			}
+		}
 		StartCombo();
 	}
+}
+
+void UDFComboComponent::PrimeMeleeSwingAbilityChain()
+{
+	if (UWorld* W = GetWorld())
+	{
+		W->GetTimerManager().ClearTimer(ComboWindowTimer);
+	}
+	bComboWindowActive = false;
+	bComboInputBuffered = false;
+	CurrentComboStep = 0;
+}
+
+bool UDFComboComponent::TryActivatePrimaryMeleeGameplayAbility()
+{
+	ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(GetOwner());
+	if (!PC)
+	{
+		return false;
+	}
+	UAbilitySystemComponent* const ASC = PC->GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return false;
+	}
+	if (UDFEquipmentComponent* const Eq = PC->Equipment)
+	{
+		if (!Eq->IsSlotEmpty(EEquipmentSlot::Weapon))
+		{
+			if (Eq->HasGrantedWeaponMeleeAbilitySpec())
+			{
+				return Eq->TryActivateGrantedWeaponMeleeAbility();
+			}
+		}
+		else
+		{
+			const FGameplayTag UnarmedTag = PC->GetDefaultUnarmedMeleeAbilityTag();
+			if (UnarmedTag.IsValid())
+			{
+				FGameplayTagContainer UnarmedTags;
+				UnarmedTags.AddTag(UnarmedTag);
+				if (ASC->TryActivateAbilitiesByTag(UnarmedTags, true))
+				{
+					return true;
+				}
+			}
+		}
+	}
+	if (!FDFGameplayTags::Ability_Warrior_MeleeSwing.IsValid())
+	{
+		return false;
+	}
+	FGameplayTagContainer Tags;
+	Tags.AddTag(FDFGameplayTags::Ability_Warrior_MeleeSwing);
+	return ASC->TryActivateAbilitiesByTag(Tags, true);
+}
+
+void UDFComboComponent::NotifyAbilitySwingMontageStarted(UAnimMontage* Montage)
+{
+	if (!Montage)
+	{
+		return;
+	}
+	TryBindEndDelegateFor(Montage);
+	bPlayingComboMontage = true;
+}
+
+void UDFComboComponent::NotifyAbilitySwingMontagePlaybackEnded()
+{
+	bPlayingComboMontage = false;
 }
 
 void UDFComboComponent::StartCombo()
@@ -142,6 +227,14 @@ void UDFComboComponent::AdvanceCombo()
 		{
 			++CurrentComboStep;
 			bComboInputBuffered = false;
+			const ADFPlayerCharacter* const GAOwner = Cast<ADFPlayerCharacter>(GetOwner());
+			if (!GAOwner || !GAOwner->bDisableWarriorMeleeSwingGameplayAbility)
+			{
+				if (TryActivatePrimaryMeleeGameplayAbility())
+				{
+					return;
+				}
+			}
 			PlayCurrentComboMontage();
 			return;
 		}

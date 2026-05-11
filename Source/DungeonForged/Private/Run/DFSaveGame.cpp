@@ -42,8 +42,8 @@ namespace
 	{
 		if (CastSave->SaveVersion < 2)
 		{
-			CastSave->PreferredLanguage = EDFLanguage::PortugueseBrazil;
-			CastSave->PreferredCultureCode = TEXT("pt-BR");
+			CastSave->PreferredLanguage = EDFLanguage::English;
+			CastSave->PreferredCultureCode = TEXT("en");
 			CastSave->AccessibilitySettings = FDFAccessibilitySettings();
 			CastSave->SavedKeyBindings.Empty();
 		}

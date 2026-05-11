@@ -39,8 +39,8 @@ protected:
 	void ApplyCulture(const FString& CultureCode, EDFLanguage InLanguage, bool bSave);
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Localization")
-	EDFLanguage CurrentLanguage = EDFLanguage::PortugueseBrazil;
+	EDFLanguage CurrentLanguage = EDFLanguage::English;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Localization")
-	FString CurrentCultureCode = TEXT("pt-BR");
+	FString CurrentCultureCode = TEXT("en");
 };

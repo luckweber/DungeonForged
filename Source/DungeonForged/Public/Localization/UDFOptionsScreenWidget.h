@@ -154,5 +154,5 @@ protected:
 	FName RebindTargetMapping = NAME_None;
 
 	/** Staged for preview in the language tab. */
-	EDFLanguage PendingLanguage = EDFLanguage::PortugueseBrazil;
+	EDFLanguage PendingLanguage = EDFLanguage::English;
 };

@@ -1,6 +1,7 @@
 // Source/DungeonForged/Private/Equipment/UDFEquipmentComponent.cpp
 #include "Equipment/UDFEquipmentComponent.h"
 #include "DFInventoryComponent.h"
+#include "Abilities/GameplayAbility.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -9,8 +10,10 @@
 #include "GameplayEffect.h"
 #include "GameplayEffectTypes.h"
 #include "Net/UnrealNetwork.h"
+#include "GameFramework/Character.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
+#include "Animation/UDFAnimInstance.h"
 
 static bool IsEquippableItemType(const EItemType T)
 {
@@ -202,6 +205,47 @@ bool UDFEquipmentComponent::TryGetEquippedItemData(
 	return false;
 }
 
+bool UDFEquipmentComponent::HasGrantedWeaponMeleeAbilitySpec() const
+{
+	return GrantedWeaponMeleeAbilitySpecHandle.IsValid();
+}
+
+bool UDFEquipmentComponent::TryActivateGrantedWeaponMeleeAbility()
+{
+	if (!GrantedWeaponMeleeAbilitySpecHandle.IsValid())
+	{
+		return false;
+	}
+	UAbilitySystemComponent* const ASC = ResolveOwnerASC();
+	return ASC && ASC->TryActivateAbility(GrantedWeaponMeleeAbilitySpecHandle);
+}
+
+void UDFEquipmentComponent::RevokeGrantedWeaponMeleeAbility(UAbilitySystemComponent* const ASC)
+{
+	if (!GrantedWeaponMeleeAbilitySpecHandle.IsValid())
+	{
+		return;
+	}
+	if (ASC)
+	{
+		ASC->ClearAbility(GrantedWeaponMeleeAbilitySpecHandle);
+	}
+	GrantedWeaponMeleeAbilitySpecHandle = FGameplayAbilitySpecHandle();
+}
+
+void UDFEquipmentComponent::TryGrantWeaponMeleeAbilityFromEquippedRow(
+	UAbilitySystemComponent* const ASC,
+	const FDFItemTableRow* const Row)
+{
+	if (!ASC || !Row || !Row->WeaponMeleeGameplayAbility)
+	{
+		return;
+	}
+	RevokeGrantedWeaponMeleeAbility(ASC);
+	FGameplayAbilitySpec Spec(Row->WeaponMeleeGameplayAbility, 1, INDEX_NONE, this);
+	GrantedWeaponMeleeAbilitySpecHandle = ASC->GiveAbility(Spec);
+}
+
 bool UDFEquipmentComponent::IsSlotEmpty(const EEquipmentSlot Slot) const
 {
 	if (const FName* P = EquippedItems.Find(Slot))
@@ -259,6 +303,7 @@ void UDFEquipmentComponent::OnRep_Loadout()
 {
 	RebuildMapFromReplicated();
 	RecalculateAllVisuals();
+	RefreshWeaponAnimSetOnOwner();
 }
 
 void UDFEquipmentComponent::SyncReplicatedArrayFromMap()
@@ -400,6 +445,13 @@ void UDFEquipmentComponent::UnequipSlotInternal(const EEquipmentSlot Slot)
 	{
 		return;
 	}
+	if (Slot == EEquipmentSlot::Weapon)
+	{
+		if (UAbilitySystemComponent* const AscWeapon = ResolveOwnerASC())
+		{
+			RevokeGrantedWeaponMeleeAbility(AscWeapon);
+		}
+	}
 	if (FActiveGameplayEffectHandle* H = EquipEffectHandles.Find(Slot))
 	{
 		if (UAbilitySystemComponent* const ASC = ResolveOwnerASC();
@@ -417,6 +469,10 @@ void UDFEquipmentComponent::UnequipSlotInternal(const EEquipmentSlot Slot)
 	SyncReplicatedArrayFromMap();
 	OnEquipmentChanged.Broadcast(Slot, NAME_None);
 	RecalculateVisualsForSlot(Slot);
+	if (Slot == EEquipmentSlot::Weapon)
+	{
+		RefreshWeaponAnimSetOnOwner();
+	}
 }
 
 void UDFEquipmentComponent::UnequipSlot(const EEquipmentSlot Slot)
@@ -513,7 +569,52 @@ bool UDFEquipmentComponent::EquipItemInternal(
 	SyncReplicatedArrayFromMap();
 	OnEquipmentChanged.Broadcast(Slot, ItemRowName);
 	RecalculateVisualsForSlot(Slot);
+	if (Slot == EEquipmentSlot::Weapon)
+	{
+		TryGrantWeaponMeleeAbilityFromEquippedRow(ASC, Row);
+		RefreshWeaponAnimSetOnOwner();
+	}
 	return true;
+}
+
+void UDFEquipmentComponent::RefreshWeaponAnimSetOnOwner()
+{
+	ACharacter* const Ch = Cast<ACharacter>(GetOwner());
+	if (!Ch)
+	{
+		return;
+	}
+	USkeletalMeshComponent* const SkelMesh = Ch->GetMesh();
+	if (!SkelMesh)
+	{
+		return;
+	}
+	UUDFAnimInstance* const Anim = Cast<UUDFAnimInstance>(SkelMesh->GetAnimInstance());
+	if (!Anim)
+	{
+		return;
+	}
+	if (IsSlotEmpty(EEquipmentSlot::Weapon))
+	{
+		Anim->RevertToDefaultAnimSet();
+		return;
+	}
+	FDFItemTableRow WeaponRow;
+	if (TryGetEquippedItemData(EEquipmentSlot::Weapon, WeaponRow))
+	{
+		if (WeaponRow.WeaponAnimSet.IsValid())
+		{
+			Anim->ApplyAnimSet(WeaponRow.WeaponAnimSet);
+		}
+		else
+		{
+			Anim->RevertToDefaultAnimSet();
+		}
+	}
+	else
+	{
+		Anim->RevertToDefaultAnimSet();
+	}
 }
 
 void UDFEquipmentComponent::RequestEquipItem(const FName ItemRowName, const EEquipmentSlot Slot)

@@ -5,6 +5,9 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "AbilitySystemInterface.h"
+#include "Animation/AnimMontage.h"
+#include "GameplayEffectTypes.h"
+#include "GameplayTagContainer.h"
 #include "Input/DFInputConfig.h"
 #include "InputAction.h"
 #include "Audio/UDFAudioComponent.h"
@@ -25,6 +28,7 @@ class UInputMappingContext;
 class UAbilitySystemComponent;
 class ADFMerchantActor;
 class UDFShopWidget;
+class UGameplayEffect;
 class UDFTrapDetectionComponent;
 class UDFEquipmentComponent;
 class UDFScreenEffectsComponent;
@@ -93,6 +97,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> IA_Dodge;
 
+	/**
+	 * Tecla tipo Q: activa Ability.Equipment.WeaponToggle (Equipar/desarmar arma numa entrada).
+	 * Mapeie no IMC_Default (ex.: tecla Q → este Input Action).
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> IA_EquipmentWeaponToggle;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	TObjectPtr<UDFCameraComponent> CameraBoom;
 
@@ -112,6 +123,10 @@ public:
 	/** GAS: builder/finisher combo points (Rogue, etc.). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|GAS")
 	TObjectPtr<UDFComboPointsComponent> ComboPoints;
+
+	/** If true, basic attack skips Ability.Warrior.MeleeSwing and uses only Combo montages. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|GAS")
+	bool bDisableWarriorMeleeSwingGameplayAbility = false;
 
 	/** Traces and sphere overlap: interact with IDFInteractable. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Interaction")
@@ -208,7 +223,30 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Equipment")
 	UDFEquipmentComponent* GetDFEquipment() const { return Equipment; }
 
+	/** DT_Class.DefaultUnarmedMeleeAbilityTag via UDFRunManager (fallback when fist attack is not Warrior swing). */
+	UFUNCTION(BlueprintPure, Category = "Combat|GAS")
+	FGameplayTag GetDefaultUnarmedMeleeAbilityTag() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Melee")
+	void RefreshMeleeLoadoutAfterEquipmentChange();
+
+	/** Re-snaps Mesh_Weapon / Mesh_OffHand to weapon_r / weapon_l on Mesh_Base after body mesh or skeleton changes. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Mesh|Modular")
+	void RefreshWeaponAndOffHandSocketAttachments();
+
+	/**
+	 * Attach Modular Mesh_Weapon to a socket on Mesh_Base (coldre / mão direita, etc.).
+	 * Typical use: Anim Notify na montagem de sacar/guardar, em frames diferentes.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DF|Mesh|Modular")
+	void SetWeaponAttachedToMeshBaseSocket(FName SocketName);
+
+	/** Mesmo fluxo para off-hand (`Mesh_OffHand`) em socket do esqueleto base (`weapon_l` ou shield). */
+	UFUNCTION(BlueprintCallable, Category = "DF|Mesh|Modular")
+	void SetOffHandAttachedToMeshBaseSocket(FName SocketName);
+
 protected:
+	virtual void PostInitializeComponents() override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -237,6 +275,7 @@ protected:
 	void Input_SprintStart();
 	void Input_SprintEnd();
 	void Input_Dodge();
+	void Input_EquipmentWeaponToggle();
 
 	void TryActivateByGameplayTagName(const FName& TagName);
 	void CancelAbilitiesByGameplayTagName(const FName& TagName);
@@ -245,6 +284,10 @@ protected:
 	void SetupModularMeshPart(USkeletalMeshComponent* Part);
 	void RegisterModularSlotsWithEquipment();
 	void RefreshWeaponTraceForMelee();
+	void RefreshMeleeLoadoutFromClassAndEquipment();
+	void CaptureMeleeComboMontagesBaselineOnce();
+	void CaptureMeleeDamageTraceDefaultsOnce();
+
 	UFUNCTION()
 	void OnEquipmentEvent(EEquipmentSlot Slot, FName ItemRow);
 
@@ -258,6 +301,13 @@ private:
 
 	/** OnEquipmentChanged bound once; cleared in EndPlay. */
 	bool bModularEquipmentDelegateBound = false;
+
+	bool bMeleeComboMontagesBaselineCaptured = false;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UAnimMontage>> CachedMeleeComboMontagesBaselineSnapshot;
+	bool bMeleeTraceDamageBaselineCaptured = false;
+	float CachedDefaultMeleeTraceBaseDamage = 0.f;
+	TSubclassOf<UGameplayEffect> CachedDefaultMeleeTraceDamageGameplayEffect;
 
 	UFUNCTION()
 	void OnRep_CurrentAbilitySlots();

@@ -4,7 +4,9 @@
 #include "Components/Image.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
+#include "GameModes/Run/ADFRunPlayerController.h"
 #include "GameFramework/PlayerController.h"
+#include "Input/Events.h"
 #include "Styling/SlateBrush.h"
 
 void UDFCharacterScreenWidget::NativeConstruct()
@@ -53,6 +55,25 @@ void UDFCharacterScreenWidget::NativeConstruct()
 		B.ImageSize = FVector2D(static_cast<float>(SX), static_cast<float>(SY));
 		PaperDollImage->SetBrush(B);
 	}
+}
+
+FReply UDFCharacterScreenWidget::NativeOnPreviewKeyDown(
+	const FGeometry& InGeometry,
+	const FKeyEvent& InKeyEvent)
+{
+	const FKey K = InKeyEvent.GetKey();
+	if (K == EKeys::Escape || K == EKeys::I)
+	{
+		if (APlayerController* const PC = GetOwningPlayer())
+		{
+			if (ADFRunPlayerController* const RunPC = Cast<ADFRunPlayerController>(PC))
+			{
+				RunPC->ToggleInventory();
+				return FReply::Handled();
+			}
+		}
+	}
+	return Super::NativeOnPreviewKeyDown(InGeometry, InKeyEvent);
 }
 
 void UDFCharacterScreenWidget::NativeDestruct()

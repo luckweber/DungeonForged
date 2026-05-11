@@ -55,6 +55,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
 	void ResetCombo();
 
+	/** Gameplay Ability path: binds montage end + sets bPlayingComboMontage (UDFMeleeTrace + combo window still use the same montage). */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
+	void NotifyAbilitySwingMontageStarted(UAnimMontage* Montage);
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
+	void NotifyAbilitySwingMontagePlaybackEnded();
+
 	/** Exposed for Blueprint; anim delegate calls HandleMontageEndedInternal in C++. */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
 	void OnMontageEnded(UAnimMontage* EndedMontage, bool bInterrupted);
@@ -67,6 +74,8 @@ protected:
 	void OnComboWindowTimerExpired();
 
 	void PlayCurrentComboMontage();
+	void PrimeMeleeSwingAbilityChain();
+	bool TryActivatePrimaryMeleeGameplayAbility();
 	void UnbindMontageEndDelegate();
 	void HandleMontageEndedInternal(class UAnimMontage* EndedMontage, bool bInterrupted);
 	UAnimInstance* GetAnimInstance() const;

@@ -569,7 +569,11 @@ void UDFRunManager::GrantAbilitiesForCurrentRun(ADFPlayerState* PlayerState)
 			UE_LOG(LogDFRun, Warning, TEXT("GrantAbilitiesForCurrentRun: missing or invalid row %s"), *AbilityName.ToString());
 			continue;
 		}
-		const int32 InId = FMath::Min(Idx, 3);
+		int32 InId = FMath::Min(Idx, 3);
+		if (Row->GameplayAbilityInputID >= 0)
+		{
+			InId = FMath::Clamp(Row->GameplayAbilityInputID, 0, 63);
+		}
 		const FGameplayAbilitySpec Spec(Row->AbilityClass, Row->AbilityLevel, InId, PlayerState);
 		ASC->GiveAbility(Spec);
 	}
@@ -696,6 +700,7 @@ void UDFRunManager::ApplyRunStateToPlayer(ADFPlayerCharacter* Player)
 		if (USkeletalMeshComponent* const Mesh = Player->GetMesh())
 		{
 			Mesh->SetSkeletalMesh(ClassRow->CharacterMesh);
+			Player->RefreshWeaponAndOffHandSocketAttachments();
 		}
 	}
 
@@ -725,4 +730,6 @@ void UDFRunManager::ApplyRunStateToPlayer(ADFPlayerCharacter* Player)
 			RestoreInventoryFromRunState(InvPS);
 		}
 	}
+
+	Player->RefreshMeleeLoadoutAfterEquipmentChange();
 }

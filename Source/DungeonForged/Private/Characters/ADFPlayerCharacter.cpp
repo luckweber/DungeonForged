@@ -33,10 +33,30 @@
 #include "FX/UDFScreenEffectsComponent.h"
 #include "UI/Minimap/UDFMinimapFogComponent.h"
 #include "Debug/UDFDebugComponent.h"
+#include "Data/DFDataTableStructs.h"
+#include "Run/DFRunManager.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Net/UnrealNetwork.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDFPlayer, Log, All);
+
+namespace DFPlayerCharacterInput_Impl
+{
+
+static bool IsSameInputActionAsset(UInputAction const* RowAct, UInputAction const* CharAttack)
+{
+	if (!RowAct || !CharAttack)
+	{
+		return false;
+	}
+	if (RowAct == CharAttack)
+	{
+		return true;
+	}
+	return RowAct->GetPathName() == CharAttack->GetPathName();
+}
+
+} // namespace
 
 ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<UDFCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
@@ -152,6 +172,202 @@ UAbilitySystemComponent* ADFPlayerCharacter::GetAbilitySystemComponent() const
 	return nullptr;
 }
 
+FGameplayTag ADFPlayerCharacter::GetDefaultUnarmedMeleeAbilityTag() const
+{
+	if (!GetWorld())
+	{
+		return FGameplayTag();
+	}
+	const UGameInstance* const GI = GetGameInstance();
+	if (!GI)
+	{
+		return FGameplayTag();
+	}
+	const UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>();
+	if (!RM)
+	{
+		return FGameplayTag();
+	}
+	const FDFClassTableRow* const Row = RM->FindClassTableRow(RM->GetCurrentRunState().SelectedClass);
+	if (!Row)
+	{
+		return FGameplayTag();
+	}
+	return Row->DefaultUnarmedMeleeAbilityTag;
+}
+
+void ADFPlayerCharacter::CaptureMeleeComboMontagesBaselineOnce()
+{
+	if (bMeleeComboMontagesBaselineCaptured || !Combo)
+	{
+		return;
+	}
+	CachedMeleeComboMontagesBaselineSnapshot = Combo->ComboMontages;
+	bMeleeComboMontagesBaselineCaptured = true;
+}
+
+void ADFPlayerCharacter::CaptureMeleeDamageTraceDefaultsOnce()
+{
+	if (bMeleeTraceDamageBaselineCaptured || !MeleeTrace)
+	{
+		return;
+	}
+	CachedDefaultMeleeTraceBaseDamage = MeleeTrace->BaseDamage;
+	CachedDefaultMeleeTraceDamageGameplayEffect = MeleeTrace->MeleeDamageGameplayEffect;
+	bMeleeTraceDamageBaselineCaptured = true;
+}
+
+void ADFPlayerCharacter::RefreshMeleeLoadoutAfterEquipmentChange()
+{
+	RefreshMeleeLoadoutFromClassAndEquipment();
+}
+
+void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
+{
+	CaptureMeleeComboMontagesBaselineOnce();
+	CaptureMeleeDamageTraceDefaultsOnce();
+	if (!Combo || !MeleeTrace)
+	{
+		return;
+	}
+
+	const FDFClassTableRow* ClassRow = nullptr;
+	if (UGameInstance* const GI = GetGameInstance())
+	{
+		if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
+		{
+			ClassRow = RM->FindClassTableRow(RM->GetCurrentRunState().SelectedClass);
+		}
+	}
+
+	auto AssignComboBaseline = [&]()
+	{
+		if (!CachedMeleeComboMontagesBaselineSnapshot.IsEmpty())
+		{
+			Combo->ComboMontages = CachedMeleeComboMontagesBaselineSnapshot;
+		}
+	};
+
+	auto ApplyEquippedWeaponMeleeProfile = [&](const FDFItemTableRow& WRow)
+	{
+		if (WRow.WeaponMeleeComboMontages.Num() > 0)
+		{
+			Combo->ComboMontages = WRow.WeaponMeleeComboMontages;
+		}
+		else if (ClassRow && ClassRow->ArmedMeleeComboMontagesFallback.Num() > 0)
+		{
+			Combo->ComboMontages = ClassRow->ArmedMeleeComboMontagesFallback;
+		}
+		else
+		{
+			AssignComboBaseline();
+		}
+
+		if (WRow.WeaponMeleeBaseDamage > KINDA_SMALL_NUMBER)
+		{
+			MeleeTrace->BaseDamage = WRow.WeaponMeleeBaseDamage;
+		}
+		else if (bMeleeTraceDamageBaselineCaptured)
+		{
+			MeleeTrace->BaseDamage = CachedDefaultMeleeTraceBaseDamage;
+		}
+
+		if (WRow.WeaponMeleeDamageGameplayEffect)
+		{
+			MeleeTrace->MeleeDamageGameplayEffect = WRow.WeaponMeleeDamageGameplayEffect;
+		}
+		else if (bMeleeTraceDamageBaselineCaptured)
+		{
+			MeleeTrace->MeleeDamageGameplayEffect = CachedDefaultMeleeTraceDamageGameplayEffect;
+		}
+	};
+
+	if (!Equipment || Equipment->IsSlotEmpty(EEquipmentSlot::Weapon))
+	{
+		if (ClassRow && ClassRow->UnarmedMeleeComboMontages.Num() > 0)
+		{
+			Combo->ComboMontages = ClassRow->UnarmedMeleeComboMontages;
+		}
+		else
+		{
+			AssignComboBaseline();
+		}
+
+		if (bMeleeTraceDamageBaselineCaptured)
+		{
+			MeleeTrace->BaseDamage = CachedDefaultMeleeTraceBaseDamage;
+			MeleeTrace->MeleeDamageGameplayEffect = CachedDefaultMeleeTraceDamageGameplayEffect;
+		}
+
+		return;
+	}
+
+	const FDFItemTableRow* const WItem = Equipment->GetEquippedItemDataRaw(EEquipmentSlot::Weapon);
+	if (WItem)
+	{
+		ApplyEquippedWeaponMeleeProfile(*WItem);
+	}
+}
+
+void ADFPlayerCharacter::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+	RefreshWeaponAndOffHandSocketAttachments();
+}
+
+void ADFPlayerCharacter::RefreshWeaponAndOffHandSocketAttachments()
+{
+	if (!Mesh_Base || !Mesh_Weapon || !Mesh_OffHand)
+	{
+		return;
+	}
+	static const FName NWeaponR(TEXT("weapon_r"));
+	static const FName NWeaponL(TEXT("weapon_l"));
+	const FAttachmentTransformRules Rules(FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+	if (Mesh_Base->DoesSocketExist(NWeaponR))
+	{
+		Mesh_Weapon->AttachToComponent(Mesh_Base, Rules, NWeaponR);
+	}
+	else
+	{
+		Mesh_Weapon->AttachToComponent(Mesh_Base, Rules);
+	}
+	if (Mesh_Base->DoesSocketExist(NWeaponL))
+	{
+		Mesh_OffHand->AttachToComponent(Mesh_Base, Rules, NWeaponL);
+	}
+	else
+	{
+		Mesh_OffHand->AttachToComponent(Mesh_Base, Rules);
+	}
+}
+
+void ADFPlayerCharacter::SetWeaponAttachedToMeshBaseSocket(const FName SocketName)
+{
+	if (!Mesh_Base || !Mesh_Weapon || SocketName.IsNone())
+	{
+		return;
+	}
+	const FAttachmentTransformRules Rules(FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+	if (Mesh_Base->DoesSocketExist(SocketName))
+	{
+		Mesh_Weapon->AttachToComponent(Mesh_Base, Rules, SocketName);
+	}
+}
+
+void ADFPlayerCharacter::SetOffHandAttachedToMeshBaseSocket(const FName SocketName)
+{
+	if (!Mesh_Base || !Mesh_OffHand || SocketName.IsNone())
+	{
+		return;
+	}
+	const FAttachmentTransformRules Rules(FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+	if (Mesh_Base->DoesSocketExist(SocketName))
+	{
+		Mesh_OffHand->AttachToComponent(Mesh_Base, Rules, SocketName);
+	}
+}
+
 void ADFPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
@@ -162,7 +378,9 @@ void ADFPlayerCharacter::BeginPlay()
 	InitializeGAS();
 	AddDefaultMappingContext();
 	RegisterModularSlotsWithEquipment();
+	RefreshWeaponAndOffHandSocketAttachments();
 	RefreshWeaponTraceForMelee();
+	RefreshMeleeLoadoutAfterEquipmentChange();
 }
 
 void ADFPlayerCharacter::SetupModularMeshPart(USkeletalMeshComponent* const Part)
@@ -225,7 +443,9 @@ void ADFPlayerCharacter::OnEquipmentEvent(const EEquipmentSlot Slot, const FName
 {
 	if (Slot == EEquipmentSlot::Weapon || Slot == EEquipmentSlot::OffHand)
 	{
+		RefreshWeaponAndOffHandSocketAttachments();
 		RefreshWeaponTraceForMelee();
+		RefreshMeleeLoadoutAfterEquipmentChange();
 	}
 }
 
@@ -320,6 +540,11 @@ void ADFPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	{
 		EIC->BindAction(IA_Dodge, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_Dodge);
 	}
+	if (IA_EquipmentWeaponToggle)
+	{
+		EIC->BindAction(
+			IA_EquipmentWeaponToggle, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_EquipmentWeaponToggle);
+	}
 	if (!InputConfig)
 	{
 		if (IA_Attack)
@@ -362,6 +587,22 @@ void ADFPlayerCharacter::RegisterAbilityInputFromConfig(UEnhancedInputComponent*
 		{
 			continue;
 		}
+		// IA_Attack is handled by Input_Attack (combo + TryActivate tag), not AbilityLocalInputPressed.
+		// Otherwise the first AbilityInputActions row maps to InputID 1 (see GameplayInputId fallback) while
+		// UDFRunManager::GrantAbilitiesForCurrentRun assigns InputID from grant list index — easy mismatch.
+		if (IA_Attack && DFPlayerCharacterInput_Impl::IsSameInputActionAsset(Row.Action, IA_Attack))
+		{
+			EIC->BindAction(Row.Action, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_Attack);
+			continue;
+		}
+		if (IA_EquipmentWeaponToggle
+			&& DFPlayerCharacterInput_Impl::IsSameInputActionAsset(Row.Action, IA_EquipmentWeaponToggle))
+		{
+			EIC->BindAction(
+				Row.Action, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_EquipmentWeaponToggle);
+			continue;
+		}
+
 		int32 InputId = Row.GameplayInputId;
 		if (InputId <= 0)
 		{
@@ -561,6 +802,22 @@ void ADFPlayerCharacter::Input_SprintEnd()
 void ADFPlayerCharacter::Input_Dodge()
 {
 	TryActivateByGameplayTagName(FName("Ability.Movement.Dodge"));
+}
+
+void ADFPlayerCharacter::Input_EquipmentWeaponToggle()
+{
+	if (!FDFGameplayTags::Ability_Equipment_WeaponToggle.IsValid())
+	{
+		return;
+	}
+	UAbilitySystemComponent* const ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return;
+	}
+	FGameplayTagContainer ToggleTags;
+	ToggleTags.AddTag(FDFGameplayTags::Ability_Equipment_WeaponToggle);
+	ASC->TryActivateAbilitiesByTag(ToggleTags, true);
 }
 
 void ADFPlayerCharacter::CancelAbilitiesByGameplayTagName(const FName& TagName)

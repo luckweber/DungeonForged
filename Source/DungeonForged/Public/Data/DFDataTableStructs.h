@@ -10,13 +10,16 @@
 #include "GameplayTagContainer.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimMontage.h"
+#include "Animation/AnimInstance.h"
 #include "NiagaraSystem.h"
 #include "GAS/UDFGameplayAbility.h"
 #include "Equipment/DFEquipmentTypes.h"
+#include "Animation/DFAnimSetTypes.h"
 #include "DFDataTableStructs.generated.h"
 
 class AActor;
 class UBehaviorTree;
+class UGameplayAbility;
 class UGameplayEffect;
 
 UENUM(BlueprintType)
@@ -89,6 +92,13 @@ struct DUNGEONFORGED_API FDFAbilityTableRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Abilities|UI")
 	FText DisplayCost = FText::GetEmpty();
+
+	/**
+	 * If >= 0, used as FGameplayAbilitySpec InputID when granted (pairs with AbilityInputActions[].GameplayInputId).
+	 * If < 0 (default), InputID stays list position capped at 3 — see UDFRunManager::GrantAbilitiesForCurrentRun.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Abilities|Input", meta = (ClampMin = "-1", ClampMax = "63"))
+	int32 GameplayAbilityInputID = INDEX_NONE;
 };
 
 /** One GameplayEffect that initializes base attributes (e.g. modifiers on UDFAttributeSet); used with InitializeAttributesFromDataTable. */
@@ -146,6 +156,39 @@ struct DUNGEONFORGED_API FDFItemTableRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|GAS")
 	TSubclassOf<UGameplayEffect> OnEquipEffect;
+
+	/**
+	 * When this item occupies the Weapon slot, the Ability System grants this class on equip (server),
+	 * revokes it on unequip, and TryActivateGrantedWeaponMeleeAbility uses it instead of Warrior.MeleeSwing.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat")
+	TSubclassOf<UGameplayAbility> WeaponMeleeGameplayAbility;
+
+	/** Combo montages for basic melee while this weapon is equipped (overrides armed fallback class row / BP baseline). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat")
+	TArray<TObjectPtr<UAnimMontage>> WeaponMeleeComboMontages;
+
+	/** Overrides UDFMeleeTraceComponent::BaseDamage while equipped; leave 0 to use character defaults. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat", meta = (ClampMin = "0.0"))
+	float WeaponMeleeBaseDamage = 0.f;
+
+	/** Overrides melee damage gameplay effect subclass while equipped; null = revert to pawn defaults. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat")
+	TSubclassOf<UGameplayEffect> WeaponMeleeDamageGameplayEffect;
+
+	/**
+	 * Linked animation layer (ALS / Elder-style) while this item is in the Weapon slot.
+	 * UUDFAnimInstance syncs LinkAnimClassLayers / Unlink when equip changes; null = no layer from this item.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Animation")
+	TSubclassOf<UAnimInstance> WeaponLinkedAnimLayerClass;
+
+	/**
+	 * When equipped in Weapon slot, copied to UUDFAnimInstance::ActiveAnimSet (if valid); otherwise reverts to class DefaultAnimSet.
+	 * Prefer Break ActiveAnimSet in AnimGraph for dynamic Blend Space refs.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Animation")
+	FUDAnimSet WeaponAnimSet;
 };
 
 USTRUCT(BlueprintType)
@@ -306,6 +349,21 @@ struct DUNGEONFORGED_API FDFClassTableRow : public FTableRowBase
 	/** Row names in DT_Abilities for starting grants. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Abilities")
 	TArray<FName> StartingAbilities;
+
+	/**
+	 * While the weapon slot is empty, TryActivatePrimaryMeleeGameplayAbility activates this tag first
+	 * (typically a GA granted via StartingAbilities / DT_Abilities). If unset, Warrior.MeleeSwing is used when granted.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat", meta = (Categories = "Ability"))
+	FGameplayTag DefaultUnarmedMeleeAbilityTag;
+
+	/** Unarmed combo montages (soco) when Weapon slot is empty. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat")
+	TArray<TObjectPtr<UAnimMontage>> UnarmedMeleeComboMontages;
+
+	/** Fallback armed montages when the equipped weapon row has no WeaponMeleeComboMontages. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat")
+	TArray<TObjectPtr<UAnimMontage>> ArmedMeleeComboMontagesFallback;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|GAS")
 	TMap<FGameplayAttribute, float> BaseAttributeValues;

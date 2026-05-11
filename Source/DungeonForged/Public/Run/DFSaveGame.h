@@ -28,10 +28,10 @@ public:
 
 	/** @see UDFLocalizationSubsystem */
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Settings|Localization")
-	EDFLanguage PreferredLanguage = EDFLanguage::PortugueseBrazil;
+	EDFLanguage PreferredLanguage = EDFLanguage::English;
 
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Settings|Localization")
-	FString PreferredCultureCode = TEXT("pt-BR");
+	FString PreferredCultureCode = TEXT("en");
 
 	/** @see UDFAccessibilitySubsystem */
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "DF|Settings|Accessibility")

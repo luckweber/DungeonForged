@@ -2,6 +2,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Abilities/GameplayAbilityTypes.h"
 #include "Equipment/DFEquipmentTypes.h"
 #include "GameplayEffectTypes.h"
 #include "AttributeSet.h"
@@ -50,6 +51,10 @@ public:
 	TMap<EEquipmentSlot, FActiveGameplayEffectHandle> EquipEffectHandles;
 	TMap<EEquipmentSlot, USkeletalMeshComponent*> SlotMeshComponents;
 
+	/** Granted from DT row `WeaponMeleeGameplayAbility` while a weapon occupies the slot (server revoke on unequip). */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|Equipment|GAS")
+	FGameplayAbilitySpecHandle GrantedWeaponMeleeAbilitySpecHandle;
+
 	/** Modularity: skin mesh from the player; used for SetLeaderPoseComponent. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|Equipment|Visuals")
 	TObjectPtr<USkeletalMeshComponent> BaseBodyMesh = nullptr;
@@ -80,6 +85,14 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "DF|Equipment")
 	bool TryGetEquippedItemData(EEquipmentSlot Slot, FDFItemTableRow& OutRow) const;
+
+	/** True if Weapon slot has a granted spec from FDFItemTableRow::WeaponMeleeGameplayAbility. */
+	UFUNCTION(BlueprintPure, Category = "DF|Equipment|GAS")
+	bool HasGrantedWeaponMeleeAbilitySpec() const;
+
+	/** Activates WeaponMeleeGameplayAbility if the spec is valid (prediction-friendly). */
+	UFUNCTION(BlueprintCallable, Category = "DF|Equipment|GAS")
+	bool TryActivateGrantedWeaponMeleeAbility();
 
 	UFUNCTION(BlueprintPure, Category = "DF|Equipment")
 	bool IsSlotEmpty(EEquipmentSlot Slot) const;
@@ -114,8 +127,12 @@ protected:
 	void RebuildMapFromReplicated();
 	void RecalculateAllVisuals();
 	void RecalculateVisualsForSlot(EEquipmentSlot Slot);
+	void RefreshWeaponAnimSetOnOwner();
 	bool EquipItemInternal(FName ItemRowName, EEquipmentSlot Slot, FString& OutError);
 	void UnequipSlotInternal(EEquipmentSlot Slot);
+
+	void RevokeGrantedWeaponMeleeAbility(UAbilitySystemComponent* ASC);
+	void TryGrantWeaponMeleeAbilityFromEquippedRow(UAbilitySystemComponent* ASC, const FDFItemTableRow* Row);
 
 	UAbilitySystemComponent* ResolveOwnerASC() const;
 	UDFInventoryComponent* ResolveInventory() const;

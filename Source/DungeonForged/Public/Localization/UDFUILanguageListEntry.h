@@ -19,7 +19,7 @@ class DUNGEONFORGED_API UDFUILanguageListEntry : public UObject
 
 public:
 	UPROPERTY(BlueprintReadWrite, Category = "DF|Localization|UI")
-	EDFLanguage Language = EDFLanguage::PortugueseBrazil;
+	EDFLanguage Language = EDFLanguage::English;
 
 	/** e.g. from UDFLocalizationSubsystem::GetAvailableLanguageDisplayNames. */
 	UPROPERTY(BlueprintReadWrite, Category = "DF|Localization|UI")

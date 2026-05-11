@@ -1,5 +1,7 @@
 // Source/DungeonForged/Private/Localization/UDFLocalizationSubsystem.cpp
 #include "Localization/UDFLocalizationSubsystem.h"
+
+#include "Engine/World.h"
 #include "Internationalization/Culture.h"
 #include "Internationalization/Internationalization.h"
 #include "Run/DFSaveGame.h"
@@ -13,8 +15,8 @@ void UDFLocalizationSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	}
 	else
 	{
-		CurrentLanguage = EDFLanguage::PortugueseBrazil;
-		CurrentCultureCode = TEXT("pt-BR");
+		CurrentLanguage = EDFLanguage::English;
+		CurrentCultureCode = TEXT("en");
 	}
 }
 
@@ -25,8 +27,8 @@ FString UDFLocalizationSubsystem::LanguageToCultureCode(const EDFLanguage InLang
 	case EDFLanguage::English: return TEXT("en");
 	case EDFLanguage::Spanish: return TEXT("es");
 	case EDFLanguage::French: return TEXT("fr");
-	case EDFLanguage::PortugueseBrazil:
-	default: return TEXT("pt-BR");
+	case EDFLanguage::PortugueseBrazil: return TEXT("pt-BR");
+	default: return TEXT("en");
 	}
 }
 
@@ -49,7 +51,7 @@ EDFLanguage UDFLocalizationSubsystem::CultureCodeToLanguage(const FString& Code)
 	{
 		return EDFLanguage::French;
 	}
-	return EDFLanguage::PortugueseBrazil;
+	return EDFLanguage::English;
 }
 
 void UDFLocalizationSubsystem::SetLanguage(const EDFLanguage Language)
@@ -62,11 +64,24 @@ void UDFLocalizationSubsystem::ApplyCulture(const FString& CultureCode, const ED
 {
 	CurrentLanguage = InLanguage;
 	CurrentCultureCode = CultureCode;
-	if (FInternationalization::Get().SetCurrentCulture(CultureCode))
+
+	// Mutating engine FInternationalization in Play-In-Editor rewrites Editor chrome (same OS process).
+#if WITH_EDITOR
+	bool bSkipGlobalCulture = false;
+	if (const UWorld* World = GetWorld())
 	{
-		FInternationalization::Get().SetCurrentLanguage(CultureCode);
-		FInternationalization::Get().SetCurrentLocale(CultureCode);
+		bSkipGlobalCulture = World->WorldType == EWorldType::PIE;
 	}
+	if (!bSkipGlobalCulture)
+#endif
+	{
+		if (FInternationalization::Get().SetCurrentCulture(CultureCode))
+		{
+			FInternationalization::Get().SetCurrentLanguage(CultureCode);
+			FInternationalization::Get().SetCurrentLocale(CultureCode);
+		}
+	}
+
 	if (bSave)
 	{
 		if (UDFSaveGame* S = UDFSaveGame::Load())
