@@ -310,6 +310,9 @@ private:
 	/** OnEquipmentChanged bound once; cleared in EndPlay. */
 	bool bModularEquipmentDelegateBound = false;
 
+	bool bHasWeaponRSocket = false;
+	bool bHasWeaponLSocket = false;
+
 	bool bMeleeComboMontagesBaselineCaptured = false;
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UAnimMontage>> CachedMeleeComboMontagesBaselineSnapshot;

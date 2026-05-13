@@ -330,9 +330,10 @@ void UDFEquipmentComponent::SwapSlotMesh(
 		Comp->SetLeaderPoseComponent(nullptr);
 	}
 	Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Comp->bReceivesDecals       = true;
+	Comp->bReceivesDecals       = false;
 	Comp->SetCastShadow(true);
 	Comp->SetComponentTickEnabled(false);
+	Comp->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::OnlyTickPoseWhenRendered;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -457,6 +458,9 @@ void UDFEquipmentComponent::OnRep_Loadout()
 	const TMap<EEquipmentSlot, FName> PrevEquipped = EquippedItems;
 	RebuildMapFromReplicated();
 
+	RecalculateAllVisuals();
+	RefreshWeaponAnimSetOnOwner();
+
 	for (uint8 Ui = static_cast<uint8>(EEquipmentSlot::Weapon);
 		 Ui <= static_cast<uint8>(EEquipmentSlot::Amulet);
 		 ++Ui)
@@ -469,9 +473,6 @@ void UDFEquipmentComponent::OnRep_Loadout()
 			OnEquipmentChanged.Broadcast(S, CurrR.IsNone() ? NAME_None : CurrR);
 		}
 	}
-
-	RecalculateAllVisuals();
-	RefreshWeaponAnimSetOnOwner();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -693,8 +694,8 @@ void UDFEquipmentComponent::UnequipSlotInternal(
 	}
 
 	SyncReplicatedArrayFromMap();
-	OnEquipmentChanged.Broadcast(Slot, NAME_None);
 	RecalculateVisualsForSlot(Slot);
+	OnEquipmentChanged.Broadcast(Slot, NAME_None);
 	if (Slot == EEquipmentSlot::Weapon)
 	{
 		RefreshWeaponAnimSetOnOwner();
@@ -803,8 +804,8 @@ bool UDFEquipmentComponent::EquipItemInternal(
 
 	EquippedItems.Add(Slot, ItemRowName);
 	SyncReplicatedArrayFromMap();
-	OnEquipmentChanged.Broadcast(Slot, ItemRowName);
 	RecalculateVisualsForSlot(Slot);
+	OnEquipmentChanged.Broadcast(Slot, ItemRowName);
 
 	if (Slot == EEquipmentSlot::Weapon)
 	{

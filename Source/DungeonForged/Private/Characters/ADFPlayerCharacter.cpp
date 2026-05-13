@@ -127,22 +127,8 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 		Mesh_Gloves->SetupAttachment(Mesh_Base);
 		static const FName NWeaponR(TEXT("weapon_r"));
 		static const FName NWeaponL(TEXT("weapon_l"));
-		if (Mesh_Base->DoesSocketExist(NWeaponR))
-		{
-			Mesh_Weapon->SetupAttachment(Mesh_Base, NWeaponR);
-		}
-		else
-		{
-			Mesh_Weapon->SetupAttachment(Mesh_Base);
-		}
-		if (Mesh_Base->DoesSocketExist(NWeaponL))
-		{
-			Mesh_OffHand->SetupAttachment(Mesh_Base, NWeaponL);
-		}
-		else
-		{
-			Mesh_OffHand->SetupAttachment(Mesh_Base);
-		}
+		Mesh_Weapon->SetupAttachment(Mesh_Base, NWeaponR);
+		Mesh_OffHand->SetupAttachment(Mesh_Base, NWeaponL);
 
 		SetupModularMeshPart(Mesh_Helmet);
 		SetupModularMeshPart(Mesh_Chest);
@@ -152,8 +138,7 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 		SetupModularMeshPart(Mesh_Weapon);
 		SetupModularMeshPart(Mesh_OffHand);
 
-		UE_LOG(LogDFPlayer, Verbose, TEXT("Ctor mod meshes ok | weapon_r socket=%d weapon_l socket=%d"),
-			Mesh_Base->DoesSocketExist(NWeaponR) ? 1 : 0, Mesh_Base->DoesSocketExist(NWeaponL) ? 1 : 0);
+		UE_LOG(LogDFPlayer, Verbose, TEXT("Ctor mod meshes ok | weapon sockets validated in PostInitializeComponents"));
 	}
 	else
 	{
@@ -318,6 +303,10 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 void ADFPlayerCharacter::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
+	static const FName NWeaponR(TEXT("weapon_r"));
+	static const FName NWeaponL(TEXT("weapon_l"));
+	bHasWeaponRSocket = Mesh_Base && Mesh_Base->DoesSocketExist(NWeaponR);
+	bHasWeaponLSocket = Mesh_Base && Mesh_Base->DoesSocketExist(NWeaponL);
 	RefreshWeaponAndOffHandSocketAttachments();
 }
 
@@ -330,7 +319,7 @@ void ADFPlayerCharacter::RefreshWeaponAndOffHandSocketAttachments()
 	static const FName NWeaponR(TEXT("weapon_r"));
 	static const FName NWeaponL(TEXT("weapon_l"));
 	const FAttachmentTransformRules Rules(FAttachmentTransformRules::SnapToTargetNotIncludingScale);
-	if (Mesh_Base->DoesSocketExist(NWeaponR))
+	if (bHasWeaponRSocket)
 	{
 		Mesh_Weapon->AttachToComponent(Mesh_Base, Rules, NWeaponR);
 	}
@@ -338,7 +327,7 @@ void ADFPlayerCharacter::RefreshWeaponAndOffHandSocketAttachments()
 	{
 		Mesh_Weapon->AttachToComponent(Mesh_Base, Rules);
 	}
-	if (Mesh_Base->DoesSocketExist(NWeaponL))
+	if (bHasWeaponLSocket)
 	{
 		Mesh_OffHand->AttachToComponent(Mesh_Base, Rules, NWeaponL);
 	}
@@ -397,8 +386,9 @@ void ADFPlayerCharacter::SetupModularMeshPart(USkeletalMeshComponent* const Part
 	}
 	Part->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Part->SetComponentTickEnabled(false);
-	Part->bReceivesDecals = true;
+	Part->bReceivesDecals = false;
 	Part->SetCastShadow(true);
+	Part->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::OnlyTickPoseWhenRendered;
 }
 
 void ADFPlayerCharacter::RegisterModularSlotsWithEquipment()

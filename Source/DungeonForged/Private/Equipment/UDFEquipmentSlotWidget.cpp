@@ -72,7 +72,7 @@ void ClearEquipSlotVisuals(UImage* SlotIcon, UTextBlock* ItemLevelText, UImage* 
 	}
 }
 
-UImage* CreateIconDragPreview(UObject* Outer, UTexture2D* Texture, const FVector2D& DesiredSize)
+UImage* CreateEquipmentIconDragPreview(UObject* Outer, UTexture2D* Texture, const FVector2D& DesiredSize)
 {
 	UImage* const Img = NewObject<UImage>(Outer);
 	if (!Img)
@@ -313,7 +313,7 @@ void UDFEquipmentSlotWidget::NativeOnDragDetected(
 	Op->SourceEquipmentSlot      = EquipSlot;
 	if (const FDFItemTableRow* Row = Eq->GetEquippedItemDataRaw(EquipSlot))
 	{
-		Op->DefaultDragVisual = CreateIconDragPreview(Op, Row->Icon, IconSize);
+		Op->DefaultDragVisual = CreateEquipmentIconDragPreview(Op, Row->Icon, IconSize);
 	}
 	Op->Pivot             = EDragPivot::MouseDown;
 	OutOperation          = Op;

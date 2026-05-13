@@ -85,7 +85,7 @@ void ClearSlotVisuals(UImage* SlotIcon, UTextBlock* QuantityText, UImage* Rarity
 	}
 }
 
-UImage* CreateIconDragPreview(UObject* Outer, UTexture2D* Texture, const FVector2D& DesiredSize)
+UImage* CreateInventoryIconDragPreview(UObject* Outer, UTexture2D* Texture, const FVector2D& DesiredSize)
 {
 	UImage* const Img = NewObject<UImage>(Outer);
 	if (!Img)
@@ -335,7 +335,7 @@ void UDFInventorySlotWidget::NativeOnDragDetected(
 	Op->SourceEquipmentSlot     = EEquipmentSlot::None;
 	if (const FDFItemTableRow* Row = Inv->GetItemData(Inv->Items[SlotIndex].RowName))
 	{
-		Op->DefaultDragVisual = CreateIconDragPreview(Op, Row->Icon, IconSize);
+		Op->DefaultDragVisual = CreateInventoryIconDragPreview(Op, Row->Icon, IconSize);
 	}
 	Op->Pivot             = EDragPivot::MouseDown;
 	OutOperation          = Op;

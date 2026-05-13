@@ -127,6 +127,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Trace")
 	void SetBaseKnockbackForNextSwing(float NewKnockback) { OverrideBaseKnockback = NewKnockback; bUseOverrideKnockback = true; }
 
+	/** Mesh used for socket-based traces (assigned weapon skeletal or owner fallback); for tooling / debug dumps. */
+	USkeletalMeshComponent* GetResolvedTraceMesh() const;
+
 protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void BeginPlay() override;

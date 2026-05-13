@@ -14,9 +14,19 @@
 #include "CollisionQueryParams.h"
 #include "WorldCollision.h"
 #include "Engine/EngineTypes.h"
+#include "DungeonForgedModule.h"
 
 #if !UE_BUILD_SHIPPING
 #include "HAL/IConsoleManager.h"
+#include "Engine/Engine.h"
+#include "EngineUtils.h"
+
+static constexpr int32 DF_EnableDrawDebugValue =
+#if ENABLE_DRAW_DEBUG
+	1;
+#else
+	0;
+#endif
 
 static TAutoConsoleVariable<int32> CVarDF_DebugMeleeWeapon(
 	TEXT("df.DebugMeleeWeapon"),
@@ -27,6 +37,126 @@ static TAutoConsoleVariable<int32> CVarDF_DebugMeleeWeapon(
 	TEXT(" 2: Idem + capsula aproximada do segmento barrido"),
 	ECVF_Cheat);
 
+/** Int value for df.DebugMeleeWeapon; -1 = CVar not registered. */
+static int32 DF_DebugMeleeWeaponCVarValue(bool* OutCVarFound = nullptr)
+{
+	if (OutCVarFound)
+	{
+		*OutCVarFound = false;
+	}
+	const IConsoleVariable* const Cv = IConsoleManager::Get().FindConsoleVariable(TEXT("df.DebugMeleeWeapon"));
+	if (!Cv)
+	{
+		return -1;
+	}
+	if (OutCVarFound)
+	{
+		*OutCVarFound = true;
+	}
+	int32 V = Cv->GetInt();
+	if (V != 0)
+	{
+		return V;
+	}
+	const FString S = Cv->GetString().TrimStartAndEnd();
+	if (S.IsEmpty())
+	{
+		return 0;
+	}
+	if (S.Equals(TEXT("true"), ESearchCase::IgnoreCase) || S.Equals(TEXT("on"), ESearchCase::IgnoreCase))
+	{
+		return 1;
+	}
+	const int32 Parsed = FCString::Atoi(*S);
+	return Parsed != 0 ? Parsed : 0;
+}
+
+static void DF_DumpMeleeWeaponTracesConsole()
+{
+	UE_LOG(LogDungeonForged, Log, TEXT("df.MeleeWeaponDump: -------"));
+	bool      CvFound = false;
+	const int32 DbgVal = DF_DebugMeleeWeaponCVarValue(&CvFound);
+	if (!CvFound)
+	{
+		UE_LOG(LogDungeonForged, Warning,
+			TEXT("df.MeleeWeaponDump: CVar df.DebugMeleeWeapon not found (shipping build?)"));
+	}
+	else
+	{
+		const IConsoleVariable* const Cv = IConsoleManager::Get().FindConsoleVariable(TEXT("df.DebugMeleeWeapon"));
+		UE_LOG(LogDungeonForged, Log,
+			TEXT("df.MeleeWeaponDump: df.DebugMeleeWeapon GetInt=%d GetString=\"%s\" Parsed=%d ENABLE_DRAW_DEBUG=%d"),
+			Cv->GetInt(),
+			*Cv->GetString(),
+			DbgVal,
+			DF_EnableDrawDebugValue
+		);
+	}
+
+	int32 Worlds = 0;
+	int32 Comps  = 0;
+	if (!GEngine)
+	{
+		UE_LOG(LogDungeonForged, Warning, TEXT("df.MeleeWeaponDump: no GEngine"));
+		return;
+	}
+	for (const FWorldContext& Cxt : GEngine->GetWorldContexts())
+	{
+		UWorld* const W = Cxt.World();
+		if (!W || !W->IsGameWorld())
+		{
+			continue;
+		}
+		++Worlds;
+
+		for (TActorIterator<AActor> ActorIt(W); ActorIt; ++ActorIt)
+		{
+			AActor* const A = *ActorIt;
+			if (!A)
+			{
+				continue;
+			}
+			TArray<UDFMeleeTraceComponent*> Mes;
+			A->GetComponents<UDFMeleeTraceComponent>(Mes);
+			for (UDFMeleeTraceComponent* const M : Mes)
+			{
+				if (!M)
+				{
+					continue;
+				}
+				++Comps;
+				USkeletalMeshComponent* const Skel = M->GetResolvedTraceMesh();
+				USkeletalMesh* const Asset         = Skel ? Skel->GetSkeletalMeshAsset() : nullptr;
+				const FName SockA                  = M->TraceStartSocket;
+				const FName SockB                  = M->TraceEndSocket;
+				const bool bHasStart               = Skel && Skel->DoesSocketExist(SockA);
+				const bool bHasEnd                 = Skel && Skel->DoesSocketExist(SockB);
+				UE_LOG(LogDungeonForged, Log,
+					TEXT("  [%d] Actor=%s MeleeTick=%s | meshComp=%s | skAsset=%s | sockets [%s|%s ok=%d/%d | radius=%.1f"),
+					Comps,
+					*GetNameSafe(A),
+					M->IsComponentTickEnabled() ? TEXT("on") : TEXT("off"),
+					Skel ? *Skel->GetName() : TEXT("(null)"),
+					Asset ? *Asset->GetName() : TEXT("(none)"),
+					*SockA.ToString(),
+					*SockB.ToString(),
+					bHasStart ? 1 : 0,
+					bHasEnd ? 1 : 0,
+					M->TraceRadius);
+			}
+		}
+	}
+	UE_LOG(LogDungeonForged, Log,
+		TEXT("df.MeleeWeaponDump: worlds=%d totalMeleeComponents=%d (no components => no Tick, no visuals)"),
+		Worlds,
+		Comps);
+}
+
+static FAutoConsoleCommand GCmdMeleeWeaponDump(
+	TEXT("df.MeleeWeaponDump"),
+	TEXT("Log df.DebugMeleeWeapon / ENABLE_DRAW_DEBUG and every UDFMeleeTraceComponent + sockets."),
+	FConsoleCommandDelegate::CreateLambda([]() { DF_DumpMeleeWeaponTracesConsole(); }));
+
 static void DF_DrawMeleeWeaponDebugVisual(
 	const UWorld* const World,
 	USkeletalMeshComponent* const Mesh,
@@ -35,53 +165,72 @@ static void DF_DrawMeleeWeaponDebugVisual(
 	const float TraceRadius,
 	const int32 DebugMode)
 {
-#if ENABLE_DRAW_DEBUG
 	if (!World || !Mesh || DebugMode <= 0)
 	{
 		return;
 	}
 
-	if (!Mesh->DoesSocketExist(TraceStartSocket) || !Mesh->DoesSocketExist(TraceEndSocket))
+	const bool bStartOk = Mesh->DoesSocketExist(TraceStartSocket);
+	const bool bEndOk   = Mesh->DoesSocketExist(TraceEndSocket);
+
+	if (!bStartOk || !bEndOk)
 	{
+		USkeletalMesh* const SkAsset     = Mesh->GetSkeletalMeshAsset();
+		const FString      AssetName     = SkAsset ? SkAsset->GetName() : FString(TEXT("(no skeletal asset)"));
+		const AActor* const OwnerActor   = Mesh->GetOwner();
+
+		// Always emit to log — do NOT nest under ENABLE_DRAW_DEBUG (some targets compile draw out).
+		UE_LOG(LogDungeonForged, Warning,
+			TEXT("df.DebugMeleeWeapon: sockets %s/%s missing on skeletal mesh \"%s\" (component %s, owner %s). ")
+			TEXT("Melee trace uses Mesh_Weapon when armed; equip weapon or rename sockets."),
+			*TraceStartSocket.ToString(),
+			*TraceEndSocket.ToString(),
+			*AssetName,
+			*Mesh->GetName(),
+			OwnerActor ? *OwnerActor->GetName() : TEXT("(none)"));
+
+#if ENABLE_DRAW_DEBUG
 		DrawDebugString(
 			World,
 			Mesh->GetComponentLocation(),
 			FString::Printf(
-				TEXT("df.DebugMeleeWeapon: socket missing (%s / %s) on mesh %s"),
+				TEXT("df.DebugMeleeWeapon: missing %s / %s on %s — see Output Log"),
 				*TraceStartSocket.ToString(),
 				*TraceEndSocket.ToString(),
-				*Mesh->GetName()),
+				*AssetName),
 			nullptr,
 			FColor::Red,
-			0.f,
+			0.2f,
 			true,
 			1.25f);
+#endif
 		return;
 	}
 
+#if ENABLE_DRAW_DEBUG
 	const FVector TraceStart = Mesh->GetSocketLocation(TraceStartSocket);
 	const FVector TraceEnd   = Mesh->GetSocketLocation(TraceEndSocket);
-	const FColor SpineColor = FColor::Green;
+	const FColor  SpineColor = FColor::Green;
 	DrawDebugSphere(World, TraceStart, TraceRadius, 10, SpineColor, false, -1.f, 0, 1.f);
 	DrawDebugSphere(World, TraceEnd, TraceRadius, 10, SpineColor, false, -1.f, 0, 1.f);
 	DrawDebugLine(World, TraceStart, TraceEnd, FColor::Yellow, false, -1.f, 0, 1.5f);
 
 	if (DebugMode >= 2)
 	{
-		const FVector Delta       = TraceEnd - TraceStart;
-		const float   SegmentLen  = Delta.Size();
+		const FVector Delta      = TraceEnd - TraceStart;
+		const float   SegmentLen = Delta.Size();
 		if (SegmentLen >= KINDA_SMALL_NUMBER)
 		{
-			const FVector Unit = Delta / SegmentLen;
-			const FVector Mid         = (TraceStart + TraceEnd) * 0.5f;
-			const FRotationMatrix Orient = FRotationMatrix::MakeFromZ(Unit);
-			const float HalfCapsule   = SegmentLen * 0.5f + TraceRadius;
+			const FVector Unit          = Delta / SegmentLen;
+			const FVector Mid           = (TraceStart + TraceEnd) * 0.5f;
+			const FQuat   CapsuleOrient = FQuat::FindBetweenNormals(FVector::UpVector, Unit.GetSafeNormal());
+			const float HalfCapsule     = SegmentLen * 0.5f + TraceRadius;
 			DrawDebugCapsule(
 				World,
 				Mid,
 				HalfCapsule,
 				TraceRadius,
-				Orient.ToQuat(),
+				CapsuleOrient,
 				FColor::Cyan,
 				false,
 				-1.f,
@@ -130,6 +279,11 @@ USkeletalMeshComponent* UDFMeleeTraceComponent::GetMesh() const
 	return nullptr;
 }
 
+USkeletalMeshComponent* UDFMeleeTraceComponent::GetResolvedTraceMesh() const
+{
+	return GetMesh();
+}
+
 void UDFMeleeTraceComponent::StartTrace()
 {
 	HitActorsThisSwing.Empty();
@@ -156,13 +310,52 @@ void UDFMeleeTraceComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 #if !UE_BUILD_SHIPPING
-	const int32 WeaponDbg = static_cast<int32>(CVarDF_DebugMeleeWeapon);
-	if (WeaponDbg > 0)
+	bool      CvOk = false;
+	const int32 WeaponDbg = DF_DebugMeleeWeaponCVarValue(&CvOk);
+	if (!CvOk)
 	{
-		if (UWorld* const World = GetWorld())
+		static uint64 NoCvarSpam = 0;
+		if ((++NoCvarSpam % 3600ull) == 1ull)
 		{
-			DF_DrawMeleeWeaponDebugVisual(World, GetMesh(), TraceStartSocket, TraceEndSocket, TraceRadius, WeaponDbg);
+			UE_LOG(LogDungeonForged, Warning,
+				TEXT("df.DebugMeleeWeapon: FindConsoleVariable failed (shipping / module not linked?). Use Development Editor."));
 		}
+	}
+	else if (WeaponDbg > 0 && GetWorld())
+	{
+		UWorld* const World = GetWorld();
+		static uint32 StatusSpam = 0;
+		const bool bStatusLine = (++StatusSpam % 180u) == 1u;
+
+		if (bStatusLine)
+		{
+			UE_LOG(LogDungeonForged, Log,
+				TEXT("df.DebugMeleeWeapon: mode=%d owner=%s MeleeCmpTick=%s ENABLE_DRAW_DEBUG=%d"),
+				WeaponDbg,
+				GetOwner() ? *GetOwner()->GetName() : TEXT("(none)"),
+				IsComponentTickEnabled() ? TEXT("on") : TEXT("off"),
+				DF_EnableDrawDebugValue
+			);
+		}
+
+#if ENABLE_DRAW_DEBUG
+		if (USkeletalMeshComponent* TraceMesh = GetMesh())
+		{
+			DF_DrawMeleeWeaponDebugVisual(World, TraceMesh, TraceStartSocket, TraceEndSocket, TraceRadius, WeaponDbg);
+		}
+		else if (bStatusLine)
+		{
+			UE_LOG(LogDungeonForged, Warning,
+				TEXT("df.DebugMeleeWeapon: GetMesh()==null (no weapon skeletal / owner mesh). Owner=%s"),
+				GetOwner() ? *GetOwner()->GetName() : TEXT("(none)"));
+		}
+#else
+		if (bStatusLine)
+		{
+			UE_LOG(LogDungeonForged, Warning,
+				TEXT("df.DebugMeleeWeapon: ENABLE_DRAW_DEBUG=0 in this compilation — no spheres/lines. Run df.MeleeWeaponDump for socket state."));
+		}
+#endif
 	}
 #endif
 	if (bTracing)
