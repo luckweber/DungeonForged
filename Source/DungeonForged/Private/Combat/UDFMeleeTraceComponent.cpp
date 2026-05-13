@@ -15,10 +15,92 @@
 #include "WorldCollision.h"
 #include "Engine/EngineTypes.h"
 
+#if !UE_BUILD_SHIPPING
+#include "HAL/IConsoleManager.h"
+
+static TAutoConsoleVariable<int32> CVarDF_DebugMeleeWeapon(
+	TEXT("df.DebugMeleeWeapon"),
+	0,
+	TEXT("DungeonForged: sempre desenhar o volume de melee (sweep esferico entre sockets).\n")
+	TEXT(" 0: Off (default)\n")
+	TEXT(" 1: Linha weapon_start -> weapon_end + esferas (raio TraceRadius)\n")
+	TEXT(" 2: Idem + capsula aproximada do segmento barrido"),
+	ECVF_Cheat);
+
+static void DF_DrawMeleeWeaponDebugVisual(
+	const UWorld* const World,
+	USkeletalMeshComponent* const Mesh,
+	const FName TraceStartSocket,
+	const FName TraceEndSocket,
+	const float TraceRadius,
+	const int32 DebugMode)
+{
+#if ENABLE_DRAW_DEBUG
+	if (!World || !Mesh || DebugMode <= 0)
+	{
+		return;
+	}
+
+	if (!Mesh->DoesSocketExist(TraceStartSocket) || !Mesh->DoesSocketExist(TraceEndSocket))
+	{
+		DrawDebugString(
+			World,
+			Mesh->GetComponentLocation(),
+			FString::Printf(
+				TEXT("df.DebugMeleeWeapon: socket missing (%s / %s) on mesh %s"),
+				*TraceStartSocket.ToString(),
+				*TraceEndSocket.ToString(),
+				*Mesh->GetName()),
+			nullptr,
+			FColor::Red,
+			0.f,
+			true,
+			1.25f);
+		return;
+	}
+
+	const FVector TraceStart = Mesh->GetSocketLocation(TraceStartSocket);
+	const FVector TraceEnd   = Mesh->GetSocketLocation(TraceEndSocket);
+	const FColor SpineColor = FColor::Green;
+	DrawDebugSphere(World, TraceStart, TraceRadius, 10, SpineColor, false, -1.f, 0, 1.f);
+	DrawDebugSphere(World, TraceEnd, TraceRadius, 10, SpineColor, false, -1.f, 0, 1.f);
+	DrawDebugLine(World, TraceStart, TraceEnd, FColor::Yellow, false, -1.f, 0, 1.5f);
+
+	if (DebugMode >= 2)
+	{
+		const FVector Delta       = TraceEnd - TraceStart;
+		const float   SegmentLen  = Delta.Size();
+		if (SegmentLen >= KINDA_SMALL_NUMBER)
+		{
+			const FVector Unit = Delta / SegmentLen;
+			const FVector Mid         = (TraceStart + TraceEnd) * 0.5f;
+			const FRotationMatrix Orient = FRotationMatrix::MakeFromZ(Unit);
+			const float HalfCapsule   = SegmentLen * 0.5f + TraceRadius;
+			DrawDebugCapsule(
+				World,
+				Mid,
+				HalfCapsule,
+				TraceRadius,
+				Orient.ToQuat(),
+				FColor::Cyan,
+				false,
+				-1.f,
+				0,
+				1.f);
+		}
+	}
+#endif // ENABLE_DRAW_DEBUG
+}
+#endif // !UE_BUILD_SHIPPING
+
 UDFMeleeTraceComponent::UDFMeleeTraceComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
+#if !UE_BUILD_SHIPPING
+	PrimaryComponentTick.bStartWithTickEnabled = true;
+#else
 	PrimaryComponentTick.bStartWithTickEnabled = false;
+#endif
 	SetIsReplicatedByDefault(false);
 }
 
@@ -57,18 +139,32 @@ void UDFMeleeTraceComponent::StartTrace()
 	bUseOverrideBaseDamage = false;
 	bUseOverrideKnockback = false;
 	CachedDamageSpec = BuildDamageSpec(Dmg, Kb);
+#if UE_BUILD_SHIPPING
 	SetComponentTickEnabled(true);
+#endif
 }
 
 void UDFMeleeTraceComponent::EndTrace()
 {
 	bTracing = false;
+#if UE_BUILD_SHIPPING
 	SetComponentTickEnabled(false);
+#endif
 }
 
 void UDFMeleeTraceComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+#if !UE_BUILD_SHIPPING
+	const int32 WeaponDbg = static_cast<int32>(CVarDF_DebugMeleeWeapon);
+	if (WeaponDbg > 0)
+	{
+		if (UWorld* const World = GetWorld())
+		{
+			DF_DrawMeleeWeaponDebugVisual(World, GetMesh(), TraceStartSocket, TraceEndSocket, TraceRadius, WeaponDbg);
+		}
+	}
+#endif
 	if (bTracing)
 	{
 		TickTrace(DeltaTime);

@@ -10,11 +10,30 @@
 #include "GameplayEffect.h"
 #include "GameplayEffectTypes.h"
 #include "Net/UnrealNetwork.h"
+#include "DungeonForgedModule.h"
+#include "UObject/UnrealType.h"
+
 #include "GameFramework/Character.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
 #include "Animation/UDFAnimInstance.h"
 
+static FString DF_DebugEqSlotName(const EEquipmentSlot Slot)
+{
+	if (const UEnum* Enum = StaticEnum<EEquipmentSlot>())
+	{
+		const FString Raw = Enum->GetAuthoredNameStringByValue(static_cast<int64>(Slot));
+		if (!Raw.IsEmpty())
+		{
+			return Raw;
+		}
+	}
+	return FString::Printf(TEXT("Slot%u"), static_cast<uint8>(Slot));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal helpers
+// ─────────────────────────────────────────────────────────────────────────────
 static bool IsEquippableItemType(const EItemType T)
 {
 	switch (T)
@@ -34,6 +53,26 @@ static bool IsEquippableItemType(const EItemType T)
 	}
 }
 
+static bool HasInventoryItemCount(
+	const UDFInventoryComponent& Inv,
+	const FName RowName,
+	const int32 MinCount,
+	int32& OutCount)
+{
+	OutCount = 0;
+	for (const FDFInventorySlot& S : Inv.Items)
+	{
+		if (S.RowName == RowName)
+		{
+			OutCount += S.Quantity;
+		}
+	}
+	return OutCount >= MinCount;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Static utilities
+// ─────────────────────────────────────────────────────────────────────────────
 EEquipmentSlot UDFEquipmentComponent::ResolveItemEquipmentSlot(const FDFItemTableRow& Row)
 {
 	if (Row.TargetEquipmentSlot != EEquipmentSlot::None)
@@ -42,87 +81,78 @@ EEquipmentSlot UDFEquipmentComponent::ResolveItemEquipmentSlot(const FDFItemTabl
 	}
 	switch (Row.ItemType)
 	{
-		case EItemType::Weapon: return EEquipmentSlot::Weapon;
+		case EItemType::Weapon:  return EEquipmentSlot::Weapon;
 		case EItemType::OffHand: return EEquipmentSlot::OffHand;
-		case EItemType::Helmet: return EEquipmentSlot::Helmet;
-		case EItemType::Chest: return EEquipmentSlot::Chest;
-		case EItemType::Legs: return EEquipmentSlot::Legs;
-		case EItemType::Boots: return EEquipmentSlot::Boots;
-		case EItemType::Gloves: return EEquipmentSlot::Gloves;
-		case EItemType::Ring: return EEquipmentSlot::Ring1;
-		case EItemType::Amulet: return EEquipmentSlot::Amulet;
-		case EItemType::Armor: return EEquipmentSlot::Chest;
-		default: return EEquipmentSlot::None;
+		case EItemType::Helmet:  return EEquipmentSlot::Helmet;
+		case EItemType::Chest:   return EEquipmentSlot::Chest;
+		case EItemType::Legs:    return EEquipmentSlot::Legs;
+		case EItemType::Boots:   return EEquipmentSlot::Boots;
+		case EItemType::Gloves:  return EEquipmentSlot::Gloves;
+		case EItemType::Ring:    return EEquipmentSlot::Ring1;
+		case EItemType::Amulet:  return EEquipmentSlot::Amulet;
+		case EItemType::Armor:   return EEquipmentSlot::Chest;
+		default:                 return EEquipmentSlot::None;
 	}
 }
 
 bool UDFEquipmentComponent::DoesItemMatchEquipmentSlot(
-	const FDFItemTableRow& Row, const EEquipmentSlot RequestedSlot, FString* const OutError)
+	const FDFItemTableRow& Row,
+	const EEquipmentSlot RequestedSlot,
+	FString* const OutError)
 {
 	if (RequestedSlot == EEquipmentSlot::None)
 	{
-		if (OutError)
-		{
-			*OutError = TEXT("Invalid equipment slot");
-		}
+		if (OutError) { *OutError = TEXT("Invalid equipment slot"); }
 		return false;
 	}
 	if (!IsEquippableItemType(Row.ItemType))
 	{
-		if (OutError)
-		{
-			*OutError = TEXT("Item is not equippable");
-		}
+		if (OutError) { *OutError = TEXT("Item is not equippable"); }
 		return false;
 	}
+	// Rings can go in Ring1 or Ring2 unless the data table pins a specific slot.
 	if (Row.ItemType == EItemType::Ring)
 	{
 		if (Row.TargetEquipmentSlot == EEquipmentSlot::None)
 		{
-			return (RequestedSlot == EEquipmentSlot::Ring1 || RequestedSlot == EEquipmentSlot::Ring2);
+			return (RequestedSlot == EEquipmentSlot::Ring1 ||
+			        RequestedSlot == EEquipmentSlot::Ring2);
 		}
 		if (Row.TargetEquipmentSlot == RequestedSlot)
 		{
 			return true;
 		}
-		if (OutError)
-		{
-			*OutError = TEXT("Ring slot mismatch with data");
-		}
+		if (OutError) { *OutError = TEXT("Ring slot mismatch with data"); }
 		return false;
 	}
+	// Items with an explicit target slot.
 	if (Row.TargetEquipmentSlot != EEquipmentSlot::None)
 	{
 		if (Row.TargetEquipmentSlot != RequestedSlot)
 		{
-			if (OutError)
-			{
-				*OutError = TEXT("Data table target slot != requested");
-			}
+			if (OutError) { *OutError = TEXT("Data table target slot != requested"); }
 			return false;
 		}
 		return true;
 	}
+	// Derive from item type.
 	const EEquipmentSlot Required = ResolveItemEquipmentSlot(Row);
 	if (Required == EEquipmentSlot::None)
 	{
-		if (OutError)
-		{
-			*OutError = TEXT("Could not resolve item slot");
-		}
+		if (OutError) { *OutError = TEXT("Could not resolve item slot"); }
 		return false;
 	}
 	if (Required != RequestedSlot)
 	{
-		if (OutError)
-		{
-			*OutError = TEXT("Item does not match this slot");
-		}
+		if (OutError) { *OutError = TEXT("Item does not match this slot"); }
 		return false;
 	}
 	return true;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// UObject / UActorComponent
+// ─────────────────────────────────────────────────────────────────────────────
 UDFEquipmentComponent::UDFEquipmentComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
@@ -134,23 +164,27 @@ void UDFEquipmentComponent::BeginPlay()
 	Super::BeginPlay();
 }
 
-void UDFEquipmentComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+void UDFEquipmentComponent::GetLifetimeReplicatedProps(
+	TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UDFEquipmentComponent, ReplicatedLoadout);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal helpers
+// ─────────────────────────────────────────────────────────────────────────────
 UAbilitySystemComponent* UDFEquipmentComponent::ResolveOwnerASC() const
 {
 	if (const IAbilitySystemInterface* const I = Cast<IAbilitySystemInterface>(GetOwner()))
 	{
 		return I->GetAbilitySystemComponent();
 	}
-	if (const AActor* O = GetOwner())
+	if (const AActor* const O = GetOwner())
 	{
-		if (const APawn* P = Cast<APawn>(O))
+		if (const APawn* const P = Cast<APawn>(O))
 		{
-			if (APlayerState* PS = P->GetPlayerState())
+			if (APlayerState* const PS = P->GetPlayerState())
 			{
 				if (IAbilitySystemInterface* const I2 = Cast<IAbilitySystemInterface>(PS))
 				{
@@ -164,9 +198,28 @@ UAbilitySystemComponent* UDFEquipmentComponent::ResolveOwnerASC() const
 
 UDFInventoryComponent* UDFEquipmentComponent::ResolveInventory() const
 {
-	return GetOwner() ? GetOwner()->FindComponentByClass<UDFInventoryComponent>() : nullptr;
+	AActor* const Owner = GetOwner();
+	if (!Owner)
+	{
+		return nullptr;
+	}
+	if (UDFInventoryComponent* const OnOwner = Owner->FindComponentByClass<UDFInventoryComponent>())
+	{
+		return OnOwner;
+	}
+	if (const APawn* const P = Cast<APawn>(Owner))
+	{
+		if (APlayerState* const PS = P->GetPlayerState())
+		{
+			return PS->FindComponentByClass<UDFInventoryComponent>();
+		}
+	}
+	return nullptr;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Data accessors
+// ─────────────────────────────────────────────────────────────────────────────
 const FDFItemTableRow* UDFEquipmentComponent::GetItemData(const FName RowName) const
 {
 	const UDataTable* Table = ItemDataTable;
@@ -184,14 +237,11 @@ const FDFItemTableRow* UDFEquipmentComponent::GetItemData(const FName RowName) c
 	return Table->FindRow<FDFItemTableRow>(RowName, TEXT("UDFEquipment|GetItemData"));
 }
 
-const FDFItemTableRow* UDFEquipmentComponent::GetEquippedItemDataRaw(const EEquipmentSlot Slot) const
+const FDFItemTableRow* UDFEquipmentComponent::GetEquippedItemDataRaw(
+	const EEquipmentSlot Slot) const
 {
 	const FName N = EquippedItems.FindRef(Slot);
-	if (N.IsNone())
-	{
-		return nullptr;
-	}
-	return GetItemData(N);
+	return N.IsNone() ? nullptr : GetItemData(N);
 }
 
 bool UDFEquipmentComponent::TryGetEquippedItemData(
@@ -205,22 +255,139 @@ bool UDFEquipmentComponent::TryGetEquippedItemData(
 	return false;
 }
 
+bool UDFEquipmentComponent::IsSlotEmpty(const EEquipmentSlot Slot) const
+{
+	const FName* const P = EquippedItems.Find(Slot);
+	return !P || P->IsNone();
+}
+
+float UDFEquipmentComponent::GetTotalStatBonus(const FGameplayAttribute Attribute) const
+{
+	if (!Attribute.IsValid())
+	{
+		return 0.f;
+	}
+	float Sum = 0.f;
+	for (uint8 S = static_cast<uint8>(EEquipmentSlot::Weapon);
+		 S <= static_cast<uint8>(EEquipmentSlot::Amulet);
+		 ++S)
+	{
+		if (const FDFItemTableRow* const R =
+				GetEquippedItemDataRaw(static_cast<EEquipmentSlot>(S)))
+		{
+			for (const TPair<FGameplayAttribute, float>& P : R->AttributeModifiers)
+			{
+				if (P.Key == Attribute)
+				{
+					Sum += P.Value;
+					break;
+				}
+			}
+		}
+	}
+	return Sum;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mesh slots
+// ─────────────────────────────────────────────────────────────────────────────
+void UDFEquipmentComponent::RegisterSlotMesh(
+	const EEquipmentSlot Slot, USkeletalMeshComponent* const Mesh)
+{
+	if (Mesh)
+	{
+		SlotMeshComponents.Add(Slot, Mesh);
+	}
+}
+
+USkeletalMeshComponent* UDFEquipmentComponent::GetSlotMesh(const EEquipmentSlot Slot) const
+{
+	USkeletalMeshComponent* const* const P = SlotMeshComponents.Find(Slot);
+	return P ? *P : nullptr;
+}
+
+void UDFEquipmentComponent::SwapSlotMesh(
+	const EEquipmentSlot Slot,
+	USkeletalMesh* const NewMesh,
+	USkeletalMeshComponent* const BaseMesh)
+{
+	USkeletalMeshComponent* const Comp = GetSlotMesh(Slot);
+	if (!Comp)
+	{
+		return;
+	}
+	if (NewMesh)
+	{
+		Comp->SetSkeletalMesh(NewMesh);
+		if (BaseMesh)
+		{
+			Comp->SetLeaderPoseComponent(BaseMesh, true);
+		}
+	}
+	else
+	{
+		Comp->SetSkeletalMesh(nullptr);
+		Comp->SetLeaderPoseComponent(nullptr);
+	}
+	Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Comp->bReceivesDecals       = true;
+	Comp->SetCastShadow(true);
+	Comp->SetComponentTickEnabled(false);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Weapon melee ability
+// ─────────────────────────────────────────────────────────────────────────────
 bool UDFEquipmentComponent::HasGrantedWeaponMeleeAbilitySpec() const
 {
-	return GrantedWeaponMeleeAbilitySpecHandle.IsValid();
+	const FDFItemTableRow* const Row = GetEquippedItemDataRaw(EEquipmentSlot::Weapon);
+	return Row != nullptr && Row->WeaponMeleeGameplayAbility != nullptr;
 }
 
 bool UDFEquipmentComponent::TryActivateGrantedWeaponMeleeAbility()
 {
-	if (!GrantedWeaponMeleeAbilitySpecHandle.IsValid())
+	UAbilitySystemComponent* const ASC = ResolveOwnerASC();
+	if (!ASC)
 	{
 		return false;
 	}
-	UAbilitySystemComponent* const ASC = ResolveOwnerASC();
-	return ASC && ASC->TryActivateAbility(GrantedWeaponMeleeAbilitySpecHandle);
+	const FDFItemTableRow* const Row = GetEquippedItemDataRaw(EEquipmentSlot::Weapon);
+	if (!Row || !Row->WeaponMeleeGameplayAbility)
+	{
+		return false;
+	}
+	// Prefer class-based activation so clients use specs replicated from server (handles are authority-local).
+	return ASC->TryActivateAbilityByClass(Row->WeaponMeleeGameplayAbility, true);
 }
 
-void UDFEquipmentComponent::RevokeGrantedWeaponMeleeAbility(UAbilitySystemComponent* const ASC)
+void UDFEquipmentComponent::SyncWeaponMeleeGameplayAbilityGrant()
+{
+	AActor* const O = GetOwner();
+	if (!O || !O->HasAuthority())
+	{
+		return;
+	}
+	UAbilitySystemComponent* const ASC = ResolveOwnerASC();
+	if (!ASC || !ASC->GetAvatarActor())
+	{
+		return;
+	}
+	if (IsSlotEmpty(EEquipmentSlot::Weapon))
+	{
+		RevokeGrantedWeaponMeleeAbility(ASC);
+		return;
+	}
+	const FDFItemTableRow* const Row = GetEquippedItemDataRaw(EEquipmentSlot::Weapon);
+	if (!Row || !Row->WeaponMeleeGameplayAbility)
+	{
+		RevokeGrantedWeaponMeleeAbility(ASC);
+		return;
+	}
+	TryGrantWeaponMeleeAbilityFromEquippedRow(ASC, Row);
+}
+
+void UDFEquipmentComponent::RevokeGrantedWeaponMeleeAbility(
+	UAbilitySystemComponent* const ASC)
 {
 	if (!GrantedWeaponMeleeAbilitySpecHandle.IsValid())
 	{
@@ -244,68 +411,19 @@ void UDFEquipmentComponent::TryGrantWeaponMeleeAbilityFromEquippedRow(
 	RevokeGrantedWeaponMeleeAbility(ASC);
 	FGameplayAbilitySpec Spec(Row->WeaponMeleeGameplayAbility, 1, INDEX_NONE, this);
 	GrantedWeaponMeleeAbilitySpecHandle = ASC->GiveAbility(Spec);
-}
-
-bool UDFEquipmentComponent::IsSlotEmpty(const EEquipmentSlot Slot) const
-{
-	if (const FName* P = EquippedItems.Find(Slot))
+	if (!GrantedWeaponMeleeAbilitySpecHandle.IsValid())
 	{
-		return P->IsNone();
-	}
-	return true;
-}
-
-void UDFEquipmentComponent::RegisterSlotMesh(const EEquipmentSlot Slot, USkeletalMeshComponent* const Mesh)
-{
-	if (Mesh)
-	{
-		SlotMeshComponents.Add(Slot, Mesh);
+		const UClass* const AbilityClass = Row->WeaponMeleeGameplayAbility.Get();
+		DF_LOG(Warning,
+			"[DF|Eq|WeaponMelee] GiveAbility failed: ability=%s owner=%s. Check Ability policy and prerequisites.",
+			AbilityClass ? *AbilityClass->GetName() : TEXT("(none)"),
+			GetOwner() ? *GetOwner()->GetName() : TEXT("?"));
 	}
 }
 
-USkeletalMeshComponent* UDFEquipmentComponent::GetSlotMesh(const EEquipmentSlot Slot) const
-{
-	if (USkeletalMeshComponent* const* P = SlotMeshComponents.Find(Slot))
-	{
-		return *P;
-	}
-	return nullptr;
-}
-
-void UDFEquipmentComponent::SwapSlotMesh(
-	const EEquipmentSlot Slot, USkeletalMesh* const NewMesh, USkeletalMeshComponent* const BaseMesh)
-{
-	USkeletalMeshComponent* const Comp = GetSlotMesh(Slot);
-	if (!Comp)
-	{
-		return;
-	}
-	if (NewMesh)
-	{
-		Comp->SetSkeletalMesh(NewMesh);
-		if (BaseMesh)
-		{
-			Comp->SetLeaderPoseComponent(BaseMesh, true);
-		}
-	}
-	else
-	{
-		Comp->SetSkeletalMesh(nullptr);
-		Comp->SetLeaderPoseComponent(nullptr);
-	}
-	Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Comp->bReceivesDecals = true;
-	Comp->SetCastShadow(true);
-	Comp->SetComponentTickEnabled(false);
-}
-
-void UDFEquipmentComponent::OnRep_Loadout()
-{
-	RebuildMapFromReplicated();
-	RecalculateAllVisuals();
-	RefreshWeaponAnimSetOnOwner();
-}
-
+// ─────────────────────────────────────────────────────────────────────────────
+// Replication
+// ─────────────────────────────────────────────────────────────────────────────
 void UDFEquipmentComponent::SyncReplicatedArrayFromMap()
 {
 	ReplicatedLoadout.Reset();
@@ -316,7 +434,7 @@ void UDFEquipmentComponent::SyncReplicatedArrayFromMap()
 			continue;
 		}
 		FDFEquippedItemRep R;
-		R.Slot = P.Key;
+		R.Slot    = P.Key;
 		R.ItemRow = P.Value;
 		ReplicatedLoadout.Add(R);
 	}
@@ -334,11 +452,38 @@ void UDFEquipmentComponent::RebuildMapFromReplicated()
 	}
 }
 
+void UDFEquipmentComponent::OnRep_Loadout()
+{
+	const TMap<EEquipmentSlot, FName> PrevEquipped = EquippedItems;
+	RebuildMapFromReplicated();
+
+	for (uint8 Ui = static_cast<uint8>(EEquipmentSlot::Weapon);
+		 Ui <= static_cast<uint8>(EEquipmentSlot::Amulet);
+		 ++Ui)
+	{
+		const EEquipmentSlot S     = static_cast<EEquipmentSlot>(Ui);
+		const FName          PrevR = PrevEquipped.FindRef(S);
+		const FName          CurrR = EquippedItems.FindRef(S);
+		if (PrevR != CurrR)
+		{
+			OnEquipmentChanged.Broadcast(S, CurrR.IsNone() ? NAME_None : CurrR);
+		}
+	}
+
+	RecalculateAllVisuals();
+	RefreshWeaponAnimSetOnOwner();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Visual recalculation
+// ─────────────────────────────────────────────────────────────────────────────
 void UDFEquipmentComponent::RecalculateAllVisuals()
 {
-	for (uint8 S = (uint8)EEquipmentSlot::Weapon; S <= (uint8)EEquipmentSlot::Amulet; ++S)
+	for (uint8 S = static_cast<uint8>(EEquipmentSlot::Weapon);
+		 S <= static_cast<uint8>(EEquipmentSlot::Amulet);
+		 ++S)
 	{
-		RecalculateVisualsForSlot((EEquipmentSlot)S);
+		RecalculateVisualsForSlot(static_cast<EEquipmentSlot>(S));
 	}
 }
 
@@ -349,8 +494,8 @@ void UDFEquipmentComponent::RecalculateVisualsForSlot(const EEquipmentSlot Slot)
 	{
 		return;
 	}
-	const FName N = EquippedItems.FindRef(Slot);
 	USkeletalMeshComponent* const Leader = BaseBodyMesh ? BaseBodyMesh.Get() : nullptr;
+	const FName N = EquippedItems.FindRef(Slot);
 	if (N.IsNone())
 	{
 		if (USkeletalMesh* const D = DefaultNakedMeshes.FindRef(Slot).Get())
@@ -365,18 +510,10 @@ void UDFEquipmentComponent::RecalculateVisualsForSlot(const EEquipmentSlot Slot)
 	}
 	if (const FDFItemTableRow* const R = GetItemData(N))
 	{
-		if (R->ItemSkeletalMesh)
-		{
-			SwapSlotMesh(Slot, R->ItemSkeletalMesh, Leader);
-		}
-		else if (USkeletalMesh* D = DefaultNakedMeshes.FindRef(Slot).Get())
-		{
-			SwapSlotMesh(Slot, D, Leader);
-		}
-		else
-		{
-			SwapSlotMesh(Slot, nullptr, nullptr);
-		}
+		USkeletalMesh* const MeshRow = R->ItemSkeletalMesh.Get();
+		USkeletalMesh* const MeshFallback = DefaultNakedMeshes.FindRef(Slot).Get();
+		USkeletalMesh* const Mesh = MeshRow ? MeshRow : MeshFallback;
+		SwapSlotMesh(Slot, Mesh, Mesh ? Leader : nullptr);
 	}
 	else
 	{
@@ -391,45 +528,83 @@ void UDFEquipmentComponent::RecalculateVisualsForSlot(const EEquipmentSlot Slot)
 	}
 }
 
-float UDFEquipmentComponent::GetTotalStatBonus(const FGameplayAttribute Attribute) const
+// ─────────────────────────────────────────────────────────────────────────────
+// Equip validation
+// ─────────────────────────────────────────────────────────────────────────────
+bool UDFEquipmentComponent::PredictCanEquipItem(
+	const FName ItemRowName,
+	const EEquipmentSlot Slot,
+	FString& OutReason,
+	const int32 PreferredSourceBagSlot) const
 {
-	if (!Attribute.IsValid())
-	{
-		return 0.f;
-	}
-	float Sum = 0.f;
-	for (uint8 S = (uint8)EEquipmentSlot::Weapon; S <= (uint8)EEquipmentSlot::Amulet; ++S)
-	{
-		if (const FDFItemTableRow* const R = GetEquippedItemDataRaw((EEquipmentSlot)S))
-		{
-			for (const TPair<FGameplayAttribute, float>& P : R->AttributeModifiers)
-			{
-				if (P.Key == Attribute)
-				{
-					Sum += P.Value;
-					break;
-				}
-			}
-		}
-	}
-	return Sum;
+	return ValidateEquipPrerequisites(ItemRowName, Slot, OutReason, PreferredSourceBagSlot);
 }
 
-static bool HasInventoryItemCount(
-	const UDFInventoryComponent& Inv, const FName RowName, const int32 MinCount, int32& OutCount)
+bool UDFEquipmentComponent::ValidateEquipPrerequisites(
+	const FName ItemRowName,
+	const EEquipmentSlot Slot,
+	FString& OutError,
+	const int32 PreferredSourceBagSlot) const
 {
-	OutCount = 0;
-	for (const FDFInventorySlot& S : Inv.Items)
+	if (ItemRowName.IsNone() || Slot == EEquipmentSlot::None)
 	{
-		if (S.RowName == RowName)
+		OutError = TEXT("Invalid row or slot");
+		return false;
+	}
+	const FDFItemTableRow* const Row = GetItemData(ItemRowName);
+	if (!Row)
+	{
+		OutError = TEXT("Unknown item");
+		return false;
+	}
+	if (!DoesItemMatchEquipmentSlot(*Row, Slot, &OutError))
+	{
+		return false;
+	}
+	const UDFInventoryComponent* const Inv = ResolveInventory();
+	if (!Inv)
+	{
+		OutError = TEXT("No inventory");
+		return false;
+	}
+	if (PreferredSourceBagSlot != INDEX_NONE)
+	{
+		if (!Inv->Items.IsValidIndex(PreferredSourceBagSlot))
 		{
-			OutCount += S.Quantity;
+			OutError = TEXT("Invalid bag slot index");
+			return false;
+		}
+		const FDFInventorySlot& BagSlot = Inv->Items[PreferredSourceBagSlot];
+		if (BagSlot.RowName != ItemRowName || BagSlot.Quantity < 1)
+		{
+			OutError = TEXT("Item not in specified bag slot");
+			return false;
 		}
 	}
-	return OutCount >= MinCount;
+	else
+	{
+		int32 InBag = 0;
+		if (!HasInventoryItemCount(*Inv, ItemRowName, 1, InBag))
+		{
+			OutError = TEXT("Item not in inventory");
+			return false;
+		}
+	}
+	const UAbilitySystemComponent* const ASC = ResolveOwnerASC();
+	if (!ASC || !ASC->GetAvatarActor())
+	{
+		OutError = TEXT("GAS not ready (InitAbilityActorInfo)");
+		return false;
+	}
+	return true;
 }
 
-void UDFEquipmentComponent::UnequipSlotInternal(const EEquipmentSlot Slot)
+// ─────────────────────────────────────────────────────────────────────────────
+// Unequip
+// ─────────────────────────────────────────────────────────────────────────────
+void UDFEquipmentComponent::UnequipSlotInternal(
+	const EEquipmentSlot Slot,
+	const int32 TargetBagSlotIndex)
 {
 	if (Slot == EEquipmentSlot::None)
 	{
@@ -445,14 +620,16 @@ void UDFEquipmentComponent::UnequipSlotInternal(const EEquipmentSlot Slot)
 	{
 		return;
 	}
+
 	if (Slot == EEquipmentSlot::Weapon)
 	{
-		if (UAbilitySystemComponent* const AscWeapon = ResolveOwnerASC())
+		if (UAbilitySystemComponent* const ASC = ResolveOwnerASC())
 		{
-			RevokeGrantedWeaponMeleeAbility(AscWeapon);
+			RevokeGrantedWeaponMeleeAbility(ASC);
 		}
 	}
-	if (FActiveGameplayEffectHandle* H = EquipEffectHandles.Find(Slot))
+
+	if (FActiveGameplayEffectHandle* const H = EquipEffectHandles.Find(Slot))
 	{
 		if (UAbilitySystemComponent* const ASC = ResolveOwnerASC();
 			ASC && ASC->GetAvatarActor())
@@ -461,11 +638,60 @@ void UDFEquipmentComponent::UnequipSlotInternal(const EEquipmentSlot Slot)
 		}
 		EquipEffectHandles.Remove(Slot);
 	}
+
 	EquippedItems.Remove(Slot);
+
+	const FString OwnerName = O ? O->GetName() : FString(TEXT("?"));
+
+	// BUG FIX: the original code would silently lose the item if AddItem failed
+	// because the inventory was full. Log a warning so the issue is visible
+	// during development and gameplay is not affected further.
 	if (UDFInventoryComponent* const Inv = ResolveInventory())
 	{
-		Inv->AddItem(RowN, 1);
+		bool bPlaced = false;
+		if (TargetBagSlotIndex != INDEX_NONE)
+		{
+			bPlaced = Inv->ReceiveUnequippedItemAtBagIndex(TargetBagSlotIndex, RowN, 1);
+			DF_LOG(Verbose,
+				"[DF|Eq|Unequip] owner=%s equipSlot=%s item=%s bagCell[%d] place=%s",
+				*OwnerName,
+				*DF_DebugEqSlotName(Slot),
+				*RowN.ToString(),
+				TargetBagSlotIndex,
+				bPlaced ? TEXT("OK_CELL") : TEXT("retry_AddItem"));
+		}
+		else
+		{
+			DF_LOG(Verbose,
+				"[DF|Eq|Unequip] owner=%s equipSlot=%s item=%s bagTarget=AUTO_AddItem",
+				*OwnerName,
+				*DF_DebugEqSlotName(Slot),
+				*RowN.ToString());
+		}
+
+		if (!bPlaced)
+		{
+			if (!Inv->AddItem(RowN, 1))
+			{
+				DF_LOG(Warning,
+					"[DF|Eq|Unequip] INV FULL owner=%s item=%s lost (EquipSlot=%s BagTarget=%s)",
+					*OwnerName,
+					*RowN.ToString(),
+					*DF_DebugEqSlotName(Slot),
+					TargetBagSlotIndex != INDEX_NONE
+						? *FString::FromInt(TargetBagSlotIndex)
+						: TEXT("AUTO"));
+			}
+			else
+			{
+				DF_LOG(Verbose,
+					"[DF|Eq|Unequip] owner=%s item=%s AddItem(AUTO) OK",
+					*OwnerName,
+					*RowN.ToString());
+			}
+		}
 	}
+
 	SyncReplicatedArrayFromMap();
 	OnEquipmentChanged.Broadcast(Slot, NAME_None);
 	RecalculateVisualsForSlot(Slot);
@@ -492,18 +718,42 @@ void UDFEquipmentComponent::RequestUnequipSlot(const EEquipmentSlot Slot)
 	ServerUnequipSlot(Slot);
 }
 
-bool UDFEquipmentComponent::EquipItemInternal(
-	const FName ItemRowName, const EEquipmentSlot Slot, FString& OutError)
+void UDFEquipmentComponent::RequestUnequipToBagSlot(
+	const EEquipmentSlot Slot,
+	const int32 TargetBagSlotIndex)
 {
+	if (!GetOwner() || Slot == EEquipmentSlot::None || TargetBagSlotIndex == INDEX_NONE)
+	{
+		return;
+	}
+
+	if (GetOwner()->HasAuthority())
+	{
+		UnequipSlotInternal(Slot, TargetBagSlotIndex);
+	}
+	else
+	{
+		ServerUnequipSlotToBagIndex(Slot, TargetBagSlotIndex);
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Equip
+// ─────────────────────────────────────────────────────────────────────────────
+bool UDFEquipmentComponent::EquipItemInternal(
+	const FName ItemRowName,
+	const EEquipmentSlot Slot,
+	FString& OutError,
+	const int32 SourceBagSlotIndex)
+{
+	if (!ValidateEquipPrerequisites(ItemRowName, Slot, OutError, SourceBagSlotIndex))
+	{
+		return false;
+	}
 	AActor* const O = GetOwner();
 	if (!O || !O->HasAuthority())
 	{
 		OutError = TEXT("Not authority");
-		return false;
-	}
-	if (ItemRowName.IsNone() || Slot == EEquipmentSlot::None)
-	{
-		OutError = TEXT("Invalid row or slot");
 		return false;
 	}
 	const FDFItemTableRow* const Row = GetItemData(ItemRowName);
@@ -512,71 +762,90 @@ bool UDFEquipmentComponent::EquipItemInternal(
 		OutError = TEXT("Unknown item");
 		return false;
 	}
-	if (!DoesItemMatchEquipmentSlot(*Row, Slot, &OutError))
-	{
-		return false;
-	}
 	UDFInventoryComponent* const Inv = ResolveInventory();
-	int32 InBag = 0;
-	if (!Inv)
-	{
-		OutError = TEXT("No inventory");
-		return false;
-	}
-	if (!HasInventoryItemCount(*Inv, ItemRowName, 1, InBag))
+	int32 VerifyBag = 0;
+	if (!Inv || !HasInventoryItemCount(*Inv, ItemRowName, 1, VerifyBag))
 	{
 		OutError = TEXT("Item not in inventory");
 		return false;
 	}
+
 	UAbilitySystemComponent* const ASC = ResolveOwnerASC();
-	if (!ASC)
-	{
-		OutError = TEXT("No AbilitySystemComponent");
-		return false;
-	}
-	// GAS: ApplyGameplayEffectToSelf can check-fail if InitAbilityActorInfo was not run yet
-	// (e.g. equip before possession / before OnRep_PlayerState on client authority edge cases).
-	if (!ASC->GetAvatarActor())
-	{
-		OutError = TEXT("GAS not ready (InitAbilityActorInfo)");
-		return false;
-	}
+
+	// Unequip the item already occupying this slot (returns it to inventory).
 	const FName Current = EquippedItems.FindRef(Slot);
 	if (!Current.IsNone())
 	{
 		UnequipSlotInternal(Slot);
 	}
-	Inv->RemoveItem(ItemRowName, 1);
+
+	// Consume one instance from inventory (preferred stack when the UI provides a source index).
+	Inv->RemoveItem(ItemRowName, 1, SourceBagSlotIndex);
+
+	// Apply equip gameplay effect if provided.
+	if (Row->OnEquipEffect)
 	{
-		if (Row->OnEquipEffect)
+		if (const UGameplayEffect* const CDO = Row->OnEquipEffect.GetDefaultObject())
 		{
-			if (const UGameplayEffect* const CDO = Row->OnEquipEffect.GetDefaultObject())
+			FGameplayEffectContextHandle Ctx = ASC->MakeEffectContext();
+			if (O)
 			{
-				FGameplayEffectContextHandle Ctx = ASC->MakeEffectContext();
-				if (O)
-				{
-					Ctx.AddInstigator(O, O);
-				}
-				const FActiveGameplayEffectHandle H = ASC->ApplyGameplayEffectToSelf(CDO, 1.f, Ctx);
-				if (H.IsValid())
-				{
-					EquipEffectHandles.Add(Slot, H);
-				}
+				Ctx.AddInstigator(O, O);
+			}
+			const FActiveGameplayEffectHandle H =
+				ASC->ApplyGameplayEffectToSelf(CDO, 1.f, Ctx);
+			if (H.IsValid())
+			{
+				EquipEffectHandles.Add(Slot, H);
 			}
 		}
 	}
+
 	EquippedItems.Add(Slot, ItemRowName);
 	SyncReplicatedArrayFromMap();
 	OnEquipmentChanged.Broadcast(Slot, ItemRowName);
 	RecalculateVisualsForSlot(Slot);
+
 	if (Slot == EEquipmentSlot::Weapon)
 	{
 		TryGrantWeaponMeleeAbilityFromEquippedRow(ASC, Row);
 		RefreshWeaponAnimSetOnOwner();
 	}
+
+	const FString OwnerNameEquip = O ? O->GetName() : FString(TEXT("?"));
+	DF_LOG(Verbose,
+		"[DF|Eq|EquipOK] owner=%s slot=%s item=%s (bag stack -1)",
+		*OwnerNameEquip,
+		*DF_DebugEqSlotName(Slot),
+		*ItemRowName.ToString());
 	return true;
 }
 
+bool UDFEquipmentComponent::EquipItem(
+	const FName ItemRowName,
+	const EEquipmentSlot Slot,
+	const int32 SourceBagSlotIndex)
+{
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		FString E;
+		return EquipItemInternal(ItemRowName, Slot, E, SourceBagSlotIndex);
+	}
+	ServerEquipItem(ItemRowName, Slot, SourceBagSlotIndex);
+	return true;
+}
+
+void UDFEquipmentComponent::RequestEquipItem(
+	const FName ItemRowName,
+	const EEquipmentSlot Slot,
+	const int32 SourceBagSlotIndex)
+{
+	ServerEquipItem(ItemRowName, Slot, SourceBagSlotIndex);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Animation
+// ─────────────────────────────────────────────────────────────────────────────
 void UDFEquipmentComponent::RefreshWeaponAnimSetOnOwner()
 {
 	ACharacter* const Ch = Cast<ACharacter>(GetOwner());
@@ -589,7 +858,8 @@ void UDFEquipmentComponent::RefreshWeaponAnimSetOnOwner()
 	{
 		return;
 	}
-	UUDFAnimInstance* const Anim = Cast<UUDFAnimInstance>(SkelMesh->GetAnimInstance());
+	UUDFAnimInstance* const Anim =
+		Cast<UUDFAnimInstance>(SkelMesh->GetAnimInstance());
 	if (!Anim)
 	{
 		return;
@@ -617,40 +887,58 @@ void UDFEquipmentComponent::RefreshWeaponAnimSetOnOwner()
 	}
 }
 
-void UDFEquipmentComponent::RequestEquipItem(const FName ItemRowName, const EEquipmentSlot Slot)
-{
-	ServerEquipItem(ItemRowName, Slot);
-}
-
-void UDFEquipmentComponent::ServerEquipItem_Implementation(const FName ItemRowName, const EEquipmentSlot Slot)
+// ─────────────────────────────────────────────────────────────────────────────
+// Server RPCs
+// ─────────────────────────────────────────────────────────────────────────────
+void UDFEquipmentComponent::ServerEquipItem_Implementation(
+	const FName ItemRowName, const EEquipmentSlot Slot, const int32 SourceBagSlotIndex)
 {
 	FString E;
-	EquipItemInternal(ItemRowName, Slot, E);
+	EquipItemInternal(ItemRowName, Slot, E, SourceBagSlotIndex);
 }
 
 bool UDFEquipmentComponent::ServerEquipItem_Validate(
-	const FName /*ItemRowName*/, const EEquipmentSlot /*Slot*/)
+	const FName ItemRowName, const EEquipmentSlot Slot, const int32 SourceBagSlotIndex)
 {
+	if (ItemRowName.IsNone() || Slot == EEquipmentSlot::None)
+	{
+		return false;
+	}
+	if (SourceBagSlotIndex != INDEX_NONE && SourceBagSlotIndex < 0)
+	{
+		return false;
+	}
 	return true;
 }
 
 void UDFEquipmentComponent::ServerUnequipSlot_Implementation(const EEquipmentSlot Slot)
 {
-	UnequipSlotInternal(Slot);
+	UnequipSlotInternal(Slot, INDEX_NONE);
 }
 
-bool UDFEquipmentComponent::ServerUnequipSlot_Validate(const EEquipmentSlot /*Slot*/)
+bool UDFEquipmentComponent::ServerUnequipSlot_Validate(const EEquipmentSlot Slot)
 {
-	return true;
+	return Slot != EEquipmentSlot::None;
 }
 
-bool UDFEquipmentComponent::EquipItem(const FName ItemRowName, const EEquipmentSlot Slot)
+void UDFEquipmentComponent::ServerUnequipSlotToBagIndex_Implementation(
+	const EEquipmentSlot Slot,
+	const int32 TargetBagSlotIndex)
 {
-	if (GetOwner() && GetOwner()->HasAuthority())
+	if (AActor* const Ox = GetOwner())
 	{
-		FString E;
-		return EquipItemInternal(ItemRowName, Slot, E);
+		DF_LOG(Verbose,
+			"[DF|Eq|Unequip|RPC] owner=%s slot=%s -> bag[%d]",
+			*Ox->GetName(),
+			*DF_DebugEqSlotName(Slot),
+			TargetBagSlotIndex);
 	}
-	ServerEquipItem(ItemRowName, Slot);
-	return true;
+	UnequipSlotInternal(Slot, TargetBagSlotIndex);
+}
+
+bool UDFEquipmentComponent::ServerUnequipSlotToBagIndex_Validate(
+	const EEquipmentSlot Slot,
+	const int32 TargetBagSlotIndex)
+{
+	return Slot != EEquipmentSlot::None && TargetBagSlotIndex >= 0 && TargetBagSlotIndex < 512;
 }

@@ -14,6 +14,8 @@
 #include "Characters/ADFPlayerCharacter.h"
 #include "Characters/ADFPlayerState.h"
 #include "DFInventoryComponent.h"
+#include "Equipment/DFEquipmentTypes.h"
+#include "Equipment/UDFEquipmentComponent.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Engine/World.h"
 #include "GameFramework/GameStateBase.h"
@@ -190,6 +192,7 @@ void UDFRunManager::StartNewRun(FName ClassName)
 	RunState = FDFRunState();
 	RunState.CurrentFloor = 1;
 	RunState.SelectedClass = ClassName;
+	RunState.bClassStartingWeaponGranted = false;
 	RunState.EquippedItems.Reset();
 	RunState.GrantedAbilities = ClassDef->StartingAbilities;
 	RunState.Gold = 0;
@@ -718,16 +721,101 @@ void UDFRunManager::ApplyRunStateToPlayer(ADFPlayerCharacter* Player)
 		}
 	}
 
-	UDFInventoryComponent* const Inv = Player->FindComponentByClass<UDFInventoryComponent>();
+	UDFInventoryComponent* const Inv = [&]() -> UDFInventoryComponent*
+	{
+		if (UDFInventoryComponent* const C = Player->FindComponentByClass<UDFInventoryComponent>())
+		{
+			return C;
+		}
+		if (PlayerState)
+		{
+			return PlayerState->FindComponentByClass<UDFInventoryComponent>();
+		}
+		return nullptr;
+	}();
+
 	if (Inv)
 	{
 		RestoreInventoryFromRunState(Inv);
 	}
-	else if (PlayerState)
+
+	if (!RunState.bClassStartingWeaponGranted && ClassRow && Inv && ItemDataTable &&
+		!ClassRow->StartingWeaponItemRow.IsNone())
 	{
-		if (UDFInventoryComponent* const InvPS = PlayerState->FindComponentByClass<UDFInventoryComponent>())
+		UDFEquipmentComponent* const Eq = Player->FindComponentByClass<UDFEquipmentComponent>();
+		if (!Eq)
 		{
-			RestoreInventoryFromRunState(InvPS);
+			RunState.bClassStartingWeaponGranted = true;
+			UE_LOG(LogDFRun, Warning,
+				TEXT("ApplyRunStateToPlayer: class %s has StarterWeapon '%s' but pawn has no UDFEquipmentComponent."),
+				*RunState.SelectedClass.ToString(),
+				*ClassRow->StartingWeaponItemRow.ToString());
+		}
+		else
+		{
+			const FDFItemTableRow* const StarterRowMeta =
+				ItemDataTable->FindRow<FDFItemTableRow>(
+					ClassRow->StartingWeaponItemRow, TEXT("ApplyRunStateToPlayer|StarterWeapon"));
+			const bool bValidWeaponStarter =
+				StarterRowMeta &&
+				UDFEquipmentComponent::DoesItemMatchEquipmentSlot(*StarterRowMeta, EEquipmentSlot::Weapon);
+
+			if (!bValidWeaponStarter)
+			{
+				RunState.bClassStartingWeaponGranted = true;
+				UE_LOG(LogDFRun, Warning,
+					TEXT("ApplyRunStateToPlayer: class %s StarterWeaponItemRow '%s' is missing or invalid for Weapon slot."),
+					*RunState.SelectedClass.ToString(),
+					*ClassRow->StartingWeaponItemRow.ToString());
+			}
+			else if (!Eq->IsSlotEmpty(EEquipmentSlot::Weapon))
+			{
+				Eq->SyncWeaponMeleeGameplayAbilityGrant();
+				RunState.bClassStartingWeaponGranted = true;
+			}
+			else
+			{
+				auto FindFirstBagStackIdx = [&](const FName WantRow) -> int32
+				{
+					for (int32 I = 0; I < Inv->Items.Num(); ++I)
+					{
+						const FDFInventorySlot& S = Inv->Items[I];
+						if (!S.RowName.IsNone() && S.RowName == WantRow && S.Quantity >= 1)
+						{
+							return I;
+						}
+					}
+					return INDEX_NONE;
+				};
+
+				int32 BagIdx = FindFirstBagStackIdx(ClassRow->StartingWeaponItemRow);
+
+				if (BagIdx == INDEX_NONE)
+				{
+					const bool bAdded = Inv->AddItem(ClassRow->StartingWeaponItemRow, 1);
+					BagIdx = FindFirstBagStackIdx(ClassRow->StartingWeaponItemRow);
+					if (!bAdded || BagIdx == INDEX_NONE)
+					{
+						UE_LOG(LogDFRun,
+							Warning,
+							TEXT("ApplyRunStateToPlayer: could not add StarterWeapon '%s' to inventory."),
+							*ClassRow->StartingWeaponItemRow.ToString());
+					}
+				}
+
+				FString EqErr;
+				if (BagIdx != INDEX_NONE &&
+					Eq->PredictCanEquipItem(
+						ClassRow->StartingWeaponItemRow,
+						EEquipmentSlot::Weapon,
+						EqErr,
+						BagIdx))
+				{
+					Eq->EquipItem(ClassRow->StartingWeaponItemRow, EEquipmentSlot::Weapon, BagIdx);
+				}
+
+				RunState.bClassStartingWeaponGranted = true;
+			}
 		}
 	}
 

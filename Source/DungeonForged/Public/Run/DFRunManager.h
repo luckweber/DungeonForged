@@ -40,6 +40,10 @@ struct DUNGEONFORGED_API FDFRunState
 	UPROPERTY(BlueprintReadOnly, Category = "Run")
 	TArray<FName> GrantedAbilities;
 
+	/** Avoids granting @ref FDFClassTableRow::StartingWeaponItemRow again after resume / duplicate Apply calls. */
+	UPROPERTY(BlueprintReadOnly, Category = "Run")
+	bool bClassStartingWeaponGranted = true;
+
 	UPROPERTY(BlueprintReadOnly, Category = "Run")
 	int32 Gold = 0;
 

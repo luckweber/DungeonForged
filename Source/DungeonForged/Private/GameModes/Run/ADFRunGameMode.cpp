@@ -8,6 +8,7 @@
 #include "World/UDFWorldTransitionSubsystem.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Characters/ADFPlayerState.h"
+#include "Equipment/UDFEquipmentComponent.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Run/DFRunManager.h"
 #include "AbilitySystemComponent.h"
@@ -195,6 +196,13 @@ void ADFRunGameMode::InitializePlayerFromClass(APlayerController* const PC, FNam
 					ASC->ApplyGameplayEffectSpecToSelf(*SpecH.Data);
 				}
 			}
+		}
+	}
+	if (ADFPlayerCharacter* const Pawn = Cast<ADFPlayerCharacter>(PC->GetPawn()))
+	{
+		if (UDFEquipmentComponent* const Eq = Pawn->GetDFEquipment())
+		{
+			Eq->SyncWeaponMeleeGameplayAbilityGrant();
 		}
 	}
 }

@@ -12,13 +12,14 @@
 #include "GameplayEffect.h"
 #include "GameplayEffectTypes.h"
 #include "DFLootDrop.h"
+#include "DungeonForgedModule.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "Net/UnrealNetwork.h"
 
 namespace
 {
-void TryGoldCombatText(AActor* const Owner, FDFItemTableRow const& Row, int32 const Gained)
+void TryGoldCombatText(AActor* const Owner, const FDFItemTableRow& Row, const int32 Gained)
 {
 	if (Gained < 1 || Row.ItemType != EItemType::Currency)
 	{
@@ -48,12 +49,14 @@ UDFInventoryComponent::UDFInventoryComponent()
 void UDFInventoryComponent::BeginPlay()
 {
 	Super::BeginPlay();
+	EnsureAuthorityBagGridSized();
 }
 
 void UDFInventoryComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME_CONDITION(UDFInventoryComponent, MaxSlots, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UDFInventoryComponent, MaxCarryWeight, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(UDFInventoryComponent, ItemDataTable, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(UDFInventoryComponent, Items, COND_OwnerOnly);
 }
@@ -65,17 +68,17 @@ void UDFInventoryComponent::OnRep_Items()
 
 UAbilitySystemComponent* UDFInventoryComponent::ResolveOwnerASC() const
 {
-	if (const IAbilitySystemInterface* I = Cast<IAbilitySystemInterface>(GetOwner()))
+	if (const IAbilitySystemInterface* const I = Cast<IAbilitySystemInterface>(GetOwner()))
 	{
 		return I->GetAbilitySystemComponent();
 	}
-	if (const AActor* O = GetOwner())
+	if (const AActor* const O = GetOwner())
 	{
-		if (const APawn* P = Cast<APawn>(O))
+		if (const APawn* const P = Cast<APawn>(O))
 		{
-			if (APlayerState* PS = P->GetPlayerState())
+			if (APlayerState* const PS = P->GetPlayerState())
 			{
-				if (IAbilitySystemInterface* I2 = Cast<IAbilitySystemInterface>(PS))
+				if (IAbilitySystemInterface* const I2 = Cast<IAbilitySystemInterface>(PS))
 				{
 					return I2->GetAbilitySystemComponent();
 				}
@@ -90,7 +93,7 @@ bool UDFInventoryComponent::IsAuthority() const
 	return GetOwner() && GetOwner()->HasAuthority();
 }
 
-const FDFItemTableRow* UDFInventoryComponent::GetItemData(FName RowName) const
+const FDFItemTableRow* UDFInventoryComponent::GetItemData(const FName RowName) const
 {
 	if (!ItemDataTable || RowName.IsNone())
 	{
@@ -99,122 +102,583 @@ const FDFItemTableRow* UDFInventoryComponent::GetItemData(FName RowName) const
 	return ItemDataTable->FindRow<FDFItemTableRow>(RowName, TEXT("UDFInventory|GetItemData"));
 }
 
-bool UDFInventoryComponent::AddItem(FName RowName, int32 Quantity)
+float UDFInventoryComponent::ComputeStackContributionWeight(const FDFInventorySlot& Slot) const
+{
+	if (Slot.RowName.IsNone() || Slot.Quantity < 1)
+	{
+		return 0.f;
+	}
+	if (const FDFItemTableRow* const Meta = GetItemData(Slot.RowName))
+	{
+		return Meta->ItemWeight * static_cast<float>(Slot.Quantity);
+	}
+	return 0.f;
+}
+
+float UDFInventoryComponent::GetCurrentCarriedWeight() const
+{
+	float Total = 0.f;
+	for (const FDFInventorySlot& S : Items)
+	{
+		Total += ComputeStackContributionWeight(S);
+	}
+	return Total;
+}
+
+float UDFInventoryComponent::GetRemainingCarryCapacity() const
+{
+	if (!IsCarryWeightLimited())
+	{
+		return 1.e12f;
+	}
+	return FMath::Max(0.f, MaxCarryWeight - GetCurrentCarriedWeight());
+}
+
+bool UDFInventoryComponent::WouldRejectAddDueToWeight(const FName RowName, const int32 Quantity) const
+{
+	if (!IsCarryWeightLimited() || RowName.IsNone() || Quantity < 1)
+	{
+		return false;
+	}
+	if (const FDFItemTableRow* const Meta = GetItemData(RowName))
+	{
+		return !CanAffordCarryWeightDelta(Meta->ItemWeight * static_cast<float>(Quantity));
+	}
+	return false;
+}
+
+bool UDFInventoryComponent::CanAffordCarryWeightDelta(const float DeltaWeight) const
+{
+	if (!IsCarryWeightLimited())
+	{
+		return true;
+	}
+	return GetCurrentCarriedWeight() + DeltaWeight <= MaxCarryWeight + KINDA_SMALL_NUMBER;
+}
+
+void UDFInventoryComponent::EnsureAuthorityBagGridSized()
+{
+	if (!IsAuthority() || MaxSlots < 1)
+	{
+		return;
+	}
+	while (Items.Num() < MaxSlots)
+	{
+		FDFInventorySlot E;
+		E.RowName     = NAME_None;
+		E.Quantity    = 0;
+		E.bIsEquipped = false;
+		Items.Add(E);
+	}
+}
+
+bool UDFInventoryComponent::ReceiveUnequippedItemAtBagIndex(
+	const int32 BagIndex,
+	const FName RowName,
+	const int32 Quantity)
+{
+	if (!IsAuthority() || RowName.IsNone() || Quantity < 1)
+	{
+		DF_LOG(Verbose,
+			"[DF|Bag|UnequipCell] SKIP not authority/bad qty owner=%s bag=%d row=%s q=%d",
+			GetOwner() ? *GetOwner()->GetName() : TEXT("?"),
+			BagIndex,
+			*RowName.ToString(),
+			Quantity);
+		return false;
+	}
+	EnsureAuthorityBagGridSized();
+	if (!Items.IsValidIndex(BagIndex))
+	{
+		DF_LOG(Verbose,
+			"[DF|Bag|UnequipCell] SKIP bad index owner=%s bagIdx=%d (items=%d max=%d) row=%s",
+			GetOwner() ? *GetOwner()->GetName() : TEXT("?"),
+			BagIndex,
+			Items.Num(),
+			MaxSlots,
+			*RowName.ToString());
+		return false;
+	}
+
+	const FDFItemTableRow* const RowMeta = GetItemData(RowName);
+	if (!RowMeta)
+	{
+		DF_LOG(Verbose,
+			"[DF|Bag|UnequipCell] SKIP unknown DT row owner=%s bag=%d row=%s",
+			GetOwner() ? *GetOwner()->GetName() : TEXT("?"),
+			BagIndex,
+			*RowName.ToString());
+		return false;
+	}
+
+	const int32 MaxStack = FMath::Max(1, RowMeta->MaxStack);
+	FDFInventorySlot& Cell = Items[BagIndex];
+
+	if (Cell.RowName.IsNone() || Cell.Quantity < 1)
+	{
+		if (WouldRejectAddDueToWeight(RowName, Quantity))
+		{
+			DF_LOG(Verbose,
+				"[DF|Bag|UnequipCell] SKIP encumbrance owner=%s bag=%d %s x%d (current=%.1f max=%.1f)",
+				GetOwner() ? *GetOwner()->GetName() : TEXT("?"),
+				BagIndex,
+				*RowName.ToString(),
+				Quantity,
+				GetCurrentCarriedWeight(),
+				MaxCarryWeight);
+			return false;
+		}
+		Cell.RowName     = RowName;
+		Cell.Quantity    = Quantity;
+		Cell.bIsEquipped = false;
+		OnInventoryChanged.Broadcast();
+		DF_LOG(Verbose,
+			"[DF|Bag|UnequipCell] EMPTY->place owner=%s bag=%d %s x%d",
+			GetOwner() ? *GetOwner()->GetName() : TEXT("?"),
+			BagIndex,
+			*RowName.ToString(),
+			Quantity);
+		return true;
+	}
+
+	if (Cell.RowName == RowName)
+	{
+		const int32 Room = MaxStack - Cell.Quantity;
+		if (Room >= Quantity)
+		{
+			if (WouldRejectAddDueToWeight(RowName, Quantity))
+			{
+				DF_LOG(Verbose,
+					"[DF|Bag|UnequipCell] SKIP encumbrance merge owner=%s bag=%d %s +%d (current=%.1f max=%.1f)",
+					GetOwner() ? *GetOwner()->GetName() : TEXT("?"),
+					BagIndex,
+					*RowName.ToString(),
+					Quantity,
+					GetCurrentCarriedWeight(),
+					MaxCarryWeight);
+				return false;
+			}
+			const int32 PrevQty = Cell.Quantity;
+			Cell.Quantity += Quantity;
+			Cell.bIsEquipped = false;
+			OnInventoryChanged.Broadcast();
+			DF_LOG(Verbose,
+				"[DF|Bag|UnequipCell] MERGE owner=%s bag=%d %s qty %d + %d (maxstack=%d)",
+				GetOwner() ? *GetOwner()->GetName() : TEXT("?"),
+				BagIndex,
+				*RowName.ToString(),
+				PrevQty,
+				Quantity,
+				MaxStack);
+			return true;
+		}
+	}
+
+	// Displace: snapshot before UnequipItem — it clears GAS / bIsEquipped in-place; we need the
+	// original equipped flag to restore if re-homing the displaced stack fails.
+	const FDFInventorySlot DisplacedSnapshot = Items[BagIndex];
+	const float WeightDeltaForReplace =
+		RowMeta->ItemWeight * static_cast<float>(Quantity) -
+		ComputeStackContributionWeight(DisplacedSnapshot);
+	if (IsCarryWeightLimited() && !CanAffordCarryWeightDelta(WeightDeltaForReplace))
+	{
+		DF_LOG(Verbose,
+			"[DF|Bag|UnequipCell] SKIP encumbrance displace owner=%s bag=%d incoming %s x%d (Δw=%.2f cur=%.1f max=%.1f)",
+			GetOwner() ? *GetOwner()->GetName() : TEXT("?"),
+			BagIndex,
+			*RowName.ToString(),
+			Quantity,
+			WeightDeltaForReplace,
+			GetCurrentCarriedWeight(),
+			MaxCarryWeight);
+		return false;
+	}
+
+	if (Cell.bIsEquipped)
+	{
+		UnequipItem(BagIndex);
+	}
+
+	Items[BagIndex].RowName     = RowName;
+	Items[BagIndex].Quantity    = Quantity;
+	Items[BagIndex].bIsEquipped = false;
+	EquipHandles.Remove(BagIndex);
+
+	if (DisplacedSnapshot.RowName.IsNone() || DisplacedSnapshot.Quantity < 1)
+	{
+		OnInventoryChanged.Broadcast();
+		DF_LOG(Verbose,
+			"[DF|Bag|UnequipCell] DISPLACE(no displaced) owner=%s bag=%d %s x%d",
+			GetOwner() ? *GetOwner()->GetName() : TEXT("?"),
+			BagIndex,
+			*RowName.ToString(),
+			Quantity);
+		return true;
+	}
+
+	if (!AddItem(DisplacedSnapshot.RowName, DisplacedSnapshot.Quantity))
+	{
+		Items[BagIndex] = DisplacedSnapshot;
+		EquipHandles.Remove(BagIndex);
+		if (DisplacedSnapshot.bIsEquipped)
+		{
+			FDFInventorySlot& R = Items[BagIndex];
+			if (!R.RowName.IsNone() && R.Quantity >= 1 && GetItemData(R.RowName))
+			{
+				R.bIsEquipped = false;
+				EquipItem(BagIndex);
+			}
+		}
+		OnInventoryChanged.Broadcast();
+		DF_LOG(Verbose,
+			"[DF|Bag|UnequipCell] DISPLACE REVERT owner=%s bag=%d new=%s (could not AddItem displaced %s x%d)",
+			GetOwner() ? *GetOwner()->GetName() : TEXT("?"),
+			BagIndex,
+			*RowName.ToString(),
+			*DisplacedSnapshot.RowName.ToString(),
+			DisplacedSnapshot.Quantity);
+		return false;
+	}
+
+	OnInventoryChanged.Broadcast();
+	DF_LOG(Verbose,
+		"[DF|Bag|UnequipCell] DISPLACE+REHOME OK owner=%s bag=%d placed %s x%d | AddItem rehome %s x%d",
+		GetOwner() ? *GetOwner()->GetName() : TEXT("?"),
+		BagIndex,
+		*RowName.ToString(),
+		Quantity,
+		*DisplacedSnapshot.RowName.ToString(),
+		DisplacedSnapshot.Quantity);
+	return true;
+}
+
+namespace
+{
+float PredictInventoryGridWeight(
+	const TArray<FDFInventorySlot>& Grid,
+	const UDFInventoryComponent* Inv)
+{
+	float Total = 0.f;
+	for (const FDFInventorySlot& Slot : Grid)
+	{
+		if (!Inv || Slot.RowName.IsNone() || Slot.Quantity < 1)
+		{
+			continue;
+		}
+		if (const FDFItemTableRow* Meta = Inv->GetItemData(Slot.RowName))
+		{
+			Total += Meta->ItemWeight * static_cast<float>(Slot.Quantity);
+		}
+	}
+	return Total;
+}
+
+bool SimulateBagAddOntoGridCopy(
+	const UDFInventoryComponent* Inv,
+	TArray<FDFInventorySlot>& Grid,
+	FName RowName,
+	int32 QtyRemaining)
+{
+	if (!Inv || RowName.IsNone() || QtyRemaining < 1)
+	{
+		return false;
+	}
+	const FDFItemTableRow* const RowMeta = Inv->GetItemData(RowName);
+	if (!RowMeta)
+	{
+		return false;
+	}
+	const float UnitW                   = RowMeta->ItemWeight;
+	const int32 MaxStack               = FMath::Max(1, RowMeta->MaxStack);
+	const float EffectiveMaxWeight     = Inv->GetEffectiveMaxCarryWeight();
+
+	auto EncumbranceAllowsDelta = [&](const float DeltaKg) -> bool
+	{
+		if (!Inv->IsCarryWeightLimited())
+		{
+			return true;
+		}
+		return PredictInventoryGridWeight(Grid, Inv) + DeltaKg <= EffectiveMaxWeight + KINDA_SMALL_NUMBER;
+	};
+
+	for (FDFInventorySlot& Slot : Grid)
+	{
+		if (Slot.RowName != RowName || Slot.Quantity < 1)
+		{
+			continue;
+		}
+		const int32 Room = MaxStack - Slot.Quantity;
+		if (Room <= 0)
+		{
+			continue;
+		}
+		const int32 ToAdd = FMath::Min(Room, QtyRemaining);
+		if (!EncumbranceAllowsDelta(UnitW * static_cast<float>(ToAdd)))
+		{
+			return false;
+		}
+		Slot.Quantity += ToAdd;
+		QtyRemaining  -= ToAdd;
+		if (QtyRemaining <= 0)
+		{
+			break;
+		}
+	}
+
+	const int32 Capacity = FMath::Max(Grid.Num(), Inv->MaxSlots);
+	while (QtyRemaining > 0)
+	{
+		while (Grid.Num() < Capacity)
+		{
+			FDFInventorySlot E;
+			E.RowName     = NAME_None;
+			E.Quantity    = 0;
+			E.bIsEquipped = false;
+			Grid.Add(E);
+		}
+		const int32 EmptyIdx = Grid.IndexOfByPredicate([&](const FDFInventorySlot& Slot)
+		{
+			return Slot.RowName.IsNone() || Slot.Quantity < 1;
+		});
+		if (!Grid.IsValidIndex(EmptyIdx))
+		{
+			return false;
+		}
+		const int32 ToAdd = FMath::Min(MaxStack, QtyRemaining);
+		if (!EncumbranceAllowsDelta(UnitW * static_cast<float>(ToAdd)))
+		{
+			return false;
+		}
+		FDFInventorySlot& Cell = Grid[EmptyIdx];
+		Cell.RowName     = RowName;
+		Cell.Quantity    = ToAdd;
+		Cell.bIsEquipped = false;
+		QtyRemaining    -= ToAdd;
+	}
+
+	return QtyRemaining <= 0;
+}
+} // namespace
+
+bool UDFInventoryComponent::PredictCanReceiveUnequippedStackAtBagIndex(
+	const int32 BagIndex,
+	const FName RowName,
+	const int32 Quantity) const
+{
+	if (!ItemDataTable || RowName.IsNone() || Quantity < 1)
+	{
+		return false;
+	}
+	const FDFItemTableRow* const RowMeta = GetItemData(RowName);
+	if (!RowMeta)
+	{
+		return false;
+	}
+
+	TArray<FDFInventorySlot> Work = Items;
+	const int32 Cap               = FMath::Max(Items.Num(), MaxSlots);
+	while (Work.Num() < Cap)
+	{
+		FDFInventorySlot E;
+		E.RowName     = NAME_None;
+		E.Quantity    = 0;
+		E.bIsEquipped = false;
+		Work.Add(E);
+	}
+	if (!Work.IsValidIndex(BagIndex))
+	{
+		return false;
+	}
+
+	const int32 MaxStack        = FMath::Max(1, RowMeta->MaxStack);
+	const FDFInventorySlot Cell = Items[BagIndex];
+
+	if (Cell.RowName.IsNone() || Cell.Quantity < 1)
+	{
+		return !WouldRejectAddDueToWeight(RowName, Quantity);
+	}
+
+	if (Cell.RowName == RowName)
+	{
+		const int32 Room = MaxStack - Cell.Quantity;
+		return Room >= Quantity && !WouldRejectAddDueToWeight(RowName, Quantity);
+	}
+
+	const float WeightDeltaIncomingVsDisplaced =
+		RowMeta->ItemWeight * static_cast<float>(Quantity) - ComputeStackContributionWeight(Cell);
+	if (IsCarryWeightLimited() && !CanAffordCarryWeightDelta(WeightDeltaIncomingVsDisplaced))
+	{
+		return false;
+	}
+
+	FDFInventorySlot DisplacedSnapshot = Items[BagIndex];
+	Work[BagIndex].RowName              = RowName;
+	Work[BagIndex].Quantity             = Quantity;
+	Work[BagIndex].bIsEquipped         = false;
+
+	if (DisplacedSnapshot.RowName.IsNone() || DisplacedSnapshot.Quantity < 1)
+	{
+		return true;
+	}
+
+	return SimulateBagAddOntoGridCopy(this, Work, DisplacedSnapshot.RowName, DisplacedSnapshot.Quantity);
+}
+
+bool UDFInventoryComponent::AddItem(const FName RowName, const int32 Quantity)
 {
 	if (!IsAuthority() || !ItemDataTable || RowName.IsNone() || Quantity < 1)
 	{
 		return false;
 	}
+	EnsureAuthorityBagGridSized();
+
 	const FDFItemTableRow* const Row = GetItemData(RowName);
 	if (!Row)
 	{
 		return false;
 	}
+
+	if (IsCarryWeightLimited())
+	{
+		const float AddedW = Row->ItemWeight * static_cast<float>(Quantity);
+		if (!CanAffordCarryWeightDelta(AddedW))
+		{
+			DF_LOG(Verbose,
+				"[DF|Bag|AddItem] SKIP encumbrance owner=%s %s x%d (w=%.2f cur=%.1f max=%.1f)",
+				GetOwner() ? *GetOwner()->GetName() : TEXT("?"),
+				*RowName.ToString(),
+				Quantity,
+				AddedW,
+				GetCurrentCarriedWeight(),
+				MaxCarryWeight);
+			return false;
+		}
+	}
+
 	int32 QtyLeft = Quantity;
-	int32 Gained = 0;
+	int32 Gained  = 0;
 	const int32 MaxStack = FMath::Max(1, Row->MaxStack);
 
-	// fill existing stacks
+	// ── Fill existing stacks first ────────────────────────────────────────────
 	for (FDFInventorySlot& S : Items)
 	{
 		if (S.RowName != RowName)
 		{
 			continue;
 		}
-		const int32 Room = MaxStack - S.Quantity;
+		const int32 Room  = MaxStack - S.Quantity;
 		if (Room <= 0)
 		{
 			continue;
 		}
 		const int32 ToAdd = FMath::Min(Room, QtyLeft);
 		S.Quantity += ToAdd;
-		Gained += ToAdd;
-		QtyLeft -= ToAdd;
+		Gained     += ToAdd;
+		QtyLeft    -= ToAdd;
 		if (QtyLeft <= 0)
 		{
-			TryGoldCombatText(GetOwner(), *Row, Gained);
-			OnInventoryChanged.Broadcast();
-			return true;
+			break;
 		}
 	}
-	// new slots
+
+	// ── Place remainder into empty grid cells (fixed MaxSlots-sized bag) ──────
 	while (QtyLeft > 0)
 	{
-		if (Items.Num() >= MaxSlots)
+		EnsureAuthorityBagGridSized();
+		const int32 TargetIdx =
+			Items.IndexOfByPredicate([&](const FDFInventorySlot& S)
+			{
+				return S.RowName.IsNone() || S.Quantity < 1;
+			});
+
+		if (!Items.IsValidIndex(TargetIdx))
 		{
-			TryGoldCombatText(GetOwner(), *Row, Gained);
-			return QtyLeft < Quantity; // partial success
+			// Inventory full – broadcast whatever was gained before stopping.
+			if (Gained > 0)
+			{
+				TryGoldCombatText(GetOwner(), *Row, Gained);
+				OnInventoryChanged.Broadcast();
+			}
+			return Gained > 0;
 		}
+
 		const int32 ToAdd = FMath::Min(MaxStack, QtyLeft);
-		FDFInventorySlot N;
-		N.RowName = RowName;
-		N.Quantity = ToAdd;
-		N.bIsEquipped = false;
-		Items.Add(N);
-		Gained += ToAdd;
+		FDFInventorySlot& Cell = Items[TargetIdx];
+		Cell.RowName     = RowName;
+		Cell.Quantity    = ToAdd;
+		Cell.bIsEquipped = false;
+		Gained  += ToAdd;
 		QtyLeft -= ToAdd;
 	}
+
 	TryGoldCombatText(GetOwner(), *Row, Gained);
 	OnInventoryChanged.Broadcast();
 	return true;
 }
 
-void UDFInventoryComponent::RemoveItem(FName RowName, int32 Quantity)
+void UDFInventoryComponent::RemoveItem(
+	const FName RowName, const int32 Quantity, const int32 PreferredSlotIndex)
 {
 	if (!IsAuthority() || RowName.IsNone() || Quantity < 1)
 	{
 		return;
 	}
-	int32 ToRemove = Quantity;
-	for (int32 I = Items.Num() - 1; I >= 0 && ToRemove > 0; --I)
+	EnsureAuthorityBagGridSized();
+	int32 Remaining = Quantity;
+
+	auto ConsumeFromSlot = [&](const int32 Idx)
 	{
-		FDFInventorySlot& S = Items[I];
-		if (S.RowName != RowName)
+		if (!Items.IsValidIndex(Idx) || Remaining < 1)
 		{
-			continue;
+			return;
 		}
-		if (S.Quantity <= ToRemove)
+		FDFInventorySlot& S = Items[Idx];
+		if (S.RowName != RowName || S.Quantity < 1)
 		{
-			ToRemove -= S.Quantity;
+			return;
+		}
+		if (S.Quantity <= Remaining)
+		{
+			Remaining -= S.Quantity;
 			if (S.bIsEquipped)
 			{
-				UnequipItem(I);
+				UnequipItem(Idx);
 			}
-			Items.RemoveAt(I);
-			ReindexEquipHandlesAfterRemoveAt(I);
+			S.RowName     = NAME_None;
+			S.Quantity    = 0;
+			S.bIsEquipped = false;
 		}
 		else
 		{
-			S.Quantity -= ToRemove;
-			ToRemove = 0;
+			S.Quantity -= Remaining;
+			Remaining   = 0;
 		}
+	};
+
+	if (PreferredSlotIndex != INDEX_NONE)
+	{
+		ConsumeFromSlot(PreferredSlotIndex);
 	}
-	if (ToRemove < Quantity)
+
+	for (int32 I = 0; I < Items.Num() && Remaining > 0; ++I)
+	{
+		ConsumeFromSlot(I);
+	}
+
+	if (Remaining < Quantity)
 	{
 		OnInventoryChanged.Broadcast();
 	}
 }
 
-void UDFInventoryComponent::ReindexEquipHandlesAfterRemoveAt(int32 RemovedIndex)
+void UDFInventoryComponent::UnequipItem(const int32 SlotIndex)
 {
-	TMap<int32, FActiveGameplayEffectHandle> NewM;
-	for (const TPair<int32, FActiveGameplayEffectHandle>& P : EquipHandles)
+	if (!IsAuthority())
 	{
-		if (P.Key < RemovedIndex)
-		{
-			NewM.Add(P.Key, P.Value);
-		}
-		else if (P.Key > RemovedIndex)
-		{
-			NewM.Add(P.Key - 1, P.Value);
-		}
+		return;
 	}
-	EquipHandles = NewM;
-}
-
-void UDFInventoryComponent::UnequipItem(int32 SlotIndex)
-{
-	if (!IsAuthority() || !Items.IsValidIndex(SlotIndex))
+	EnsureAuthorityBagGridSized();
+	if (!Items.IsValidIndex(SlotIndex))
 	{
 		return;
 	}
@@ -223,10 +687,11 @@ void UDFInventoryComponent::UnequipItem(int32 SlotIndex)
 	{
 		return;
 	}
-	const FDFItemTableRow* const Row = GetItemData(S.RowName);
+
+	// BUG FIX: `Row` was fetched but never used; removed the dead assignment.
 	if (UAbilitySystemComponent* const ASC = ResolveOwnerASC())
 	{
-		if (const FActiveGameplayEffectHandle* H = EquipHandles.Find(SlotIndex))
+		if (const FActiveGameplayEffectHandle* const H = EquipHandles.Find(SlotIndex))
 		{
 			if (ASC->GetAvatarActor())
 			{
@@ -239,7 +704,7 @@ void UDFInventoryComponent::UnequipItem(int32 SlotIndex)
 	OnInventoryChanged.Broadcast();
 }
 
-void UDFInventoryComponent::UnequipOthersOfType(const EItemType Type, int32 ExceptSlot)
+void UDFInventoryComponent::UnequipOthersOfType(const EItemType Type, const int32 ExceptSlot)
 {
 	if (!ItemDataTable)
 	{
@@ -247,11 +712,7 @@ void UDFInventoryComponent::UnequipOthersOfType(const EItemType Type, int32 Exce
 	}
 	for (int32 I = 0; I < Items.Num(); ++I)
 	{
-		if (I == ExceptSlot)
-		{
-			continue;
-		}
-		if (!Items[I].bIsEquipped)
+		if (I == ExceptSlot || !Items[I].bIsEquipped)
 		{
 			continue;
 		}
@@ -265,9 +726,14 @@ void UDFInventoryComponent::UnequipOthersOfType(const EItemType Type, int32 Exce
 	}
 }
 
-void UDFInventoryComponent::EquipItem(int32 SlotIndex)
+void UDFInventoryComponent::EquipItem(const int32 SlotIndex)
 {
-	if (!IsAuthority() || !Items.IsValidIndex(SlotIndex))
+	if (!IsAuthority())
+	{
+		return;
+	}
+	EnsureAuthorityBagGridSized();
+	if (!Items.IsValidIndex(SlotIndex))
 	{
 		return;
 	}
@@ -281,32 +747,37 @@ void UDFInventoryComponent::EquipItem(int32 SlotIndex)
 	{
 		return;
 	}
+
+	// BUG FIX: `UnequipOthersOfType` must run even when there is no GAS effect,
+	// otherwise multiple items of the same type could be marked equipped simultaneously.
+	UnequipOthersOfType(Row->ItemType, SlotIndex);
+
 	if (!Row->OnEquipEffect)
 	{
 		S.bIsEquipped = true;
 		OnInventoryChanged.Broadcast();
 		return;
 	}
+
 	UAbilitySystemComponent* const ASC = ResolveOwnerASC();
 	if (!ASC || !ASC->GetAvatarActor())
 	{
-		// Same as UDFEquipmentComponent: ApplyGameplayEffectToSelf can assert if InitAbilityActorInfo never ran.
+		// ApplyGameplayEffectToSelf can assert if InitAbilityActorInfo never ran.
 		return;
 	}
-	UnequipOthersOfType(Row->ItemType, SlotIndex);
-	FGameplayEffectContextHandle Ctx = ASC->MakeEffectContext();
-	AActor* const OwnerActor = GetOwner();
-	if (OwnerActor)
-	{
-		Ctx.AddInstigator(OwnerActor, OwnerActor);
-	}
-	const UGameplayEffect* const EquipGE = Row->OnEquipEffect
-		? Row->OnEquipEffect.GetDefaultObject()
-		: nullptr;
+
+	const UGameplayEffect* const EquipGE = Row->OnEquipEffect.GetDefaultObject();
 	if (!EquipGE)
 	{
 		return;
 	}
+
+	FGameplayEffectContextHandle Ctx = ASC->MakeEffectContext();
+	if (AActor* const OwnerActor = GetOwner())
+	{
+		Ctx.AddInstigator(OwnerActor, OwnerActor);
+	}
+
 	const FActiveGameplayEffectHandle Handle = ASC->ApplyGameplayEffectToSelf(EquipGE, 1.f, Ctx);
 	if (Handle.IsValid())
 	{
@@ -326,26 +797,31 @@ void UDFInventoryComponent::ServerPickUpFromLoot_Implementation(ADFLootDrop* Sou
 	{
 		return;
 	}
+
+	// BUG FIX: original code skipped the distance check when OwnerActor was null
+	// and continued to AddItem; now we always require a valid owner.
 	AActor* const OwnerActor = GetOwner();
-	if (OwnerActor)
+	if (!OwnerActor)
 	{
-		if (FVector::Dist(OwnerActor->GetActorLocation(), Source->GetActorLocation()) > 500.f)
-		{
-			return;
-		}
+		return;
 	}
+	if (FVector::Dist(OwnerActor->GetActorLocation(), Source->GetActorLocation()) > 500.f)
+	{
+		return;
+	}
+
 	if (AddItem(Source->GetItemRowName(), 1))
 	{
-		AActor* Inst = Cast<APawn>(OwnerActor);
-		if (!Inst)
+		AActor* Pawn = Cast<APawn>(OwnerActor);
+		if (!Pawn)
 		{
 			if (APlayerState* const PS = Cast<APlayerState>(OwnerActor))
 			{
-				Inst = PS->GetPawn();
+				Pawn = PS->GetPawn();
 			}
 		}
-		Source->OnPickedUp.Broadcast(Inst, Source->GetItemRowName());
-		Source->Multicast_PlayPickupVFX(Inst, Source->GetActorLocation());
+		Source->OnPickedUp.Broadcast(Pawn, Source->GetItemRowName());
+		Source->Multicast_PlayPickupVFX(Pawn, Source->GetActorLocation());
 		Source->Destroy();
 	}
 }
@@ -353,4 +829,100 @@ void UDFInventoryComponent::ServerPickUpFromLoot_Implementation(ADFLootDrop* Sou
 bool UDFInventoryComponent::ServerPickUpFromLoot_Validate(ADFLootDrop* Source)
 {
 	return IsValid(Source);
+}
+
+namespace
+{
+void SwapEquipHandlesForSlots(
+	TMap<int32, FActiveGameplayEffectHandle>& Map,
+	const int32 A,
+	const int32 B)
+{
+	if (A == B)
+	{
+		return;
+	}
+	FActiveGameplayEffectHandle HA, HB;
+	const bool bRemovedA = Map.RemoveAndCopyValue(A, HA);
+	const bool bRemovedB = Map.RemoveAndCopyValue(B, HB);
+	if (bRemovedA)
+	{
+		Map.Add(B, HA);
+	}
+	if (bRemovedB)
+	{
+		Map.Add(A, HB);
+	}
+}
+} // namespace
+
+void UDFInventoryComponent::RequestMoveBagSlot(
+	const int32 SourceSlotIndex, const int32 TargetSlotIndex)
+{
+	if (!GetOwner())
+	{
+		return;
+	}
+	if (IsAuthority())
+	{
+		MoveBagSlotInternal(SourceSlotIndex, TargetSlotIndex);
+	}
+	else
+	{
+		ServerRequestMoveBagSlot(SourceSlotIndex, TargetSlotIndex);
+	}
+}
+
+void UDFInventoryComponent::ServerRequestMoveBagSlot_Implementation(
+	const int32 SourceSlotIndex, const int32 TargetSlotIndex)
+{
+	DF_LOG(Verbose,
+		"[DF|Bag|Swap] RPC owner=%s origem_idx=%d destino_idx=%d",
+		GetOwner() ? *GetOwner()->GetName() : TEXT("?"),
+		SourceSlotIndex,
+		TargetSlotIndex);
+	MoveBagSlotInternal(SourceSlotIndex, TargetSlotIndex);
+}
+
+bool UDFInventoryComponent::ServerRequestMoveBagSlot_Validate(
+	const int32 SourceSlotIndex, const int32 TargetSlotIndex)
+{
+	return Items.IsValidIndex(SourceSlotIndex) && Items.IsValidIndex(TargetSlotIndex) &&
+	       SourceSlotIndex != TargetSlotIndex;
+}
+
+void UDFInventoryComponent::MoveBagSlotInternal(const int32 SourceSlotIndex, const int32 TargetSlotIndex)
+{
+	if (!IsAuthority() || !Items.IsValidIndex(SourceSlotIndex) || !Items.IsValidIndex(TargetSlotIndex) ||
+		SourceSlotIndex == TargetSlotIndex)
+	{
+		return;
+	}
+	EnsureAuthorityBagGridSized();
+
+	auto RowLabel = [](const FDFInventorySlot& S) -> FString
+	{
+		return S.RowName.IsNone()
+			? FString(TEXT("(empty)"))
+			: S.RowName.ToString();
+	};
+
+	const FString FromRow = RowLabel(Items[SourceSlotIndex]);
+	const FString ToRow = RowLabel(Items[TargetSlotIndex]);
+	const int32 FromQ = Items[SourceSlotIndex].Quantity;
+	const int32 ToQ = Items[TargetSlotIndex].Quantity;
+	DF_LOG(Verbose,
+		"[DF|Bag|Swap] commit owner=%s origem_idx=%d \"%s\" x%d "
+		"<-> destino_idx=%d \"%s\" x%d",
+		GetOwner() ? *GetOwner()->GetName() : TEXT("?"),
+		SourceSlotIndex,
+		*FromRow,
+		FromQ,
+		TargetSlotIndex,
+		*ToRow,
+		ToQ);
+
+	Items.Swap(SourceSlotIndex, TargetSlotIndex);
+	SwapEquipHandlesForSlots(EquipHandles, SourceSlotIndex, TargetSlotIndex);
+	OnInventoryChanged.Broadcast();
 }

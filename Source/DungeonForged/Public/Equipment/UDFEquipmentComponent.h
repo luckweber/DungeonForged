@@ -69,10 +69,10 @@ public:
 	void RegisterBaseBodyMesh(USkeletalMeshComponent* BaseMesh) { BaseBodyMesh = BaseMesh; }
 
 	UFUNCTION(BlueprintCallable, Category = "DF|Equipment")
-	bool EquipItem(FName ItemRowName, EEquipmentSlot Slot);
+	bool EquipItem(FName ItemRowName, EEquipmentSlot Slot, int32 SourceBagSlotIndex = -1);
 
 	UFUNCTION(BlueprintCallable, Category = "DF|Equipment")
-	void RequestEquipItem(FName ItemRowName, EEquipmentSlot Slot);
+	void RequestEquipItem(FName ItemRowName, EEquipmentSlot Slot, int32 SourceBagSlotIndex = -1);
 
 	UFUNCTION(BlueprintCallable, Category = "DF|Equipment")
 	void UnequipSlot(EEquipmentSlot Slot);
@@ -80,22 +80,38 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|Equipment")
 	void RequestUnequipSlot(EEquipmentSlot Slot);
 
+	/** Unequips into a specific inventory grid cell (falls back to AddItem if placement fails). */
+	UFUNCTION(BlueprintCallable, Category = "DF|Equipment")
+	void RequestUnequipToBagSlot(EEquipmentSlot EquipmentSlot, int32 TargetBagSlotIndex);
+
 	/** C++: use GetItemData(EquippedItems) or this. UHT: no USTRUCT* return. */
 	const FDFItemTableRow* GetEquippedItemDataRaw(EEquipmentSlot Slot) const;
 
 	UFUNCTION(BlueprintCallable, Category = "DF|Equipment")
 	bool TryGetEquippedItemData(EEquipmentSlot Slot, FDFItemTableRow& OutRow) const;
 
-	/** True if Weapon slot has a granted spec from FDFItemTableRow::WeaponMeleeGameplayAbility. */
+	/** True when the equipped Weapon row configures @ref FDFItemTableRow::WeaponMeleeGameplayAbility (server grants on equip). */
 	UFUNCTION(BlueprintPure, Category = "DF|Equipment|GAS")
 	bool HasGrantedWeaponMeleeAbilitySpec() const;
 
-	/** Activates WeaponMeleeGameplayAbility if the spec is valid (prediction-friendly). */
+	/** Activates WeaponMeleeGameplayAbility via ASC lookup (handles replicated specs; no client-side spec handle cache required). */
 	UFUNCTION(BlueprintCallable, Category = "DF|Equipment|GAS")
 	bool TryActivateGrantedWeaponMeleeAbility();
 
+	/** Server: (re-)grants/removes WeaponMeleeGameplayAbility from the DT row currently in the Weapon slot. Call after run init so starter gear gets its GA after ASC is finalized. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Equipment|GAS")
+	void SyncWeaponMeleeGameplayAbilityGrant();
+
 	UFUNCTION(BlueprintPure, Category = "DF|Equipment")
 	bool IsSlotEmpty(EEquipmentSlot Slot) const;
+
+	/** Client/UI: same rules as server equip (bag has item, slot matches, GAS ready). Does not mutate. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Equipment")
+	bool PredictCanEquipItem(
+		FName ItemRowName,
+		EEquipmentSlot Slot,
+		FString& OutReason,
+		int32 PreferredSourceBagSlot = -1) const;
 
 	UFUNCTION(BlueprintPure, Category = "DF|Equipment")
 	float GetTotalStatBonus(FGameplayAttribute Attribute) const;
@@ -128,8 +144,17 @@ protected:
 	void RecalculateAllVisuals();
 	void RecalculateVisualsForSlot(EEquipmentSlot Slot);
 	void RefreshWeaponAnimSetOnOwner();
-	bool EquipItemInternal(FName ItemRowName, EEquipmentSlot Slot, FString& OutError);
-	void UnequipSlotInternal(EEquipmentSlot Slot);
+	bool ValidateEquipPrerequisites(
+		FName ItemRowName,
+		EEquipmentSlot Slot,
+		FString& OutError,
+		int32 PreferredSourceBagSlot = INDEX_NONE) const;
+	bool EquipItemInternal(
+		FName ItemRowName,
+		EEquipmentSlot Slot,
+		FString& OutError,
+		int32 SourceBagSlotIndex = INDEX_NONE);
+	void UnequipSlotInternal(EEquipmentSlot Slot, int32 TargetBagSlotIndex = INDEX_NONE);
 
 	void RevokeGrantedWeaponMeleeAbility(UAbilitySystemComponent* ASC);
 	void TryGrantWeaponMeleeAbilityFromEquippedRow(UAbilitySystemComponent* ASC, const FDFItemTableRow* Row);
@@ -139,7 +164,9 @@ protected:
 	const FDFItemTableRow* GetItemData(FName RowName) const;
 
 	UFUNCTION(Server, Reliable, WithValidation)
-	void ServerEquipItem(FName ItemRowName, EEquipmentSlot Slot);
+	void ServerEquipItem(FName ItemRowName, EEquipmentSlot Slot, int32 SourceBagSlotIndex);
 	UFUNCTION(Server, Reliable, WithValidation)
 	void ServerUnequipSlot(EEquipmentSlot Slot);
+	UFUNCTION(Server, Reliable, WithValidation)
+	void ServerUnequipSlotToBagIndex(EEquipmentSlot Slot, int32 TargetBagSlotIndex);
 };

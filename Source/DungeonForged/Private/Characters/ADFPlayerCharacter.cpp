@@ -28,6 +28,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Merchant/ADFMerchantActor.h"
 #include "UI/UDFShopWidget.h"
+#include "DFInventoryComponent.h"
 #include "Equipment/UDFEquipmentComponent.h"
 #include "FX/UDFHitStopSubsystem.h"
 #include "FX/UDFScreenEffectsComponent.h"
@@ -109,6 +110,7 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 	if (Mesh_Base)
 	{
 		Equipment = CreateDefaultSubobject<UDFEquipmentComponent>(TEXT("Equipment"));
+		Inventory = CreateDefaultSubobject<UDFInventoryComponent>(TEXT("Inventory"));
 
 		Mesh_Helmet = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Mesh_Helmet"));
 		Mesh_Chest = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Mesh_Chest"));
@@ -219,6 +221,10 @@ void ADFPlayerCharacter::CaptureMeleeDamageTraceDefaultsOnce()
 
 void ADFPlayerCharacter::RefreshMeleeLoadoutAfterEquipmentChange()
 {
+	if (Equipment && HasAuthority())
+	{
+		Equipment->SyncWeaponMeleeGameplayAbilityGrant();
+	}
 	RefreshMeleeLoadoutFromClassAndEquipment();
 }
 

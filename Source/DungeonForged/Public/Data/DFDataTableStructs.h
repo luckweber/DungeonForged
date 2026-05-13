@@ -133,6 +133,13 @@ struct DUNGEONFORGED_API FDFItemTableRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item", meta = (ClampMin = "1"))
 	int32 MaxStack = 1;
 
+	/**
+	 * Per-unit mass for encumbrance (optional). 0 = no contribution.
+	 * @see UDFInventoryComponent::MaxCarryWeight — 0 disables the limit entirely.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Encumbrance", meta = (ClampMin = "0"))
+	float ItemWeight = 0.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Visuals")
 	TObjectPtr<UStaticMesh> ItemMesh = nullptr;
 
@@ -349,6 +356,13 @@ struct DUNGEONFORGED_API FDFClassTableRow : public FTableRowBase
 	/** Row names in DT_Abilities for starting grants. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Abilities")
 	TArray<FName> StartingAbilities;
+
+	/**
+	 * Row name in DT_Items: granted to the inventory and equipped in the Weapon paper-doll slot once per run when the run begins.
+	 * Only applied when @ref UDFRunManager has not marked the starter weapon as granted yet.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Starting Gear")
+	FName StartingWeaponItemRow;
 
 	/**
 	 * While the weapon slot is empty, TryActivatePrimaryMeleeGameplayAbility activates this tag first

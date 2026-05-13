@@ -14,8 +14,11 @@
 #include "Characters/ADFPlayerState.h"
 #include "Data/DFDataTableStructs.h"
 #include "DFInventoryComponent.h"
+#include "Equipment/DFEquipmentTypes.h"
+#include "Equipment/UDFEquipmentComponent.h"
 #include "DungeonForgedModule.h"
 #include "Engine/Engine.h"
+#include "Engine/DataTable.h"
 #include "Engine/World.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/Effects/UDFGameplayEffectLibrary.h"
@@ -247,21 +250,184 @@ static void Cmd_df_giveitem(TArray<FString> const& Args)
 {
 	if (Args.Num() < 1)
 	{
+		DF_LOG(Warning, "df.giveitem RowName - adds to inventory only; use df.equip to wear (host / listen).");
 		return;
 	}
 	UWorld* const W = GetCheatWorld();
 	ADFPlayerCharacter* const P = GetLocalDFPawn(W);
 	if (!P)
 	{
+		DF_LOG(Warning, "df.giveitem: no ADFPlayerCharacter pawn");
 		return;
 	}
-	if (UDFInventoryComponent* const Inv = P->FindComponentByClass<UDFInventoryComponent>())
+	UDFInventoryComponent* const Inv = P->GetDFInventory();
+	if (!Inv)
 	{
-		if (!HasServerAuth(W, GetLocalPC(W)))
+		DF_LOG(Warning, "df.giveitem: no UDFInventoryComponent on pawn");
+		return;
+	}
+	if (!HasServerAuth(W, GetLocalPC(W)))
+	{
+		DF_LOG(Warning, "df.giveitem: need host / listen-server authority on pawn");
+		return;
+	}
+	const FName Row(*Args[0]);
+	if (Inv->AddItem(Row, 1))
+	{
+		DF_LOG(Log, "df.giveitem: +1 %s (bag only, not equipped)", *Row.ToString());
+	}
+	else
+	{
+		DF_LOG(Warning,
+			"df.giveitem: AddItem failed (%s) - set ItemDataTable on Inventory or Equipment plus valid row",
+			*Row.ToString());
+	}
+}
+
+static void Cmd_df_equip(TArray<FString> const& Args)
+{
+	if (Args.Num() < 1)
+	{
+		DF_LOG(Warning,
+			"df.equip RowName [Weapon|Helmet|...] - adds to bag then equips via UDFEquipmentComponent (host/listen).");
+		return;
+	}
+	UWorld* const W = GetCheatWorld();
+	APlayerController* const PC = GetLocalPC(W);
+	ADFPlayerCharacter* const P = GetLocalDFPawn(W);
+	if (!P || !PC)
+	{
+		DF_LOG(Warning, "df.equip: no local pawn");
+		return;
+	}
+	if (!HasServerAuth(W, PC))
+	{
+		DF_LOG(Warning, "df.equip: need host / listen pawn authority (equip runs on server)");
+		return;
+	}
+	UDFInventoryComponent* const Inv = P->GetDFInventory();
+	UDFEquipmentComponent* const Eq = P->GetDFEquipment();
+	if (!Inv || !Eq)
+	{
+		DF_LOG(Warning, "df.equip: missing Inventory or Equipment");
+		return;
+	}
+	if (!Inv->ItemDataTable && Eq->ItemDataTable)
+	{
+		Inv->ItemDataTable = Eq->ItemDataTable;
+	}
+	const FName Row(*Args[0]);
+	if (!Inv->AddItem(Row, 1))
+	{
+		DF_LOG(Warning, "df.equip: AddItem failed for %s - check DT + row name", *Row.ToString());
+	}
+	const FDFItemTableRow* const R = Inv->GetItemData(Row);
+	if (!R)
+	{
+		DF_LOG(Warning, "df.equip: row not in Inv->ItemDataTable: %s", *Row.ToString());
+		return;
+	}
+	EEquipmentSlot TargetSlot = EEquipmentSlot::None;
+	if (Args.Num() >= 2)
+	{
+		const UEnum* const En = StaticEnum<EEquipmentSlot>();
+		const int64 V = En->GetValueByName(FName(*Args[1]));
+		if (V == INDEX_NONE)
 		{
+			DF_LOG(Warning, "df.equip: unknown slot %s (try Weapon, Helmet, ...)", *Args[1]);
 			return;
 		}
-		Inv->AddItem(FName(*Args[0]), 1);
+		TargetSlot = static_cast<EEquipmentSlot>(V);
+	}
+	else if (R->TargetEquipmentSlot != EEquipmentSlot::None)
+	{
+		TargetSlot = R->TargetEquipmentSlot;
+	}
+	else
+	{
+		TargetSlot = UDFEquipmentComponent::ResolveItemEquipmentSlot(*R);
+	}
+	if (TargetSlot == EEquipmentSlot::None)
+	{
+		DF_LOG(Warning, "df.equip: could not resolve slot for %s", *Row.ToString());
+		return;
+	}
+	FString Err;
+	if (!Eq->PredictCanEquipItem(Row, TargetSlot, Err) && R->ItemType == EItemType::Ring
+		&& R->TargetEquipmentSlot == EEquipmentSlot::None)
+	{
+		if (Eq->PredictCanEquipItem(Row, EEquipmentSlot::Ring1, Err))
+		{
+			TargetSlot = EEquipmentSlot::Ring1;
+		}
+		else if (Eq->PredictCanEquipItem(Row, EEquipmentSlot::Ring2, Err))
+		{
+			TargetSlot = EEquipmentSlot::Ring2;
+		}
+	}
+	if (!Eq->PredictCanEquipItem(Row, TargetSlot, Err))
+	{
+		DF_LOG(Warning, "df.equip: cannot equip %s to %s: %s", *Row.ToString(),
+			*StaticEnum<EEquipmentSlot>()->GetNameStringByValue(static_cast<int64>(TargetSlot)), *Err);
+		return;
+	}
+	Eq->EquipItem(Row, TargetSlot);
+	DF_LOG(Log, "df.equip: sent %s -> %s (listen host applies immediately; check df.dumpgear)",
+		*Row.ToString(),
+		*StaticEnum<EEquipmentSlot>()->GetNameStringByValue(static_cast<int64>(TargetSlot)));
+}
+
+static void Cmd_df_dumpgear(TArray<FString> const& /*Args*/)
+{
+	UWorld* const W = GetCheatWorld();
+	ADFPlayerCharacter* const P = GetLocalDFPawn(W);
+	if (!P)
+	{
+		DF_LOG(Warning, "df.dumpgear: no local pawn");
+		return;
+	}
+	UDFInventoryComponent* const Inv = P->GetDFInventory();
+	UDFEquipmentComponent* const Eq = P->GetDFEquipment();
+	DF_LOG(Log, "--- df.dumpgear ---");
+	if (!Eq)
+	{
+		DF_LOG(Warning, "  (no UDFEquipmentComponent)");
+	}
+	else
+	{
+		DF_LOG(Log, "  Equipped (EquippedItems map):");
+		for (const TPair<EEquipmentSlot, FName>& Kvp : Eq->EquippedItems)
+		{
+			if (!Kvp.Value.IsNone())
+			{
+				const FDFItemTableRow* Row = Inv ? Inv->GetItemData(Kvp.Value) : nullptr;
+				if (!Row && Eq->ItemDataTable)
+				{
+					Row = Eq->ItemDataTable->FindRow<FDFItemTableRow>(Kvp.Value, TEXT("dumpgear"));
+				}
+				const TCHAR* IconState = Row && Row->Icon ? TEXT("has Icon") : TEXT("NO Icon");
+				DF_LOG(Log, "    %s = %s (%s)",
+					*StaticEnum<EEquipmentSlot>()->GetNameStringByValue(static_cast<int64>(Kvp.Key)),
+					*Kvp.Value.ToString(), IconState);
+			}
+		}
+	}
+	if (!Inv)
+	{
+		DF_LOG(Warning, "  (no UDFInventoryComponent)");
+		return;
+	}
+	DF_LOG(Log, "  Bag (%d slots, MaxSlots=%d), ItemDataTable=%s",
+		Inv->Items.Num(),
+		Inv->MaxSlots,
+		Inv->ItemDataTable ? *Inv->ItemDataTable->GetName() : TEXT("NULL"));
+	for (int32 I = 0; I < Inv->Items.Num(); ++I)
+	{
+		const FDFInventorySlot& S = Inv->Items[I];
+		const FDFItemTableRow* const Row = Inv->GetItemData(S.RowName);
+		const TCHAR* IconState = Row && Row->Icon ? TEXT("has Icon") : TEXT("NO Icon");
+		DF_LOG(Log, "    [%d] %s x%d equipped=%d - %s", I, *S.RowName.ToString(), S.Quantity,
+			S.bIsEquipped ? 1 : 0, IconState);
 	}
 }
 
@@ -618,6 +784,7 @@ static void Cmd_df_meleedebug(TArray<FString> const& Args)
 	}
 	DF_LOG(Log, "df.meleedebug: bDrawDebugTrace=%d | radius=%.1f | %s -> %s | mesh=%s",
 		M->bDrawDebugTrace ? 1 : 0, M->TraceRadius, *M->TraceStartSocket.ToString(), *M->TraceEndSocket.ToString(), MeshName);
+	DF_LOG(Log, "df.DebugMeleeWeapon 1 ou 2: preview continuo dos sockets durante o Tick (somente desenvolvimento); ver ajuda na consola.");
 }
 
 static FAutoConsoleCommand GCmdGod(
@@ -650,8 +817,16 @@ static FAutoConsoleCommand GCmdAddGold(
 	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_addgold));
 static FAutoConsoleCommand GCmdGiveItem(
 	TEXT("df.giveitem"),
-	TEXT("df.giveitem RowName"),
+	TEXT("Adds one item to inventory by DT row name (bag only — not worn). Requires host/listen authority."),
 	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_giveitem));
+static FAutoConsoleCommand GCmdEquip(
+	TEXT("df.equip"),
+	TEXT("df.equip RowName [EquipmentSlot] — add to bag if needed then equip via UDFEquipmentComponent (host/listen)."),
+	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_equip));
+static FAutoConsoleCommand GCmdDumpGear(
+	TEXT("df.dumpgear"),
+	TEXT("Log equipped slots + bag contents + Icon presence per row."),
+	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_dumpgear));
 static FAutoConsoleCommand GCmdGiveAbility(
 	TEXT("df.giveability"),
 	TEXT("df.giveability RowName"),
@@ -702,7 +877,7 @@ static FAutoConsoleCommand GCmdClearCd(
 	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_clearcd));
 static FAutoConsoleCommand GCmdMeleeDebug(
 	TEXT("df.MeleeDebug"),
-	TEXT("Toggle sphere-sweep melee debug. df.MeleeDebug [0|1|on|off] | collision — toggles viewport ShowFlag.Collision"),
+	TEXT("Toggle sphere-sweep melee debug durante o sweep. Preview continuo nos sockets: df.DebugMeleeWeapon 1|2. df.MeleeDebug [0|1|on|off] | collision — ShowFlag.Collision"),
 	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_meleedebug));
 
 } // namespace
