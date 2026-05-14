@@ -186,6 +186,14 @@ void UDFHitReactionComponent::PlayHitReaction(UAnimMontage* const Montage, const
 	{
 		return;
 	}
+	if (ADFPlayerCharacter* const Player = Cast<ADFPlayerCharacter>(GetOwner()))
+	{
+		if (Player->HasAuthority())
+		{
+			Player->Multicast_PlayHitReactionMontage(Montage, PlayRate);
+		}
+		return;
+	}
 	if (ACharacter* C = Cast<ACharacter>(GetOwner()))
 	{
 		if (UAnimInstance* A = (C->GetMesh() ? C->GetMesh()->GetAnimInstance() : nullptr))

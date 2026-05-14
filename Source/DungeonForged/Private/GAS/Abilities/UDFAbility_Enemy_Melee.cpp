@@ -2,6 +2,7 @@
 
 #include "GAS/Abilities/UDFAbility_Enemy_Melee.h"
 #include "Characters/ADFEnemyBase.h"
+#include "Combat/UDFHitReactionComponent.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
 #include "AbilitySystemBlueprintLibrary.h"
@@ -201,6 +202,14 @@ void UDFAbility_Enemy_Melee::ApplyDamageToOverlappingTargets()
 		{
 			S.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Damage, Dmg);
 			SourceASC->ApplyGameplayEffectSpecToTarget(*S.Data.Get(), TASC);
+			if (UDFHitReactionComponent* const Hit = A->FindComponentByClass<UDFHitReactionComponent>())
+			{
+				FVector HitDir = A->GetActorLocation() - Char->GetActorLocation();
+				HitDir.Z = 0.f;
+				HitDir.Normalize();
+				const FVector HitLocation = A->GetActorLocation();
+				Hit->OnHitReceived(Dmg, 0.f, HitDir, Char, HitLocation, -HitDir.GetSafeNormal());
+			}
 		}
 	}
 }

@@ -7,6 +7,7 @@
 
 class UButton;
 class UImage;
+class UProgressBar;
 class UTextBlock;
 class UScrollBox;
 class UWrapBox;
@@ -95,6 +96,40 @@ protected:
 	TObjectPtr<class UVerticalBox> StatBarsBox;
 	UPROPERTY(EditDefaultsOnly, Category = "DF|ClassSelection")
 	TSubclassOf<UDFClassStatBarWidget> StatBarWidgetClass;
+
+	/** Optional direct stat widgets for fully custom layouts in the WBP designer. If any is present, dynamic StatBarsBox generation is skipped. */
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> TextStrength;
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> TextInt;
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> TextAgi;
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> TextDefense;
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> TextHealth;
+
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
+	TObjectPtr<UProgressBar> BarStrength;
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
+	TObjectPtr<UProgressBar> BarInt;
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
+	TObjectPtr<UProgressBar> BarAgi;
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
+	TObjectPtr<UProgressBar> BarDefense;
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
+	TObjectPtr<UProgressBar> BarHealth;
+
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ValueStrength;
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ValueInt;
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ValueAgi;
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ValueDefense;
+	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ValueHealth;
 
 	UPROPERTY(BlueprintReadOnly, Transient, meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> AbilitiesHeader;

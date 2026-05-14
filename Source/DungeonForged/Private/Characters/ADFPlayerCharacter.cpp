@@ -11,6 +11,7 @@
 #include "Camera/UDFLockOnComponent.h"
 #include "Combat/UDFComboComponent.h"
 #include "Combat/UDFComboPointsComponent.h"
+#include "Combat/UDFHitReactionComponent.h"
 #include "Combat/UDFMeleeTraceComponent.h"
 #include "Interaction/UDFInteractionComponent.h"
 #include "Dungeon/Traps/UDFTrapDetectionComponent.h"
@@ -18,6 +19,7 @@
 #include "Audio/UDFMusicManagerSubsystem.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "AbilitySystemComponent.h"
+#include "Animation/AnimInstance.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "GAS/UDFAttributeSet.h"
@@ -88,6 +90,7 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 	MeleeTrace = CreateDefaultSubobject<UDFMeleeTraceComponent>(TEXT("MeleeTrace"));
 	Combo = CreateDefaultSubobject<UDFComboComponent>(TEXT("Combo"));
 	ComboPoints = CreateDefaultSubobject<UDFComboPointsComponent>(TEXT("ComboPoints"));
+	HitReaction = CreateDefaultSubobject<UDFHitReactionComponent>(TEXT("HitReaction"));
 	Interaction = CreateDefaultSubobject<UDFInteractionComponent>(TEXT("InteractionComponent"));
 	TrapDetection = CreateDefaultSubobject<UDFTrapDetectionComponent>(TEXT("TrapDetection"));
 	DFAudio = CreateDefaultSubobject<UDFAudioComponent>(TEXT("DFAudio"));
@@ -447,6 +450,7 @@ void ADFPlayerCharacter::OnEquipmentEvent(const EEquipmentSlot Slot, const FName
 
 void ADFPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	UnbindPlayerOutOfHealth();
 	if (IsLocallyControlled() && GetWorld() && GetWorld()->GetNetMode() != NM_DedicatedServer)
 	{
 		if (UDFMusicManagerSubsystem* const Music = GetWorld()->GetSubsystem<UDFMusicManagerSubsystem>())
@@ -650,6 +654,60 @@ void ADFPlayerCharacter::OnRep_CurrentAbilitySlots()
 {
 }
 
+void ADFPlayerCharacter::BindPlayerOutOfHealth()
+{
+	if (!HasAuthority() || !AttributeSet)
+	{
+		return;
+	}
+	UnbindPlayerOutOfHealth();
+	AttributeSet->OnOutOfHealth.AddUObject(this, &ADFPlayerCharacter::HandlePlayerOutOfHealth);
+	BoundOutOfHealthAttributeSet = AttributeSet;
+}
+
+void ADFPlayerCharacter::UnbindPlayerOutOfHealth()
+{
+	if (UDFAttributeSet* const BoundSet = BoundOutOfHealthAttributeSet.Get())
+	{
+		BoundSet->OnOutOfHealth.RemoveAll(this);
+	}
+	BoundOutOfHealthAttributeSet.Reset();
+}
+
+void ADFPlayerCharacter::HandlePlayerOutOfHealth()
+{
+	if (!HasAuthority() || bPlayerDeathHandled)
+	{
+		return;
+	}
+	bPlayerDeathHandled = true;
+
+	if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponent())
+	{
+		ASC->CancelAllAbilities();
+		if (FDFGameplayTags::State_Dead.IsValid())
+		{
+			ASC->AddLooseGameplayTag(FDFGameplayTags::State_Dead, 1);
+		}
+	}
+
+	if (MeleeTrace)
+	{
+		MeleeTrace->EndTrace();
+	}
+	if (UCharacterMovementComponent* const Move = GetCharacterMovement())
+	{
+		Move->StopMovementImmediately();
+		Move->DisableMovement();
+	}
+	if (APlayerController* const PC = Cast<APlayerController>(GetController()))
+	{
+		DisableInput(PC);
+	}
+
+	Multicast_PlayDeathMontage();
+}
+
 void ADFPlayerCharacter::InitializeGAS()
 {
 	ADFPlayerState* PS = GetPlayerState<ADFPlayerState>();
@@ -665,6 +723,7 @@ void ADFPlayerCharacter::InitializeGAS()
 		}
 		AbilitySystemComponent = nullptr;
 		AttributeSet = nullptr;
+		UnbindPlayerOutOfHealth();
 		return;
 	}
 
@@ -674,9 +733,18 @@ void ADFPlayerCharacter::InitializeGAS()
 	if (UAbilitySystemComponent* ASC = AbilitySystemComponent.Get())
 	{
 		ASC->InitAbilityActorInfo(PS, this);
+		if (AttributeSet && AttributeSet->GetHealth() > 0.f)
+		{
+			bPlayerDeathHandled = false;
+			if (FDFGameplayTags::State_Dead.IsValid())
+			{
+				ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Dead, 0);
+			}
+		}
 		UE_LOG(LogDFPlayer, Verbose, TEXT("InitializeGAS: InitAbilityActorInfo OK | PS=%s Pawn=%s"),
 			*PS->GetName(), *GetName());
 	}
+	BindPlayerOutOfHealth();
 
 	if (IsLocallyControlled() && GetWorld() && GetWorld()->GetNetMode() != NM_DedicatedServer)
 	{
@@ -957,5 +1025,32 @@ void ADFPlayerCharacter::Client_HitFeedback_Implementation(
 	{
 		ScreenEffects->ApplyHitFromCombat(
 			Band, DamagePercent, InstigatorActor, GetController<APlayerController>());
+	}
+}
+
+void ADFPlayerCharacter::Multicast_PlayHitReactionMontage_Implementation(UAnimMontage* Montage, const float PlayRate)
+{
+	if (IsRunningDedicatedServer() || !Montage)
+	{
+		return;
+	}
+	if (UAnimInstance* const Anim = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
+	{
+		Anim->Montage_Play(Montage, PlayRate);
+	}
+}
+
+void ADFPlayerCharacter::Multicast_PlayDeathMontage_Implementation()
+{
+	if (IsRunningDedicatedServer())
+	{
+		return;
+	}
+	if (UAnimInstance* const Anim = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
+	{
+		if (DeathMontage)
+		{
+			Anim->Montage_Play(DeathMontage, 1.f);
+		}
 	}
 }

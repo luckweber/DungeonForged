@@ -21,6 +21,7 @@ class UDFLockOnComponent;
 class UDFCameraComponent;
 class UDFComboComponent;
 class UDFComboPointsComponent;
+class UDFHitReactionComponent;
 class UDFInteractionComponent;
 class UDFMeleeTraceComponent;
 class UInputAction;
@@ -125,6 +126,12 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|GAS")
 	TObjectPtr<UDFComboPointsComponent> ComboPoints;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	TObjectPtr<UDFHitReactionComponent> HitReaction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|Death")
+	TObjectPtr<UAnimMontage> DeathMontage;
+
 	/** If true, basic attack skips Ability.Warrior.MeleeSwing and uses only Combo montages. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|GAS")
 	bool bDisableWarriorMeleeSwingGameplayAbility = false;
@@ -225,6 +232,12 @@ public:
 	UFUNCTION(Client, Unreliable)
 	void Client_HitFeedback(EDFHitFeedbackBand Band, float DamagePercent, AActor* InstigatorActor);
 
+	UFUNCTION(NetMulticast, Unreliable)
+	void Multicast_PlayHitReactionMontage(UAnimMontage* Montage, float PlayRate = 1.f);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_PlayDeathMontage();
+
 	UFUNCTION(BlueprintPure, Category = "DF|Equipment")
 	UDFEquipmentComponent* GetDFEquipment() const { return Equipment; }
 
@@ -295,6 +308,9 @@ protected:
 	void RefreshMeleeLoadoutFromClassAndEquipment();
 	void CaptureMeleeComboMontagesBaselineOnce();
 	void CaptureMeleeDamageTraceDefaultsOnce();
+	void BindPlayerOutOfHealth();
+	void UnbindPlayerOutOfHealth();
+	void HandlePlayerOutOfHealth();
 
 	UFUNCTION()
 	void OnEquipmentEvent(EEquipmentSlot Slot, FName ItemRow);
@@ -312,6 +328,9 @@ private:
 
 	bool bHasWeaponRSocket = false;
 	bool bHasWeaponLSocket = false;
+	bool bPlayerDeathHandled = false;
+
+	TWeakObjectPtr<UDFAttributeSet> BoundOutOfHealthAttributeSet;
 
 	bool bMeleeComboMontagesBaselineCaptured = false;
 	UPROPERTY(Transient)

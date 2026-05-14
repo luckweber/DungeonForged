@@ -9,6 +9,7 @@
 #include "UI/ClassSelection/UDFPartnerClassPreviewWidget.h"
 #include "Components/Button.h"
 #include "Components/Image.h"
+#include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
 #include "Components/ScrollBox.h"
 #include "Components/VerticalBox.h"
@@ -52,6 +53,23 @@ static int32 DfFindRunHistoryForClass(const UDFSaveGame* Save, const FName Class
 		}
 	}
 	return Runs;
+}
+
+static void DfSetText(UTextBlock* const Text, const FText& Value)
+{
+	if (Text)
+	{
+		Text->SetText(Value);
+	}
+}
+
+static void DfSetStatBar(UProgressBar* const Bar, const float Percent, const FLinearColor& FillColor)
+{
+	if (Bar)
+	{
+		Bar->SetPercent(FMath::Clamp(Percent, 0.f, 1.f));
+		Bar->SetFillColorAndOpacity(FillColor);
+	}
 }
 
 void UDFClassSelectionWidget::NativeConstruct()
@@ -220,7 +238,70 @@ void UDFClassSelectionWidget::FillDetailsPanel()
 	{
 		PreviewBorderImage->SetColorAndOpacity(Row->ClassColor);
 	}
-	if (StatBarsBox && StatBarWidgetClass)
+	const bool bHasDirectStatWidgets =
+		TextStrength || TextInt || TextAgi || TextDefense || TextHealth ||
+		BarStrength || BarInt || BarAgi || BarDefense || BarHealth ||
+		ValueStrength || ValueInt || ValueAgi || ValueDefense || ValueHealth;
+
+	if (bHasDirectStatWidgets)
+	{
+		ClearChildPanel(StatBarsBox);
+
+		const FText Empty = FText::GetEmpty();
+		DfSetText(TextStrength, Empty);
+		DfSetText(TextInt, Empty);
+		DfSetText(TextAgi, Empty);
+		DfSetText(TextDefense, Empty);
+		DfSetText(TextHealth, Empty);
+		DfSetText(ValueStrength, Empty);
+		DfSetText(ValueInt, Empty);
+		DfSetText(ValueAgi, Empty);
+		DfSetText(ValueDefense, Empty);
+		DfSetText(ValueHealth, Empty);
+		DfSetStatBar(BarStrength, 0.f, FLinearColor(0.85f, 0.2f, 0.15f));
+		DfSetStatBar(BarInt, 0.f, FLinearColor(0.35f, 0.45f, 1.f));
+		DfSetStatBar(BarAgi, 0.f, FLinearColor(0.3f, 0.85f, 0.35f));
+		DfSetStatBar(BarDefense, 0.f, FLinearColor(0.6f, 0.6f, 0.65f));
+		DfSetStatBar(BarHealth, 0.f, FLinearColor(0.9f, 0.25f, 0.25f));
+
+		if (Row)
+		{
+			float Ss, Is, As, Ds, Hs;
+			Sub->GetStatBarScalesForClass(Sel, Ss, Is, As, Ds, Hs);
+			const FGameplayAttribute SAt = UDFAttributeSet::GetStrengthAttribute();
+			const FGameplayAttribute IAt = UDFAttributeSet::GetIntelligenceAttribute();
+			const FGameplayAttribute AAt = UDFAttributeSet::GetAgilityAttribute();
+			const FGameplayAttribute ArAt = UDFAttributeSet::GetArmorAttribute();
+			const FGameplayAttribute MrAt = UDFAttributeSet::GetMagicResistAttribute();
+			const FGameplayAttribute MhAt = UDFAttributeSet::GetMaxHealthAttribute();
+			const int32 Vs = FMath::RoundToInt(Row->BaseAttributeValues.FindRef(SAt));
+			const int32 Vi = FMath::RoundToInt(Row->BaseAttributeValues.FindRef(IAt));
+			const int32 Va = FMath::RoundToInt(Row->BaseAttributeValues.FindRef(AAt));
+			const float* const ArP = Row->BaseAttributeValues.Find(ArAt);
+			const float* const MrP = Row->BaseAttributeValues.Find(MrAt);
+			const float ArV = ArP ? *ArP : 0.f;
+			const float MrV = MrP ? *MrP : 0.f;
+			const int32 Vd = FMath::RoundToInt(0.5f * ArV + 0.5f * MrV);
+			const int32 Vh = FMath::RoundToInt(Row->BaseAttributeValues.FindRef(MhAt));
+
+			DfSetText(TextStrength, NSLOCTEXT("DF", "AttrStr", "For\u00e7a"));
+			DfSetText(TextInt, NSLOCTEXT("DF", "AttrInt", "Intelig\u00eancia"));
+			DfSetText(TextAgi, NSLOCTEXT("DF", "AttrAgi", "Agilidade"));
+			DfSetText(TextDefense, NSLOCTEXT("DF", "AttrDef", "Defesa"));
+			DfSetText(TextHealth, NSLOCTEXT("DF", "AttrHp", "Vida M\u00e1xima"));
+			DfSetText(ValueStrength, FText::AsNumber(Vs));
+			DfSetText(ValueInt, FText::AsNumber(Vi));
+			DfSetText(ValueAgi, FText::AsNumber(Va));
+			DfSetText(ValueDefense, FText::AsNumber(Vd));
+			DfSetText(ValueHealth, FText::AsNumber(Vh));
+			DfSetStatBar(BarStrength, Ss, FLinearColor(0.85f, 0.2f, 0.15f));
+			DfSetStatBar(BarInt, Is, FLinearColor(0.35f, 0.45f, 1.f));
+			DfSetStatBar(BarAgi, As, FLinearColor(0.3f, 0.85f, 0.35f));
+			DfSetStatBar(BarDefense, Ds, FLinearColor(0.6f, 0.6f, 0.65f));
+			DfSetStatBar(BarHealth, Hs, FLinearColor(0.9f, 0.25f, 0.25f));
+		}
+	}
+	else if (StatBarsBox && StatBarWidgetClass)
 	{
 		ClearChildPanel(StatBarsBox);
 		if (Row)
