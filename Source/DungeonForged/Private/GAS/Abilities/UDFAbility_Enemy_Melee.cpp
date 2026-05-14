@@ -5,6 +5,7 @@
 #include "Combat/UDFHitReactionComponent.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
+#include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "GameFramework/Character.h"
@@ -15,6 +16,8 @@
 #include "Animation/AnimMontage.h"
 #include "Engine/OverlapResult.h"
 #include "Engine/World.h"
+#include "NiagaraSystem.h"
+#include "Sound/SoundBase.h"
 #include "WorldCollision.h"
 
 UDFAbility_Enemy_Melee::UDFAbility_Enemy_Melee()
@@ -55,15 +58,26 @@ void UDFAbility_Enemy_Melee::ActivateAbility(
 	ActiveParallelTasks = 0;
 	bHitWindowDone = false;
 	bMontageFinishHandled = false;
+	const bool bUseGameplayEventHit = HitGameplayEventTag.IsValid() && AbilityMontage;
 
-	// 1) Hit window (apply damage after delay, or immediately if delay is ~0)
-	if (HitWindowDelay <= 0.001f)
+	// 1) Hit window: prefer montage GameplayEvent for exact frame timing; otherwise use the legacy delay.
+	if (bUseGameplayEventHit)
 	{
-		if (!bHitWindowDone)
+		if (UAbilityTask_WaitGameplayEvent* const HitEventTask =
+				UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, HitGameplayEventTag, nullptr, true, true))
 		{
-			bHitWindowDone = true;
-			ApplyDamageToOverlappingTargets();
+			HitEventTask->EventReceived.AddDynamic(this, &UDFAbility_Enemy_Melee::OnHitGameplayEvent);
+			HitEventTask->ReadyForActivation();
 		}
+		else
+		{
+			EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+			return;
+		}
+	}
+	else if (HitWindowDelay <= 0.001f)
+	{
+		ExecuteHitWindow();
 	}
 	else if (UAbilityTask_WaitDelay* const D = UAbilityTask_WaitDelay::WaitDelay(this, HitWindowDelay))
 	{
@@ -111,7 +125,10 @@ void UDFAbility_Enemy_Melee::ActivateAbility(
 	}
 	if (ActiveParallelTasks == 0)
 	{
-		EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+		if (!bUseGameplayEventHit)
+		{
+			EndAbility(Handle, ActorInfo, ActivationInfo, true, false);
+		}
 	}
 }
 
@@ -121,9 +138,18 @@ void UDFAbility_Enemy_Melee::OnHitWindowElapsed()
 	{
 		return;
 	}
-	bHitWindowDone = true;
-	ApplyDamageToOverlappingTargets();
+	ExecuteHitWindow();
 	TryEndWhenIdle();
+}
+
+void UDFAbility_Enemy_Melee::OnHitGameplayEvent(FGameplayEventData Payload)
+{
+	(void)Payload;
+	ExecuteHitWindow();
+	if (ActiveParallelTasks == 0)
+	{
+		EndAbility(GetCurrentAbilitySpecHandle(), GetCurrentActorInfo(), GetCurrentActivationInfo(), true, false);
+	}
 }
 
 void UDFAbility_Enemy_Melee::OnMontageOrInstantFinished()
@@ -146,6 +172,23 @@ void UDFAbility_Enemy_Melee::TryEndWhenIdle()
 	// No montage: end after the single delay (hit window was the only task, ActiveParallel might be wrong)
 	// We increment for Delay + maybe Montage. On last finish, end.
 	EndAbility(GetCurrentAbilitySpecHandle(), GetCurrentActorInfo(), GetCurrentActivationInfo(), true, false);
+}
+
+void UDFAbility_Enemy_Melee::ExecuteHitWindow()
+{
+	if (bHitWindowDone)
+	{
+		return;
+	}
+	bHitWindowDone = true;
+	if (ACharacter* const Char = Cast<ACharacter>(GetAvatarActorFromActorInfo()))
+	{
+		if (Char->HasAuthority())
+		{
+			PlayAttackCosmetics(Char);
+		}
+	}
+	ApplyDamageToOverlappingTargets();
 }
 
 void UDFAbility_Enemy_Melee::ApplyDamageToOverlappingTargets()
@@ -210,6 +253,49 @@ void UDFAbility_Enemy_Melee::ApplyDamageToOverlappingTargets()
 				const FVector HitLocation = A->GetActorLocation();
 				Hit->OnHitReceived(Dmg, 0.f, HitDir, Char, HitLocation, -HitDir.GetSafeNormal());
 			}
+			PlayImpactCosmetics(Char, A->GetActorLocation(), Char->GetActorLocation() - A->GetActorLocation());
 		}
+	}
+}
+
+void UDFAbility_Enemy_Melee::PlayAttackCosmetics(ACharacter* const SourceCharacter) const
+{
+	if (!SourceCharacter || (!AttackSound && !AttackVFX))
+	{
+		return;
+	}
+	if (ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(SourceCharacter))
+	{
+		Enemy->Multicast_PlayEnemyCosmeticCue(
+			AttackSound,
+			AttackVFX,
+			AttackFXSocketName,
+			SourceCharacter->GetActorLocation(),
+			SourceCharacter->GetActorRotation(),
+			AttackVFXScale,
+			true);
+	}
+}
+
+void UDFAbility_Enemy_Melee::PlayImpactCosmetics(
+	ACharacter* const SourceCharacter,
+	const FVector& HitLocation,
+	const FVector& HitNormal) const
+{
+	if (!SourceCharacter || (!ImpactSound && !ImpactVFX))
+	{
+		return;
+	}
+	if (ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(SourceCharacter))
+	{
+		const FRotator ImpactRotation = HitNormal.IsNearlyZero() ? FRotator::ZeroRotator : HitNormal.GetSafeNormal().Rotation();
+		Enemy->Multicast_PlayEnemyCosmeticCue(
+			ImpactSound,
+			ImpactVFX,
+			NAME_None,
+			HitLocation,
+			ImpactRotation,
+			ImpactVFXScale,
+			false);
 	}
 }

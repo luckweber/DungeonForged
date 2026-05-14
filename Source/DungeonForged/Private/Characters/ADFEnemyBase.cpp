@@ -25,9 +25,13 @@
 #include "GameFramework/PlayerState.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Engine/GameInstance.h"
+#include "Kismet/GameplayStatics.h"
+#include "NiagaraComponent.h"
+#include "NiagaraFunctionLibrary.h"
 #include "Run/DFRunManager.h"
 #include "GameplayEffectTypes.h"
 #include "Perception/AIPerceptionComponent.h"
+#include "Sound/SoundBase.h"
 #include "TimerManager.h"
 #include "UI/Status/UDFEnemyDebuffStatusBarWidget.h"
 #include "GameFramework/PlayerController.h"
@@ -125,6 +129,74 @@ void ADFEnemyBase::OnRep_ReplicatedDataTableMaxWalkSpeed()
 		{
 			Move->MaxWalkSpeed = ReplicatedDataTableMaxWalkSpeed;
 		}
+	}
+}
+
+void ADFEnemyBase::Multicast_PlayEnemyCosmeticCue_Implementation(
+	USoundBase* const Sound,
+	UNiagaraSystem* const VFX,
+	const FName AttachSocketName,
+	const FVector_NetQuantize Location,
+	const FRotator Rotation,
+	const FVector_NetQuantize100 Scale,
+	const bool bAttachToMesh)
+{
+	if (IsRunningDedicatedServer() || (!Sound && !VFX))
+	{
+		return;
+	}
+
+	const FVector CueScale(FMath::Max(Scale.X, 0.01f), FMath::Max(Scale.Y, 0.01f), FMath::Max(Scale.Z, 0.01f));
+	if (bAttachToMesh && GetMesh())
+	{
+		if (Sound)
+		{
+			UGameplayStatics::SpawnSoundAttached(
+				Sound,
+				GetMesh(),
+				AttachSocketName,
+				FVector::ZeroVector,
+				FRotator::ZeroRotator,
+				EAttachLocation::SnapToTarget,
+				true);
+		}
+		if (VFX)
+		{
+			UNiagaraComponent* const Spawned = UNiagaraFunctionLibrary::SpawnSystemAttached(
+				VFX,
+				GetMesh(),
+				AttachSocketName,
+				FVector::ZeroVector,
+				FRotator::ZeroRotator,
+				EAttachLocation::SnapToTarget,
+				true,
+				true,
+				ENCPoolMethod::AutoRelease,
+				true);
+			if (Spawned)
+			{
+				Spawned->SetWorldScale3D(CueScale);
+			}
+		}
+		return;
+	}
+
+	if (Sound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, Sound, Location, Rotation);
+	}
+	if (VFX)
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+			this,
+			VFX,
+			Location,
+			Rotation,
+			CueScale,
+			true,
+			true,
+			ENCPoolMethod::AutoRelease,
+			true);
 	}
 }
 

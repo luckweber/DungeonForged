@@ -21,6 +21,12 @@ class DUNGEONFORGED_API UDFAbilitySlotWidget : public UDFUserWidgetBase
 public:
 	UDFAbilitySlotWidget(const FObjectInitializer& ObjectInitializer);
 
+	UFUNCTION(BlueprintCallable, Category = "DF|UI|AbilitySlot")
+	void SetAbilitySlotData(FGameplayTag InAbilityTag, UTexture2D* InIcon, FText InDisplayName, FText InInputLabel);
+
+	UFUNCTION(BlueprintCallable, Category = "DF|UI|AbilitySlot")
+	void ClearAbilitySlotData();
+
 	/**
 	 * Tag used with FGameplayEffectQuery::MakeQuery_MatchAnyEffectTags.
 	 * Add this tag to your cooldown GameplayEffect's effect tags (or use asset tags and adjust the query in cpp to MatchAnyOwningTags).
@@ -46,14 +52,20 @@ protected:
 	void UpdateCooldownVisuals();
 	void ClearCooldownUI();
 
-	UPROPERTY(meta = (BindWidget))
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UImage> AbilityIcon = nullptr;
 
-	UPROPERTY(meta = (BindWidget))
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UImage> CooldownOverlay = nullptr;
 
-	UPROPERTY(meta = (BindWidget))
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> CooldownText = nullptr;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> AbilityNameText = nullptr;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> InputLabelText = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|UI|Art")
 	TObjectPtr<UTexture2D> AbilityIconTexture = nullptr;

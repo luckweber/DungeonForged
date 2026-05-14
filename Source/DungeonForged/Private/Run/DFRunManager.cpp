@@ -558,6 +558,15 @@ void UDFRunManager::GrantAbilitiesForCurrentRun(ADFPlayerState* PlayerState)
 	}
 
 	ASC->ClearAllAbilities();
+	ADFPlayerCharacter* PlayerCharacter = nullptr;
+	if (APlayerController* const PC = PlayerState->GetPlayerController())
+	{
+		PlayerCharacter = PC->GetPawn<ADFPlayerCharacter>();
+	}
+	if (PlayerCharacter)
+	{
+		PlayerCharacter->CurrentAbilitySlots.Init(NAME_None, 4);
+	}
 
 	for (int32 Idx = 0; Idx < RunState.GrantedAbilities.Num(); ++Idx)
 	{
@@ -579,6 +588,17 @@ void UDFRunManager::GrantAbilitiesForCurrentRun(ADFPlayerState* PlayerState)
 		}
 		const FGameplayAbilitySpec Spec(Row->AbilityClass, Row->AbilityLevel, InId, PlayerState);
 		ASC->GiveAbility(Spec);
+		const int32 UiSlotIndex = Row->GameplayAbilityInputID > 0
+			? Row->GameplayAbilityInputID - 1
+			: FMath::Min(Idx, 3);
+		if (PlayerCharacter && PlayerCharacter->CurrentAbilitySlots.IsValidIndex(UiSlotIndex))
+		{
+			PlayerCharacter->CurrentAbilitySlots[UiSlotIndex] = AbilityName;
+		}
+	}
+	if (PlayerCharacter)
+	{
+		PlayerCharacter->ForceNetUpdate();
 	}
 }
 

@@ -24,6 +24,58 @@ UDFAbilitySlotWidget::UDFAbilitySlotWidget(const FObjectInitializer& ObjectIniti
 {
 }
 
+void UDFAbilitySlotWidget::SetAbilitySlotData(
+	const FGameplayTag InAbilityTag,
+	UTexture2D* const InIcon,
+	const FText InDisplayName,
+	const FText InInputLabel)
+{
+	AbilityTag = InAbilityTag;
+	AbilityIconTexture = InIcon;
+	if (IsValid(AbilityIcon))
+	{
+		if (InIcon)
+		{
+			AbilityIcon->SetBrushFromTexture(InIcon, true);
+			AbilityIcon->SetColorAndOpacity(FLinearColor::White);
+		}
+		else
+		{
+			AbilityIcon->SetBrushFromTexture(nullptr, false);
+			AbilityIcon->SetColorAndOpacity(FLinearColor(0.25f, 0.25f, 0.25f, 0.85f));
+		}
+	}
+	if (AbilityNameText)
+	{
+		AbilityNameText->SetText(InDisplayName);
+	}
+	if (InputLabelText)
+	{
+		InputLabelText->SetText(InInputLabel);
+	}
+	UpdateCooldownVisuals();
+}
+
+void UDFAbilitySlotWidget::ClearAbilitySlotData()
+{
+	AbilityTag = FGameplayTag();
+	AbilityIconTexture = nullptr;
+	if (IsValid(AbilityIcon))
+	{
+		AbilityIcon->SetBrushFromTexture(nullptr, false);
+		AbilityIcon->SetColorAndOpacity(FLinearColor(0.18f, 0.18f, 0.18f, 0.8f));
+	}
+	if (AbilityNameText)
+	{
+		AbilityNameText->SetText(FText::GetEmpty());
+	}
+	if (InputLabelText)
+	{
+		InputLabelText->SetText(FText::GetEmpty());
+	}
+	ClearCooldownUI();
+}
+
 void UDFAbilitySlotWidget::NativeConstruct()
 {
 	Super::NativeConstruct();

@@ -23,6 +23,8 @@ class UDFElementalComponent;
 class UBehaviorTree;
 class UGameplayAbility;
 class UGameplayEffect;
+class UNiagaraSystem;
+class USoundBase;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnDFEnemyDied, AActor*, Enemy, AActor*, Killer, float, ExperienceReward);
 
@@ -148,6 +150,17 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "DF|Enemy")
 	float GetCachedExperienceReward() const { return CachedExperienceReward; }
+
+	/** Server-triggered cosmetic cue for enemy abilities. Runs locally on clients; skipped on dedicated server. */
+	UFUNCTION(NetMulticast, Unreliable, Category = "DF|Enemy|FX")
+	void Multicast_PlayEnemyCosmeticCue(
+		USoundBase* Sound,
+		UNiagaraSystem* VFX,
+		FName AttachSocketName,
+		FVector_NetQuantize Location,
+		FRotator Rotation,
+		FVector_NetQuantize100 Scale,
+		bool bAttachToMesh);
 
 	/**
 	 * Server: last damaging hit (GAS). Used to credit XP; not replicated.

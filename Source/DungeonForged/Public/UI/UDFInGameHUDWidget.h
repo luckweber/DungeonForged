@@ -9,6 +9,8 @@
 class UTextBlock;
 class UImage;
 class UWidgetAnimation;
+class UDFAbilityHotbarWidget;
+class UDFPlayerVitalsWidget;
 
 UCLASS(Blueprintable, Abstract)
 class DUNGEONFORGED_API UDFInGameHUDWidget : public UDFUserWidgetBase
@@ -37,6 +39,14 @@ protected:
 	/** WBP: optional player buff / debuff status rows (Binds in Designer if present). */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UDFStatusEffectBarWidget> DFStatusEffectBar = nullptr;
+
+	/** Optional C++ driven HP/Mana/Stamina block. Bind this as PlayerVitals in WBP. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UDFPlayerVitalsWidget> PlayerVitals = nullptr;
+
+	/** Optional C++ driven ability row. Bind this as AbilityHotbar in WBP. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UDFAbilityHotbarWidget> AbilityHotbar = nullptr;
 
 	int32 LastGoldShown = 0;
 };
