@@ -2,10 +2,13 @@
 
 #include "AI/UDFBTTask_MeleeAttack.h"
 #include "Characters/ADFEnemyBase.h"
+#include "AI/DFAIKeys.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "AbilitySystemComponent.h"
 #include "GAS/DFGameplayTags.h"
+#include "GAS/UDFAttributeSet.h"
 #include "Abilities/GameplayAbility.h"
 #include "Abilities/GameplayAbilityTypes.h"
-#include "AbilitySystemComponent.h"
 #include "AIController.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
@@ -29,6 +32,25 @@ static void CleanupDelegate(FDFMeleeMem& M, UAbilitySystemComponent* ASC)
 		ASC->OnAbilityEnded.Remove(M.Handle);
 		M.Handle.Reset();
 	}
+}
+
+static bool IsDFMeleeTargetAlive(AActor* const Actor)
+{
+	if (!IsValid(Actor))
+	{
+		return false;
+	}
+	UAbilitySystemComponent* const ASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Actor);
+	if (!ASC)
+	{
+		return true;
+	}
+	if (FDFGameplayTags::State_Dead.IsValid() && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Dead))
+	{
+		return false;
+	}
+	const FGameplayAttribute HealthAttribute = UDFAttributeSet::GetHealthAttribute();
+	return !HealthAttribute.IsValid() || ASC->GetNumericAttribute(HealthAttribute) > 0.f;
 }
 } // namespace
 
@@ -58,6 +80,16 @@ EBTNodeResult::Type UDFBTTask_MeleeAttack::ExecuteTask(
 	if (!RequiredTag.IsValid())
 	{
 		return EBTNodeResult::Failed;
+	}
+	if (UBlackboardComponent* const BB = OwnerComp.GetBlackboardComponent())
+	{
+		AActor* const Target = Cast<AActor>(BB->GetValueAsObject(DFAIKeys::TargetActor));
+		if (!IsDFMeleeTargetAlive(Target))
+		{
+			BB->ClearValue(DFAIKeys::TargetActor);
+			BB->SetValueAsBool(DFAIKeys::bIsInAttackRange, false);
+			return EBTNodeResult::Failed;
+		}
 	}
 	FGameplayTagContainer C;
 	C.AddTag(RequiredTag);

@@ -7,6 +7,7 @@
 
 class UDFAbilitySlotWidget;
 class UDataTable;
+class UProgressBar;
 
 UCLASS(Blueprintable, BlueprintType)
 class DUNGEONFORGED_API UDFAbilityHotbarWidget : public UDFUserWidgetBase
@@ -23,6 +24,16 @@ protected:
 
 	UDataTable* ResolveAbilityDataTable() const;
 	void CollectSlots();
+	void RefreshEmbeddedVitals() const;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UProgressBar> HealthOrb = nullptr;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UProgressBar> ManaOrb = nullptr;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UProgressBar> StaminaBar = nullptr;
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UDFAbilitySlotWidget> AbilitySlot1 = nullptr;

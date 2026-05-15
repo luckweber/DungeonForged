@@ -2,14 +2,40 @@
 
 #include "AI/ADFAIController.h"
 #include "Characters/ADFEnemyBase.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "AbilitySystemComponent.h"
 #include "BehaviorTree/BehaviorTree.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "BrainComponent.h"
+#include "GAS/DFGameplayTags.h"
+#include "GAS/UDFAttributeSet.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "Perception/AISense_Sight.h"
 #include "Perception/AISenseConfig_Sight.h"
 #include "Perception/AISenseConfig_Hearing.h"
+
+namespace
+{
+bool IsDFPerceptionTargetAlive(AActor* const Actor)
+{
+	if (!IsValid(Actor))
+	{
+		return false;
+	}
+	UAbilitySystemComponent* const ASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Actor);
+	if (!ASC)
+	{
+		return true;
+	}
+	if (FDFGameplayTags::State_Dead.IsValid() && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Dead))
+	{
+		return false;
+	}
+	const FGameplayAttribute HealthAttribute = UDFAttributeSet::GetHealthAttribute();
+	return !HealthAttribute.IsValid() || ASC->GetNumericAttribute(HealthAttribute) > 0.f;
+}
+} // namespace
 
 UBehaviorTreeComponent* ADFAIController::GetDFBehaviorTreeComponent() const
 {
@@ -122,7 +148,7 @@ void ADFAIController::OnPerceptionUpdated(AActor* Actor, const FAIStimulus Stimu
 	}
 	// Only chase player-controlled pawns (sight/hearing can both deliver updates).
 	const APawn* const SensePawn = Cast<APawn>(Actor);
-	if (SensePawn == nullptr || !SensePawn->IsPlayerControlled())
+	if (SensePawn == nullptr || !SensePawn->IsPlayerControlled() || !IsDFPerceptionTargetAlive(Actor))
 	{
 		return;
 	}

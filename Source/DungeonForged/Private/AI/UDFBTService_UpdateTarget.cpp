@@ -3,16 +3,42 @@
 #include "AI/UDFBTService_UpdateTarget.h"
 #include "AI/DFAIKeys.h"
 #include "Characters/ADFEnemyBase.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "AbilitySystemComponent.h"
 #include "AIController.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
+#include "GAS/DFGameplayTags.h"
+#include "GAS/UDFAttributeSet.h"
 #include "Kismet/GameplayStatics.h"
 #include "CollisionQueryParams.h"
 #include "WorldCollision.h"
 #include "GameFramework/PlayerController.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include <limits>
+
+namespace
+{
+bool IsDFAliveTarget(AActor* const Actor)
+{
+	if (!IsValid(Actor))
+	{
+		return false;
+	}
+	UAbilitySystemComponent* const ASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Actor);
+	if (!ASC)
+	{
+		return true;
+	}
+	if (FDFGameplayTags::State_Dead.IsValid() && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Dead))
+	{
+		return false;
+	}
+	const FGameplayAttribute HealthAttribute = UDFAttributeSet::GetHealthAttribute();
+	return !HealthAttribute.IsValid() || ASC->GetNumericAttribute(HealthAttribute) > 0.f;
+}
+} // namespace
 
 UDFBTService_UpdateTarget::UDFBTService_UpdateTarget()
 {
@@ -42,16 +68,23 @@ void UDFBTService_UpdateTarget::TickNode(
 	{
 		if (APawn* const P = PC->GetPawn())
 		{
-			const float D = FVector::Dist(Origin, P->GetActorLocation());
-			if (D <= SearchRadius)
+			if (IsDFAliveTarget(P))
 			{
-				Best = P;
-				BestD = D;
+				const float D = FVector::Dist(Origin, P->GetActorLocation());
+				if (D <= SearchRadius)
+				{
+					Best = P;
+					BestD = D;
+				}
 			}
 		}
 	}
 	if (!IsValid(Best))
 	{
+		BB->ClearValue(DFAIKeys::TargetActor);
+		BB->ClearValue(DFAIKeys::TargetLocation);
+		BB->SetValueAsBool(DFAIKeys::bCanSeeTarget, false);
+		BB->SetValueAsBool(DFAIKeys::bIsInAttackRange, false);
 		return;
 	}
 	bool bLineOk = true;

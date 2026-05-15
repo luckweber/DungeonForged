@@ -311,6 +311,8 @@ protected:
 	void BindPlayerOutOfHealth();
 	void UnbindPlayerOutOfHealth();
 	void HandlePlayerOutOfHealth();
+	void LockDeathPose();
+	void UnlockDeathPose();
 
 	UFUNCTION()
 	void OnEquipmentEvent(EEquipmentSlot Slot, FName ItemRow);
@@ -331,6 +333,7 @@ private:
 	bool bPlayerDeathHandled = false;
 
 	TWeakObjectPtr<UDFAttributeSet> BoundOutOfHealthAttributeSet;
+	FTimerHandle DeathPoseLockTimerHandle;
 
 	bool bMeleeComboMontagesBaselineCaptured = false;
 	UPROPERTY(Transient)

@@ -40,6 +40,7 @@
 #include "Run/DFRunManager.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "TimerManager.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDFPlayer, Log, All);
 
@@ -681,6 +682,7 @@ void ADFPlayerCharacter::HandlePlayerOutOfHealth()
 		return;
 	}
 	bPlayerDeathHandled = true;
+	SetCanBeDamaged(false);
 
 	if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponent())
 	{
@@ -706,6 +708,26 @@ void ADFPlayerCharacter::HandlePlayerOutOfHealth()
 	}
 
 	Multicast_PlayDeathMontage();
+}
+
+void ADFPlayerCharacter::LockDeathPose()
+{
+	if (USkeletalMeshComponent* const MeshComp = GetMesh())
+	{
+		MeshComp->bPauseAnims = true;
+	}
+}
+
+void ADFPlayerCharacter::UnlockDeathPose()
+{
+	if (UWorld* const World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(DeathPoseLockTimerHandle);
+	}
+	if (USkeletalMeshComponent* const MeshComp = GetMesh())
+	{
+		MeshComp->bPauseAnims = false;
+	}
 }
 
 void ADFPlayerCharacter::InitializeGAS()
@@ -735,6 +757,8 @@ void ADFPlayerCharacter::InitializeGAS()
 		ASC->InitAbilityActorInfo(PS, this);
 		if (AttributeSet && AttributeSet->GetHealth() > 0.f)
 		{
+			SetCanBeDamaged(true);
+			UnlockDeathPose();
 			bPlayerDeathHandled = false;
 			if (FDFGameplayTags::State_Dead.IsValid())
 			{
@@ -1046,11 +1070,25 @@ void ADFPlayerCharacter::Multicast_PlayDeathMontage_Implementation()
 	{
 		return;
 	}
+	UnlockDeathPose();
 	if (UAnimInstance* const Anim = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
 	{
 		if (DeathMontage)
 		{
-			Anim->Montage_Play(DeathMontage, 1.f);
+			const float Duration = Anim->Montage_Play(DeathMontage, 1.f);
+			if (Duration > KINDA_SMALL_NUMBER)
+			{
+				const float LockDelay = FMath::Max(0.01f, Duration - 0.03f);
+				if (UWorld* const World = GetWorld())
+				{
+					World->GetTimerManager().SetTimer(
+						DeathPoseLockTimerHandle,
+						this,
+						&ADFPlayerCharacter::LockDeathPose,
+						LockDelay,
+						false);
+				}
+			}
 		}
 	}
 }

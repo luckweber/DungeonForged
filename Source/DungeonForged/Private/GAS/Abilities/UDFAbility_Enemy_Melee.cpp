@@ -20,6 +20,23 @@
 #include "Sound/SoundBase.h"
 #include "WorldCollision.h"
 
+namespace
+{
+bool IsDFEnemyMeleeTargetAlive(UAbilitySystemComponent* const TargetASC)
+{
+	if (!TargetASC)
+	{
+		return false;
+	}
+	if (FDFGameplayTags::State_Dead.IsValid() && TargetASC->HasMatchingGameplayTag(FDFGameplayTags::State_Dead))
+	{
+		return false;
+	}
+	const FGameplayAttribute HealthAttribute = UDFAttributeSet::GetHealthAttribute();
+	return !HealthAttribute.IsValid() || TargetASC->GetNumericAttribute(HealthAttribute) > 0.f;
+}
+} // namespace
+
 UDFAbility_Enemy_Melee::UDFAbility_Enemy_Melee()
 {
 	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
@@ -233,7 +250,7 @@ void UDFAbility_Enemy_Melee::ApplyDamageToOverlappingTargets()
 			continue;
 		}
 		UAbilitySystemComponent* const TASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(A);
-		if (!TASC)
+		if (!IsDFEnemyMeleeTargetAlive(TASC))
 		{
 			continue;
 		}

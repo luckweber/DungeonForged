@@ -1,11 +1,28 @@
 // Source/DungeonForged/Private/UI/UDFAbilityHotbarWidget.cpp
 #include "UI/UDFAbilityHotbarWidget.h"
+#include "AbilitySystemComponent.h"
 #include "Characters/ADFPlayerCharacter.h"
+#include "Components/ProgressBar.h"
 #include "Data/DFDataTableStructs.h"
 #include "Engine/DataTable.h"
 #include "Engine/GameInstance.h"
+#include "GAS/UDFAttributeSet.h"
 #include "Run/DFRunManager.h"
 #include "UI/UDFAbilitySlotWidget.h"
+
+namespace
+{
+	void SetProgressBarPercent(UProgressBar* const Bar, const float Current, const float MaxValue)
+	{
+		if (!Bar)
+		{
+			return;
+		}
+		const float SafeMax = FMath::Max(MaxValue, 0.f);
+		const float Percent = SafeMax > KINDA_SMALL_NUMBER ? FMath::Clamp(Current / SafeMax, 0.f, 1.f) : 0.f;
+		Bar->SetPercent(Percent);
+	}
+}
 
 void UDFAbilityHotbarWidget::NativeConstruct()
 {
@@ -59,6 +76,34 @@ UDataTable* UDFAbilityHotbarWidget::ResolveAbilityDataTable() const
 	return RunManager ? RunManager->AbilityDataTable : nullptr;
 }
 
+void UDFAbilityHotbarWidget::RefreshEmbeddedVitals() const
+{
+	if (!HealthOrb && !ManaOrb && !StaminaBar)
+	{
+		return;
+	}
+
+	UAbilitySystemComponent* const ASC = GetAbilitySystemComponent();
+	if (!IsValid(ASC))
+	{
+		SetProgressBarPercent(HealthOrb, 0.f, 1.f);
+		SetProgressBarPercent(ManaOrb, 0.f, 1.f);
+		SetProgressBarPercent(StaminaBar, 0.f, 1.f);
+		return;
+	}
+
+	const float Health = ASC->GetNumericAttribute(UDFAttributeSet::GetHealthAttribute());
+	const float MaxHealth = ASC->GetNumericAttribute(UDFAttributeSet::GetMaxHealthAttribute());
+	const float Mana = ASC->GetNumericAttribute(UDFAttributeSet::GetManaAttribute());
+	const float MaxMana = ASC->GetNumericAttribute(UDFAttributeSet::GetMaxManaAttribute());
+	const float Stamina = ASC->GetNumericAttribute(UDFAttributeSet::GetStaminaAttribute());
+	const float MaxStamina = ASC->GetNumericAttribute(UDFAttributeSet::GetMaxStaminaAttribute());
+
+	SetProgressBarPercent(HealthOrb, Health, MaxHealth);
+	SetProgressBarPercent(ManaOrb, Mana, MaxMana);
+	SetProgressBarPercent(StaminaBar, Stamina, MaxStamina);
+}
+
 void UDFAbilityHotbarWidget::RefreshHotbar()
 {
 	if (Slots.Num() == 0)
@@ -78,6 +123,7 @@ void UDFAbilityHotbarWidget::RefreshHotbar()
 			}
 		}
 		LastShownAbilityRows.Init(NAME_None, Slots.Num());
+		RefreshEmbeddedVitals();
 		return;
 	}
 
@@ -121,4 +167,6 @@ void UDFAbilityHotbarWidget::RefreshHotbar()
 			: FText::AsNumber(SlotIndex + 1);
 		SlotWidget->SetAbilitySlotData(Row->AbilityTag, Row->Icon, Row->DisplayName, InputLabel);
 	}
+
+	RefreshEmbeddedVitals();
 }
