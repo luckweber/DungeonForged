@@ -2,6 +2,7 @@
 
 #include "GAS/UDFGameplayAbility.h"
 #include "GAS/DFGameplayTags.h"
+#include "GAS/Effects/UGE_Cooldown_Base.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Boss/ADFBossBase.h"
 
@@ -47,6 +48,18 @@ bool UDFGameplayAbility::CanActivateAbility(const FGameplayAbilitySpecHandle Han
 			{
 				return false;
 			}
+		}
+		if (BaseCooldown > 0.f && IsOwnerOnAbilityCooldown(*ASC))
+		{
+			if (OptionalRelevantTags)
+			{
+				const FGameplayTag& CooldownTag = UAbilitySystemGlobals::Get().ActivateFailCooldownTag;
+				if (CooldownTag.IsValid())
+				{
+					OptionalRelevantTags->AddTag(CooldownTag);
+				}
+			}
+			return false;
 		}
 	}
 	return Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags);
@@ -107,9 +120,72 @@ void UDFGameplayAbility::K2_OnAbilityActivated_Implementation(const FGameplayAbi
 void UDFGameplayAbility::PostInitProperties()
 {
 	Super::PostInitProperties();
-	if (HasAnyFlags(RF_ClassDefaultObject) && !AdditionalAutoMergeTags.IsEmpty())
+	if (HasAnyFlags(RF_ClassDefaultObject))
 	{
-		AbilityTags.AppendTags(AdditionalAutoMergeTags);
+		if (!AdditionalAutoMergeTags.IsEmpty())
+		{
+			AbilityTags.AppendTags(AdditionalAutoMergeTags);
+		}
+		if (BaseCooldown > 0.f)
+		{
+			BuildCooldownTagContainer(CachedCooldownTags);
+			ActivationBlockedTags.AppendTags(CachedCooldownTags);
+		}
+	}
+}
+
+void UDFGameplayAbility::EnsureCooldownTagsCached() const
+{
+	if (CachedCooldownTags.Num() == 0 && BaseCooldown > 0.f)
+	{
+		BuildCooldownTagContainer(CachedCooldownTags);
+	}
+}
+
+bool UDFGameplayAbility::IsOwnerOnAbilityCooldown(const UAbilitySystemComponent& ASC) const
+{
+	if (FDFGameplayTags::Ability_Cooldown.IsValid() && ASC.HasMatchingGameplayTag(FDFGameplayTags::Ability_Cooldown))
+	{
+		return true;
+	}
+	EnsureCooldownTagsCached();
+	return CachedCooldownTags.Num() > 0 && ASC.HasAnyMatchingGameplayTags(CachedCooldownTags);
+}
+
+const FGameplayTagContainer* UDFGameplayAbility::GetCooldownTags() const
+{
+	EnsureCooldownTagsCached();
+	if (CachedCooldownTags.Num() > 0)
+	{
+		return &CachedCooldownTags;
+	}
+	return Super::GetCooldownTags();
+}
+
+void UDFGameplayAbility::BuildCooldownTagContainer(FGameplayTagContainer& OutTags) const
+{
+	OutTags.Reset();
+	if (!FDFGameplayTags::Ability_Cooldown.IsValid())
+	{
+		return;
+	}
+	OutTags.AddTag(FDFGameplayTags::Ability_Cooldown);
+
+	if (const UGameplayEffect* const CooldownGE = GetCooldownGameplayEffect())
+	{
+		OutTags.AppendTags(CooldownGE->GetGrantedTags());
+		if (const UGE_Cooldown_Base* const CooldownBase = Cast<UGE_Cooldown_Base>(CooldownGE))
+		{
+			if (CooldownBase->CooldownAssociatedAbilityTag.IsValid())
+			{
+				OutTags.AddTag(CooldownBase->CooldownAssociatedAbilityTag);
+			}
+		}
+	}
+
+	if (OutTags.Num() <= 1)
+	{
+		OutTags.AppendTags(AbilityTags);
 	}
 }
 
@@ -134,6 +210,19 @@ void UDFGameplayAbility::ApplyCooldown(
 	}
 
 	SpecHandle.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Cooldown, BaseCooldown);
+
+	FGameplayTagContainer CooldownGrantTags;
+	BuildCooldownTagContainer(CooldownGrantTags);
+	SpecHandle.Data->DynamicGrantedTags.AppendTags(CooldownGrantTags);
+
+	if (UAbilitySystemComponent* const ASC = ActorInfo->AbilitySystemComponent.Get())
+	{
+		if (IsOwnerOnAbilityCooldown(*ASC))
+		{
+			return;
+		}
+	}
+
 	ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, SpecHandle);
 }
 

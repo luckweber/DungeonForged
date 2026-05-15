@@ -12,7 +12,7 @@
 
 UDFAbility_Warrior_MeleeSwing::UDFAbility_Warrior_MeleeSwing()
 {
-	bRetriggerInstancedAbility = true;
+	bRetriggerInstancedAbility = false;
 	AbilityCost_Mana = 0.f;
 	AbilityCost_Stamina = 6.f;
 	BaseCooldown = 0.f;
@@ -31,6 +31,12 @@ void UDFAbility_Warrior_MeleeSwing::PostInitProperties()
 		BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Dead);
 		BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Stunned);
 		ActivationOwnedTags.AddTag(FDFGameplayTags::State_Attacking);
+		if (BaseCooldown > 0.f)
+		{
+			bRetriggerInstancedAbility = false;
+			BuildCooldownTagContainer(CachedCooldownTags);
+			ActivationBlockedTags.AppendTags(CachedCooldownTags);
+		}
 	}
 }
 

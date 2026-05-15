@@ -75,6 +75,7 @@ protected:
 
 	void PlayCurrentComboMontage();
 	void PrimeMeleeSwingAbilityChain();
+	bool ShouldRoutePrimaryMeleeThroughGAS() const;
 	bool TryActivatePrimaryMeleeGameplayAbility();
 	void UnbindMontageEndDelegate();
 	void HandleMontageEndedInternal(class UAnimMontage* EndedMontage, bool bInterrupted);

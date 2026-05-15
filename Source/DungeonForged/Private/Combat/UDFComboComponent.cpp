@@ -94,16 +94,35 @@ void UDFComboComponent::OnAttackInput()
 	if (!bPlayingComboMontage)
 	{
 		PrimeMeleeSwingAbilityChain();
-		const ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(GetOwner());
-		if (!PC || !PC->bDisableWarriorMeleeSwingGameplayAbility)
+		if (ShouldRoutePrimaryMeleeThroughGAS())
 		{
-			if (TryActivatePrimaryMeleeGameplayAbility())
-			{
-				return;
-			}
+			// Do not fall back to StartCombo when GAS blocks activation (e.g. cooldown).
+			(void)TryActivatePrimaryMeleeGameplayAbility();
+			return;
 		}
 		StartCombo();
 	}
+}
+
+bool UDFComboComponent::ShouldRoutePrimaryMeleeThroughGAS() const
+{
+	const ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(GetOwner());
+	if (!PC || PC->bDisableWarriorMeleeSwingGameplayAbility)
+	{
+		return false;
+	}
+	if (UDFEquipmentComponent* const Eq = PC->Equipment)
+	{
+		if (!Eq->IsSlotEmpty(EEquipmentSlot::Weapon) && Eq->HasGrantedWeaponMeleeAbilitySpec())
+		{
+			return true;
+		}
+		if (Eq->IsSlotEmpty(EEquipmentSlot::Weapon))
+		{
+			return PC->GetDefaultUnarmedMeleeAbilityTag().IsValid();
+		}
+	}
+	return FDFGameplayTags::Ability_Warrior_MeleeSwing.IsValid();
 }
 
 void UDFComboComponent::PrimeMeleeSwingAbilityChain()
@@ -227,13 +246,10 @@ void UDFComboComponent::AdvanceCombo()
 		{
 			++CurrentComboStep;
 			bComboInputBuffered = false;
-			const ADFPlayerCharacter* const GAOwner = Cast<ADFPlayerCharacter>(GetOwner());
-			if (!GAOwner || !GAOwner->bDisableWarriorMeleeSwingGameplayAbility)
+			if (ShouldRoutePrimaryMeleeThroughGAS())
 			{
-				if (TryActivatePrimaryMeleeGameplayAbility())
-				{
-					return;
-				}
+				(void)TryActivatePrimaryMeleeGameplayAbility();
+				return;
 			}
 			PlayCurrentComboMontage();
 			return;

@@ -8,8 +8,9 @@
 
 /**
  * Cooldown window only: duration = SetByCaller Data.Cooldown.
- * Asset tags keep Ability.Cooldown; InheritableGameplayEffectTags also carry Ability.Cooldown plus
- * CooldownAssociatedAbilityTag so HUD queries (MatchAll) can match a specific slot.
+ * Grants Ability.Cooldown (+ optional CooldownAssociatedAbilityTag) on the owner via
+ * UTargetTagsGameplayEffectComponent so UGameplayAbility::CheckCooldown can block re-use.
+ * Asset tags mirror the same tags for HUD queries (MatchAllEffectTags).
  */
 UCLASS()
 class DUNGEONFORGED_API UGE_Cooldown_Base : public UDFGameplayEffect
