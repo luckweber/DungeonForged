@@ -23,6 +23,7 @@
 #include "Engine/World.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/PlayerState.h"
+#include "TimerManager.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Engine/GameInstance.h"
 #include "Kismet/GameplayStatics.h"
@@ -275,6 +276,10 @@ void ADFEnemyBase::BeginPlay()
 
 void ADFEnemyBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (UWorld* const W = GetWorld())
+	{
+		W->GetTimerManager().ClearTimer(SpawnBirthBTDelayTimer);
+	}
 	UnbindAttributeDelegates();
 	Super::EndPlay(EndPlayReason);
 }
@@ -335,6 +340,15 @@ void ADFEnemyBase::InitializeFromDataTable(UDataTable* EnemyTable, FName RowName
 		return;
 	}
 
+	if (UWorld* const W = GetWorld())
+	{
+		W->GetTimerManager().ClearTimer(SpawnBirthBTDelayTimer);
+	}
+	bDeferAIForSpawnBirth = false;
+
+	const bool bPlaySpawnBirth = Row->SpawnBirthMontage != nullptr;
+	const bool bDeferBT = bPlaySpawnBirth && Row->bDelayAIUntilSpawnBirthMontageFinishes;
+
 	CachedExperienceReward = Row->ExperienceReward;
 	CachedGoldDropMin = Row->GoldDropMin;
 	CachedGoldDropMax = Row->GoldDropMax;
@@ -376,8 +390,29 @@ void ADFEnemyBase::InitializeFromDataTable(UDataTable* EnemyTable, FName RowName
 		InitAbilityAndBindHealth();
 	}
 
-	// Possess/OnPossess often runs before this init; CachedAIBehaviorTree was null there — start BT now.
-	TryStartBehaviorTreeFromCache();
+	if (bPlaySpawnBirth)
+	{
+		Multicast_PlaySpawnBirthMontage(Row->SpawnBirthMontage.Get());
+	}
+
+	if (bDeferBT)
+	{
+		bDeferAIForSpawnBirth = true;
+		const float Dur = FMath::Max(0.05f, Row->SpawnBirthMontage->GetPlayLength());
+		if (UWorld* const W = GetWorld())
+		{
+			W->GetTimerManager().SetTimer(SpawnBirthBTDelayTimer, this, &ADFEnemyBase::OnSpawnBirthMontageDelayElapsed, Dur, false);
+		}
+		else
+		{
+			bDeferAIForSpawnBirth = false;
+			TryStartBehaviorTreeFromCache();
+		}
+	}
+	else
+	{
+		TryStartBehaviorTreeFromCache();
+	}
 }
 
 void ADFEnemyBase::TryStartBehaviorTreeFromCache()
@@ -390,6 +425,35 @@ void ADFEnemyBase::TryStartBehaviorTreeFromCache()
 	{
 		AIC->RunBehaviorTree(CachedAIBehaviorTree);
 	}
+}
+
+void ADFEnemyBase::Multicast_PlaySpawnBirthMontage_Implementation(UAnimMontage* Montage)
+{
+	if (!Montage)
+	{
+		return;
+	}
+	USkeletalMeshComponent* const InMesh = GetMesh();
+	if (!InMesh)
+	{
+		return;
+	}
+	UAnimInstance* const AnimInst = InMesh->GetAnimInstance();
+	if (!AnimInst)
+	{
+		return;
+	}
+	AnimInst->Montage_Play(Montage, 1.f);
+}
+
+void ADFEnemyBase::OnSpawnBirthMontageDelayElapsed()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+	bDeferAIForSpawnBirth = false;
+	TryStartBehaviorTreeFromCache();
 }
 
 void ADFEnemyBase::ApplyMovementConfigFromRow(const FDFEnemyTableRow& Row)

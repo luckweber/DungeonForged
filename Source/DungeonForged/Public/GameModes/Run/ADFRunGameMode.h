@@ -50,7 +50,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Run|Data")
 	TObjectPtr<UDataTable> EnemyDataTable = nullptr;
 
-	/** @see @ref UDFDungeonManager::PCGOwnerActor. */
+	/** If null at startup, finds the first actor in the world with a PCG component + graph (see UDFDungeonManager::ResolvePCGComponent). Prefer assigning your BP_ActorPCG here when multiple PCGs exist. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Run|Data")
 	TObjectPtr<AActor> PCGOwnerActor = nullptr;
 

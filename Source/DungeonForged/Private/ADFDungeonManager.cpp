@@ -6,6 +6,7 @@
 #include "Characters/ADFEnemyBase.h"
 #include "UI/UDFAbilitySelectionSubsystem.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/InstancedStaticMeshComponent.h"
 #include "Data/PCGPointData.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -13,10 +14,13 @@
 #include "GameFramework/Actor.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/PlayerController.h"
+#include "EngineUtils.h"
 #include "PCGComponent.h"
 #include "PCGData.h"
+#include "PCGManagedResource.h"
 #include "TimerManager.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
+#include "NavigationSystem.h"
 
 namespace
 {
@@ -39,7 +43,44 @@ namespace
 		return 0.f;
 	}
 
-	/** Centro da cápsula do Character: ImpactPoint/Z + half-height (+ offset). Duas tentativas de canal para pisos só WorldStatic/Dynamic Block. */
+	/**
+	 * Among upward-facing hits along a vertical down-ray, picks the highest walkable surface **strictly below** OriginalLocZ.
+	 * Ignores ImpactPoint.Z >= OriginalLocZ so the outer top of a ceiling (often normal-up in thick meshes) is not chosen over the real floor.
+	 */
+	bool SelectFloorHitAlongDownRay(
+		TArray<FHitResult> const& Hits,
+		float MinFloorFacingZ,
+		float OriginalLocZ,
+		FHitResult& OutHit)
+	{
+		bool bGot = false;
+		float BestZ = -1.e20f;
+		for (FHitResult const& Hit : Hits)
+		{
+			if (!Hit.IsValidBlockingHit())
+			{
+				continue;
+			}
+			float const Align = FVector::DotProduct(Hit.ImpactNormal.GetSafeNormal(), FVector::UpVector);
+			if (Align < MinFloorFacingZ)
+			{
+				continue;
+			}
+			if (Hit.ImpactPoint.Z >= OriginalLocZ)
+			{
+				continue;
+			}
+			if (Hit.ImpactPoint.Z >= BestZ)
+			{
+				BestZ = Hit.ImpactPoint.Z;
+				OutHit = Hit;
+				bGot = true;
+			}
+		}
+		return bGot;
+	}
+
+	/** Centro da cápsula do Character: impacto com superfície "pisável" sob Loc; vários hits ordenados ao longo da vertical. */
 	void AdjustEnemySpawnTransform(
 		UWorld* const World,
 		FTransform& T,
@@ -60,28 +101,77 @@ namespace
 		FCollisionQueryParams Params(SCENE_QUERY_STAT(DFDungeonSnapEnemySpawnToFloor), false);
 		Params.bReturnPhysicalMaterial = false;
 
+		auto TryMultiOnChannel = [&](ECollisionChannel const Ch, FHitResult& Out) -> bool
+		{
+			TArray<FHitResult> Hits;
+			World->LineTraceMultiByChannel(Hits, Start, End, Ch, Params);
+			return SelectFloorHitAlongDownRay(Hits, 0.35f, Loc.Z, Out);
+		};
+
 		FHitResult Hit;
-		bool bGot = World->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params);
-		if (!bGot || !Hit.IsValidBlockingHit())
+		bool bGot = TryMultiOnChannel(ECC_Visibility, Hit);
+		if (!bGot)
 		{
 			static ECollisionChannel const kFallbackChannels[] = { ECC_WorldStatic, ECC_WorldDynamic };
 			for (ECollisionChannel const Ch : kFallbackChannels)
 			{
-				if (World->LineTraceSingleByChannel(Hit, Start, End, Ch, Params) && Hit.IsValidBlockingHit())
+				if (TryMultiOnChannel(Ch, Hit))
 				{
 					bGot = true;
 					break;
 				}
 			}
 		}
+
 		if (!bGot || !Hit.IsValidBlockingHit())
 		{
 			return;
 		}
+
 		const float HalfH = GetEnemySpawnCapsuleHalfHeight(EnemyClass);
 		FVector NewLoc = Hit.Location;
 		NewLoc.Z += HalfH + VerticalOffsetCm;
 		T.SetLocation(NewLoc);
+	}
+
+	/** Fallback when GeneratedGraphOutput has no Point Data: Spawn Actor uses UPCGManagedActors; Static Mesh Spawner uses UPCGManagedISMComponent. */
+	void AppendTransformsFromPCGManagedOutputs(UPCGComponent* PCG, TArray<FTransform>& OutSpawnPoints)
+	{
+		if (!PCG)
+		{
+			return;
+		}
+		PCG->ForEachManagedResource([&OutSpawnPoints](UPCGManagedResource* Res)
+		{
+			if (UPCGManagedActors* const MA = Cast<UPCGManagedActors>(Res))
+			{
+				for (const TSoftObjectPtr<AActor>& SoftA : MA->GeneratedActors)
+				{
+					if (AActor* const A = SoftA.Get())
+					{
+						OutSpawnPoints.Add(A->GetActorTransform());
+					}
+				}
+				return;
+			}
+			if (UPCGManagedISMComponent* const MISMC = Cast<UPCGManagedISMComponent>(Res))
+			{
+				const UInstancedStaticMeshComponent* const ISMC = MISMC->GetComponent();
+				if (!ISMC)
+				{
+					return;
+				}
+				const int32 NumInst = ISMC->GetInstanceCount();
+				FTransform InstanceTm;
+				for (int32 Idx = 0; Idx < NumInst; ++Idx)
+				{
+					if (ISMC->GetInstanceTransform(Idx, InstanceTm, true))
+					{
+						OutSpawnPoints.Add(InstanceTm);
+					}
+				}
+			}
+		});
 	}
 }
 
@@ -261,7 +351,34 @@ UPCGComponent* UDFDungeonManager::ResolvePCGComponent() const
 {
 	if (IsValid(PCGOwnerActor.Get()))
 	{
-		return PCGOwnerActor->FindComponentByClass<UPCGComponent>();
+		if (UPCGComponent* const PCG = PCGOwnerActor->FindComponentByClass<UPCGComponent>())
+		{
+			return PCG;
+		}
+	}
+
+	// Level-placed BP_ActorPCG is not wired into Game Mode defaults; pick the first actor with a configured PCG graph.
+	UWorld* const World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* const Actor = *It;
+		if (!IsValid(Actor))
+		{
+			continue;
+		}
+		UPCGComponent* const PCG = Actor->FindComponentByClass<UPCGComponent>();
+		if (!PCG)
+		{
+			continue;
+		}
+		if (PCG->GetGraph() || PCG->GetGraphInstance())
+		{
+			return PCG;
+		}
 	}
 	return nullptr;
 }
@@ -274,21 +391,24 @@ void UDFDungeonManager::CollectSpawnPoints_Implementation(TArray<FTransform>& Ou
 		OutSpawnPoints.Append(SpawnPointsPreview);
 	}
 
-	if (IsValid(PCGOwnerActor.Get()))
+	if (UPCGComponent* const PCG = ResolvePCGComponent())
 	{
-		if (UPCGComponent* PCG = PCGOwnerActor->FindComponentByClass<UPCGComponent>())
+		const int32 NumBeforeGraphPoints = OutSpawnPoints.Num();
+		const FPCGDataCollection& Col = PCG->GetGeneratedGraphOutput();
+		for (const FPCGTaggedData& Tag : Col.TaggedData)
 		{
-			const FPCGDataCollection& Col = PCG->GetGeneratedGraphOutput();
-			for (const FPCGTaggedData& Tag : Col.TaggedData)
+			if (const UPCGPointData* Pts = Cast<UPCGPointData>(Tag.Data))
 			{
-				if (const UPCGPointData* Pts = Cast<UPCGPointData>(Tag.Data))
+				for (const FPCGPoint& Pt : Pts->GetPoints())
 				{
-					for (const FPCGPoint& Pt : Pts->GetPoints())
-					{
-						OutSpawnPoints.Add(Pt.Transform);
-					}
+					OutSpawnPoints.Add(Pt.Transform);
 				}
 			}
+		}
+		const bool bGotPointOutput = OutSpawnPoints.Num() > NumBeforeGraphPoints;
+		if (!bGotPointOutput)
+		{
+			AppendTransformsFromPCGManagedOutputs(PCG, OutSpawnPoints);
 		}
 	}
 }
@@ -313,17 +433,43 @@ void UDFDungeonManager::SpawnEnemies(const FDFDungeonFloorRow& FloorData)
 	}
 
 	TArray<FTransform> SpawnPoints;
-	CollectSpawnPoints(SpawnPoints);
-	if (SpawnPoints.Num() == 0)
+
+	if (!FloorData.bUseManualEnemyLayoutOnly)
 	{
-		UE_LOG(
-			LogTemp, Warning, TEXT("SpawnEnemies: no spawn points (PCG or SpawnPointsPreview). Spawning at origin as fallback"));
-		SpawnPoints.Add(FTransform::Identity);
+		CollectSpawnPoints(SpawnPoints);
+		if (SpawnPoints.Num() == 0)
+		{
+			if (UPCGComponent* const PCG = ResolvePCGComponent())
+			{
+				int32 ManagedResourceCount = 0;
+				PCG->ForEachManagedResource([&ManagedResourceCount](UPCGManagedResource*)
+				{
+					++ManagedResourceCount;
+				});
+				UE_LOG(LogTemp, Warning,
+					TEXT("SpawnEnemies: PCG on '%s' produced no spawn transforms (GeneratedGraphOutput tags=%d). "
+						 "Managed PCG resources=%d — add Point Data to the graph Output, use Spawn Actor / Static Mesh Spawner so the PCG component registers outputs, "
+						 "or fill SpawnPointsPreview / PCG Owner Actor on BP_DFRunGameMode."),
+					*GetNameSafe(PCG->GetOwner()), PCG->GetGeneratedGraphOutput().TaggedData.Num(), ManagedResourceCount);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning,
+					TEXT("SpawnEnemies: no spawn points — no PCG component with a graph in the level, SpawnPointsPreview empty, and PCG Owner Actor unset. Spawning at origin as fallback."));
+			}
+			SpawnPoints.Add(FTransform::Identity);
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Display,
+			TEXT("SpawnEnemies: bUseManualEnemyLayoutOnly — skipping automatic dungeon spawns for floor %d (use ADFEnemySpawnerActor)."),
+			CurrentFloor);
 	}
 
 	const int32 MinC = FMath::Min(FloorData.MinEnemies, FloorData.MaxEnemies);
 	const int32 MaxC = FMath::Max(FloorData.MinEnemies, FloorData.MaxEnemies);
-	int32 GruntCount = (MinC == MaxC) ? MinC : FMath::RandRange(MinC, MaxC);
+	int32 GruntCount = FloorData.bUseManualEnemyLayoutOnly ? 0 : ((MinC == MaxC) ? MinC : FMath::RandRange(MinC, MaxC));
 	if (FloorData.PossibleEnemyRows.Num() == 0)
 	{
 		GruntCount = 0;
@@ -349,9 +495,7 @@ void UDFDungeonManager::SpawnEnemies(const FDFDungeonFloorRow& FloorData)
 			const FTransform& T = SpawnPoints[PointIndex % SpawnPoints.Num()];
 			++PointIndex;
 			FTransform SpawnTm(T);
-			AdjustEnemySpawnTransform(
-				World, SpawnTm, ER->EnemyClass, bSnapEnemySpawnsToWorldGeometry,
-				EnemySpawnSnapTraceUpCm, EnemySpawnSnapTraceDownCm, EnemySpawnVerticalOffsetCm);
+			SnapEnemySpawnToWorld(SpawnTm, ER->EnemyClass);
 			AActor* const Spawned = World->SpawnActor<AActor>(ER->EnemyClass, SpawnTm, Params);
 			if (Spawned)
 			{
@@ -364,7 +508,7 @@ void UDFDungeonManager::SpawnEnemies(const FDFDungeonFloorRow& FloorData)
 		}
 	}
 
-	if (FloorData.bHasBoss && !FloorData.BossEnemyRow.IsNone())
+	if (!FloorData.bUseManualEnemyLayoutOnly && FloorData.bHasBoss && !FloorData.BossEnemyRow.IsNone())
 	{
 		if (const FDFEnemyTableRow* BossRow = EnemyDataTable->FindRow<FDFEnemyTableRow>(
 				FloorData.BossEnemyRow, TEXT("DFDungeon|Boss")))
@@ -374,9 +518,7 @@ void UDFDungeonManager::SpawnEnemies(const FDFDungeonFloorRow& FloorData)
 				const FTransform& T = SpawnPoints[PointIndex % SpawnPoints.Num()];
 				++PointIndex;
 				FTransform SpawnTm(T);
-				AdjustEnemySpawnTransform(
-					World, SpawnTm, BossRow->EnemyClass, bSnapEnemySpawnsToWorldGeometry,
-					EnemySpawnSnapTraceUpCm, EnemySpawnSnapTraceDownCm, EnemySpawnVerticalOffsetCm);
+				SnapEnemySpawnToWorld(SpawnTm, BossRow->EnemyClass);
 				AActor* const Spawned = World->SpawnActor<AActor>(BossRow->EnemyClass, SpawnTm, Params);
 				if (Spawned)
 				{
@@ -395,15 +537,60 @@ void UDFDungeonManager::SpawnEnemies(const FDFDungeonFloorRow& FloorData)
 
 void UDFDungeonManager::RegisterSpawnedEnemy(AActor* Enemy)
 {
-	if (!Enemy)
+	if (!Enemy || SpawnedEnemies.Contains(Enemy))
 	{
 		return;
 	}
 	SpawnedEnemies.Add(Enemy);
+	EnemiesRemaining = SpawnedEnemies.Num();
 	if (ADFEnemyBase* const E = Cast<ADFEnemyBase>(Enemy))
 	{
 		E->OnEnemyDied.AddDynamic(this, &UDFDungeonManager::HandleEnemyDied);
 	}
+}
+
+void UDFDungeonManager::SnapEnemySpawnToWorld(
+	FTransform& InOutWorldTransform,
+	TSubclassOf<AActor> EnemyClass,
+	FVector NavQueryExtentOverride,
+	bool bTryNavMeshFirst) const
+{
+	UWorld* const World = GetWorld();
+	if (!World || !EnemyClass)
+	{
+		return;
+	}
+
+	FVector Ext = EnemySpawnNavQueryExtent;
+	if (!NavQueryExtentOverride.IsNearlyZero(1.f))
+	{
+		Ext = NavQueryExtentOverride;
+	}
+
+	if (bTryNavMeshFirst && bPreferNavMeshForEnemySpawnSnap)
+	{
+		if (const UNavigationSystemV1* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World))
+		{
+			FNavLocation NavLoc;
+			FVector Loc = InOutWorldTransform.GetLocation();
+			if (Nav->ProjectPointToNavigation(Loc, NavLoc, Ext))
+			{
+				Loc = NavLoc.Location;
+				Loc.Z += EnemySpawnVerticalOffsetCm;
+				InOutWorldTransform.SetLocation(Loc);
+				return;
+			}
+		}
+	}
+
+	AdjustEnemySpawnTransform(
+		World,
+		InOutWorldTransform,
+		EnemyClass,
+		bSnapEnemySpawnsToWorldGeometry,
+		EnemySpawnSnapTraceUpCm,
+		EnemySpawnSnapTraceDownCm,
+		EnemySpawnVerticalOffsetCm);
 }
 
 void UDFDungeonManager::HandleEnemyDied(AActor* Enemy, AActor* /*Killer*/, float /*ExperienceReward*/)

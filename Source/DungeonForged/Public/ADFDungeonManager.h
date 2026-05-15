@@ -40,6 +40,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Dungeon")
 	TObjectPtr<UDataTable> EnemyDataTable = nullptr;
 
+	/** Explicit actor whose PCG component drives dungeon generation / enemy spawn points. If unset, the subsystem picks the first actor in the level with a configured PCG component. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Dungeon|PCG")
 	TObjectPtr<AActor> PCGOwnerActor = nullptr;
 
@@ -119,7 +120,7 @@ public:
 	void OnFloorCleared_OpenExitAndLoot();
 	virtual void OnFloorCleared_OpenExitAndLoot_Implementation();
 
-	/** Override in BP to supply spawn points; default merges SpawnPointsPreview + PCG point outputs. */
+	/** Override in BP to supply spawn points; default uses SpawnPointsPreview + PCG Point Data + managed Spawn Actor transforms + Static Mesh Spawner (ISM) instance transforms. */
 	UFUNCTION(BlueprintNativeEvent, Category = "DF|Dungeon")
 	void CollectSpawnPoints(TArray<FTransform>& OutSpawnPoints) const;
 	virtual void CollectSpawnPoints_Implementation(TArray<FTransform>& OutSpawnPoints) const;
@@ -128,7 +129,19 @@ public:
 	TArray<FTransform> SpawnPointsPreview;
 
 	/**
+	 * Primeiro tenta `ProjectPointToNavigation` (Recast = mesma superfície pisável que o Nav Mesh Bounds Volume gera).
+	 * Permite caixa de spawn no ar: o query encontra o ponto navegável por baixo (chão real para animação tipo birth no solo).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Dungeon|Spawning")
+	bool bPreferNavMeshForEnemySpawnSnap = true;
+
+	/** Caixa de procura em espaço mundo (cm) quando o override do caller é zero — X/Y típico do volume, Z alto para alcançar o solo a partir de bounds suspensos. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Dungeon|Spawning", meta=(EditCondition="bPreferNavMeshForEnemySpawnSnap"))
+	FVector EnemySpawnNavQueryExtent = FVector(2000.f, 2000.f, 6000.f);
+
+	/**
 	 * Rastreio vertical até geometria mundo (Visibility) e coloca Z no chão antes de SpawnActor — mitiga pontos PCG fora das meshes modulares.
+	 * Usado depois do NavMesh se este falhar, ou sozinho se `bPreferNavMeshForEnemySpawnSnap` estiver off.
 	 * Capsule ao centro: usa meia-altura por defeito do @c EnemyClass quando for Character.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Dungeon|Spawning")
@@ -179,6 +192,17 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Minimap")
 	TObjectPtr<ADFMinimapRoom> CurrentPlayerMinimapRoom = nullptr;
 
+	/**
+	 * Snap de spawn: opcionalmente projeta no NavMesh (Recast) dentro de NavQueryExtentOverride (ou defaults do subsistema),
+	 * depois fallback para rasto à geometria. Passa FVector::ZeroVector e bTryNavMeshFirst=true para só defaults.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DF|Dungeon|Spawning", meta = (AutoCreateRefTerm = "NavQueryExtentOverride"))
+	void SnapEnemySpawnToWorld(
+		UPARAM(Ref) FTransform& InOutWorldTransform,
+		TSubclassOf<AActor> EnemyClass,
+		FVector NavQueryExtentOverride = FVector::ZeroVector,
+		bool bTryNavMeshFirst = true) const;
+
 #if !UE_BUILD_SHIPPING
 	/** Development: clear tracked enemies and run `PerformFloorCleared` (authority). */
 	void Dev_ForceFloorCleared();
@@ -192,6 +216,13 @@ public:
 	/** Development: single spawn from row at `Anchor` (e.g. boss). */
 	void Dev_SpawnAt(FName RowName, AActor* Anchor);
 #endif
+
+	/**
+	 * Track a spawned enemy for floor clear / kill delegates (server). Keeps EnemiesRemaining in sync with SpawnedEnemies.
+	 * Use from spawners, ambush volumes, etc.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DF|Dungeon")
+	void RegisterSpawnedEnemy(AActor* Enemy);
 
 protected:
 	bool bWaitingForPCG = false;
@@ -213,7 +244,6 @@ protected:
 	void FinishPCGAndSpawn();
 	void UnbindPCG();
 	void ClearFloorActors();
-	void RegisterSpawnedEnemy(AActor* Enemy);
 	void UnregisterEnemy(AActor* Enemy);
 	bool FindFloorRowByNumber(int32 InFloor, FDFDungeonFloorRow& OutRow) const;
 	bool IsAuthorityWorld() const;

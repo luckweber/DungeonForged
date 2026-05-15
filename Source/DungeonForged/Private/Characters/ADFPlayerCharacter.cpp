@@ -20,6 +20,8 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "AbilitySystemComponent.h"
 #include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Animation/AnimTypes.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "GAS/UDFAttributeSet.h"
@@ -726,6 +728,10 @@ void ADFPlayerCharacter::HandlePlayerOutOfHealth()
 
 void ADFPlayerCharacter::LockDeathPose()
 {
+	if (UWorld* const World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(DeathPoseLockTimerHandle);
+	}
 	if (USkeletalMeshComponent* const MeshComp = GetMesh())
 	{
 		MeshComp->bPauseAnims = true;
@@ -769,7 +775,10 @@ void ADFPlayerCharacter::InitializeGAS()
 	if (UAbilitySystemComponent* ASC = AbilitySystemComponent.Get())
 	{
 		ASC->InitAbilityActorInfo(PS, this);
-		if (AttributeSet && AttributeSet->GetHealth() > 0.f)
+		const bool bDeadByTag = FDFGameplayTags::State_Dead.IsValid()
+			&& ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Dead);
+		const bool bAliveByHealth = AttributeSet && AttributeSet->GetHealth() > 0.f;
+		if (bAliveByHealth && !bDeadByTag)
 		{
 			SetCanBeDamaged(true);
 			UnlockDeathPose();
@@ -1242,6 +1251,14 @@ void ADFPlayerCharacter::Multicast_PlayDeathMontage_Implementation()
 	{
 		if (DeathMontage)
 		{
+			FOnMontageBlendingOutStarted BlendOut;
+			BlendOut.BindUObject(this, &ADFPlayerCharacter::OnDeathMontageBlendingOut);
+			Anim->Montage_SetBlendingOutDelegate(BlendOut, DeathMontage);
+
+			FOnMontageEnded OnEnded;
+			OnEnded.BindUObject(this, &ADFPlayerCharacter::OnDeathMontageEnded);
+			Anim->Montage_SetEndDelegate(OnEnded, DeathMontage);
+
 			const float Duration = Anim->Montage_Play(DeathMontage, 1.f);
 			if (Duration > KINDA_SMALL_NUMBER)
 			{
@@ -1258,4 +1275,18 @@ void ADFPlayerCharacter::Multicast_PlayDeathMontage_Implementation()
 			}
 		}
 	}
+}
+
+void ADFPlayerCharacter::OnDeathMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted)
+{
+	(void)Montage;
+	(void)bInterrupted;
+	LockDeathPose();
+}
+
+void ADFPlayerCharacter::OnDeathMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+	(void)Montage;
+	(void)bInterrupted;
+	LockDeathPose();
 }

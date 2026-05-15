@@ -294,6 +294,17 @@ struct DUNGEONFORGED_API FDFEnemyTableRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI")
 	TArray<TObjectPtr<UAnimMontage>> TauntMontages;
+
+	/**
+	 * Opcional: reproduzida uma vez ao aplicar a linha no spawn (`InitializeFromDataTable`).
+	 * Multicast para todos os clientes; no servidor a árvore de comportamento pode esperar até o fim (ver @a bDelayAIUntilSpawnBirthMontageFinishes).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Spawn")
+	TObjectPtr<UAnimMontage> SpawnBirthMontage = nullptr;
+
+	/** Se true e `SpawnBirthMontage` estiver definida, o servidor adia `RunBehaviorTree` até acabar a duração da montagem. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Spawn")
+	bool bDelayAIUntilSpawnBirthMontageFinishes = true;
 };
 
 /** Row in a DataTable of loot pools: references multiple item row names in DT_Items. Used by chests. */
@@ -395,6 +406,13 @@ struct DUNGEONFORGED_API FDFDungeonFloorRow : public FTableRowBase
 	/** Row names in your enemy table valid for this floor. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dungeon|Floor")
 	TArray<FName> PossibleEnemyRows;
+
+	/**
+	 * When true, SpawnEnemies does not spawn grunts or boss from this row — use ADFEnemySpawnerActor / PCG only.
+	 * Avoids origin fallback stacking with manual spawners and clears PCG warnings for authored encounters.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dungeon|Floor")
+	bool bUseManualEnemyLayoutOnly = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dungeon|Floor", meta = (ClampMin = "0"))
 	int32 MinEnemies = 0;

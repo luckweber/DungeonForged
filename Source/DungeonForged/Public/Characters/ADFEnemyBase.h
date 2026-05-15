@@ -55,6 +55,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|Enemy")
 	void InitializeFromDataTable(UDataTable* EnemyTable, FName RowName);
 
+	/** True while o servidor está a esperar que a montagem de spawn termine antes de correr a BT (evita duplo start com @c ADFAIController::OnPossess). */
+	UFUNCTION(BlueprintPure, Category = "DF|Enemy")
+	bool IsDelayingAIForSpawnBirth() const { return bDeferAIForSpawnBirth; }
+
+	/** NetMulticast: reproduz a montagem de birth em todas as máquinas (chamar só no servidor, típico a partir de `InitializeFromDataTable`). */
+	UFUNCTION(NetMulticast, Reliable, Category = "DF|Enemy")
+	void Multicast_PlaySpawnBirthMontage(UAnimMontage* Montage);
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GAS")
 	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;
 
@@ -207,10 +215,17 @@ protected:
 	 */
 	void TryStartBehaviorTreeFromCache();
 
+	UFUNCTION()
+	void OnSpawnBirthMontageDelayElapsed();
+
 	/** Stops the brain, movement, and AI controller input. */
 	void DisableEnemyActions();
 
 	FTimerHandle DeathDestroyTimer;
+	FTimerHandle SpawnBirthBTDelayTimer;
+
+	/** Servidor: quando true, `ADFAIController::OnPossess` não corre a BT — @ref OnSpawnBirthMontageDelayElapsed liberta. */
+	bool bDeferAIForSpawnBirth = false;
 
 	UPROPERTY(Transient, DuplicateTransient)
 	bool bAttributeDelegatesBound = false;

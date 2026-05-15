@@ -36,6 +36,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Dungeon|Run")
 	TObjectPtr<UDataTable> DungeonFloorTable = nullptr;
 
+	/** Optional explicit PCG actor; if unset, UDFDungeonManager auto-picks the first level actor with a PCG graph. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Dungeon|Run|PCG")
 	TObjectPtr<AActor> PCGOwnerActor = nullptr;
 

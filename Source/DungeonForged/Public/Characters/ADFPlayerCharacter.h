@@ -346,6 +346,8 @@ protected:
 	void HandlePlayerOutOfHealth();
 	void LockDeathPose();
 	void UnlockDeathPose();
+	void OnDeathMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted);
+	void OnDeathMontageEnded(UAnimMontage* Montage, bool bInterrupted);
 
 	UFUNCTION()
 	void OnEquipmentEvent(EEquipmentSlot Slot, FName ItemRow);

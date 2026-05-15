@@ -92,9 +92,12 @@ void ADFAIController::OnPossess(APawn* InPawn)
 
 	if (const ADFEnemyBase* const E = Cast<ADFEnemyBase>(InPawn))
 	{
-		if (UBehaviorTree* const Wood = E->GetAIBehaviorTreeAsset())
+		if (!E->IsDelayingAIForSpawnBirth())
 		{
-			RunBehaviorTree(Wood);
+			if (UBehaviorTree* const Wood = E->GetAIBehaviorTreeAsset())
+			{
+				RunBehaviorTree(Wood);
+			}
 		}
 	}
 }

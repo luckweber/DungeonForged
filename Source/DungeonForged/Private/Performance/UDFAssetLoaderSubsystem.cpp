@@ -107,6 +107,10 @@ void UDFAssetLoaderSubsystem::AddEnemyRowPaths(const FDFEnemyTableRow& Row, TArr
 			OutPaths.Emplace(M);
 		}
 	}
+	if (Row.SpawnBirthMontage)
+	{
+		OutPaths.Emplace(Row.SpawnBirthMontage);
+	}
 }
 
 void UDFAssetLoaderSubsystem::AddAbilityRowPaths(const FDFAbilityTableRow& Row, TArray<FSoftObjectPath>& OutPaths) const
