@@ -27,16 +27,26 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|UI|AbilitySlot")
 	void ClearAbilitySlotData();
 
+	UFUNCTION(BlueprintCallable, Category = "DF|UI|AbilityBar")
+	void SetBarSlotIndex(int32 InSlotIndex);
+
+	UFUNCTION(BlueprintCallable, Category = "DF|UI|AbilityBar")
+	void SetOwningHotbar(class UDFAbilityHotbarWidget* InHotbar);
+
 	/**
-	 * Tag used with FGameplayEffectQuery::MakeQuery_MatchAnyEffectTags.
-	 * Add this tag to your cooldown GameplayEffect's effect tags (or use asset tags and adjust the query in cpp to MatchAnyOwningTags).
+	 * Tag of the ability on this slot (e.g. Ability.Warrior.MeleeSwing). Cooldown UI matches active GEs whose
+	 * InheritableGameplayEffectTags include Ability.Cooldown plus this tag (see UGE_Cooldown_Base::CooldownAssociatedAbilityTag).
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|UI|GAS", meta = (Categories = "Ability.Cooldown"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|UI|GAS", meta = (Categories = "Ability"))
 	FGameplayTag AbilityTag;
 
 	/** 0 = ready, 1 = full remaining cooldown. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|UI|VFX")
 	FName CooldownMaterialParameter = TEXT("CooldownPercent");
+
+	/** Extra scalar on M_CoolDown (default `percent` — common on M_CoolDown_Inst). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|UI|VFX")
+	FName CooldownAuxScalarParameter = TEXT("percent");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|UI|VFX")
 	bool bCreateDynamicMaterialInConstruct = true;
@@ -44,9 +54,17 @@ public:
 protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
+	virtual FReply NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
+	virtual void NativeOnDragDetected(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent, UDragDropOperation*& OutOperation) override;
+	virtual bool NativeOnDrop(const FGeometry& InGeometry, const FDragDropEvent& InDragDropEvent, UDragDropOperation* InOperation) override;
 
 	void HandleActiveGameplayEffectAdded(
 		UAbilitySystemComponent* Target, const FGameplayEffectSpec& Spec, FActiveGameplayEffectHandle Handle);
+
+	void EnsureCooldownOverlayMID();
+	void ApplyCooldownMaterialScalars(UMaterialInstanceDynamic* MID, float Pct) const;
+	void TryBindCooldownDelegates(UAbilitySystemComponent* ASC);
+	void UnbindCooldownDelegatesIfAny();
 
 	void OnCooldownUpdateTimer();
 	void UpdateCooldownVisuals();
@@ -77,4 +95,7 @@ protected:
 	FDelegateHandle OnActiveGEAddedHandle;
 
 	FTimerHandle CooldownUpdateTimerHandle;
+
+	int32 BarSlotIndex = INDEX_NONE;
+	TWeakObjectPtr<class UDFAbilityHotbarWidget> OwningHotbar;
 };

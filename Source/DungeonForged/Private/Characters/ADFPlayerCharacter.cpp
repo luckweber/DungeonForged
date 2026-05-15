@@ -104,7 +104,11 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 
 	DFDebug = CreateDefaultSubobject<UDFDebugComponent>(TEXT("DFDebug"));
 
-	CurrentAbilitySlots.Init(NAME_None, 4);
+	CurrentAbilitySlots.Init(NAME_None, DFAbilityBarSlotCount);
+	if (FDFGameplayTags::Ability_Warrior_ShieldBash.IsValid())
+	{
+		RMBAbilityTryTags.AddTag(FDFGameplayTags::Ability_Warrior_ShieldBash);
+	}
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
@@ -375,6 +379,10 @@ void ADFPlayerCharacter::BeginPlay()
 	// GAS: PossessedBy/OnRep may run after component BeginPlay; init early when PlayerState is already valid
 	// so inventory/equip paths that apply GameplayEffects do not run before InitAbilityActorInfo.
 	InitializeGAS();
+	if (HasAuthority())
+	{
+		EnsureAbilityBarSlotArraySize();
+	}
 	AddDefaultMappingContext();
 	RegisterModularSlotsWithEquipment();
 	RefreshWeaponAndOffHandSocketAttachments();
@@ -532,6 +540,11 @@ void ADFPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	{
 		RegisterAbilityInputFromConfig(EIC);
 	}
+	BindAbilityBarSlotInputs(EIC);
+	if (IA_SecondaryAttack)
+	{
+		EIC->BindAction(IA_SecondaryAttack, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_SecondaryAttack);
+	}
 	if (IA_Sprint)
 	{
 		EIC->BindAction(IA_Sprint, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_SprintStart);
@@ -551,22 +564,6 @@ void ADFPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 		if (IA_Attack)
 		{
 			EIC->BindAction(IA_Attack, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_Attack);
-		}
-		if (IA_Ability1)
-		{
-			EIC->BindAction(IA_Ability1, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_Ability1);
-		}
-		if (IA_Ability2)
-		{
-			EIC->BindAction(IA_Ability2, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_Ability2);
-		}
-		if (IA_Ability3)
-		{
-			EIC->BindAction(IA_Ability3, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_Ability3);
-		}
-		if (IA_Ability4)
-		{
-			EIC->BindAction(IA_Ability4, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_Ability4);
 		}
 		if (IA_Interact)
 		{
@@ -596,6 +593,12 @@ void ADFPlayerCharacter::RegisterAbilityInputFromConfig(UEnhancedInputComponent*
 			EIC->BindAction(Row.Action, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_Attack);
 			continue;
 		}
+		if (IA_SecondaryAttack
+			&& DFPlayerCharacterInput_Impl::IsSameInputActionAsset(Row.Action, IA_SecondaryAttack))
+		{
+			EIC->BindAction(Row.Action, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_SecondaryAttack);
+			continue;
+		}
 		if (IA_EquipmentWeaponToggle
 			&& DFPlayerCharacterInput_Impl::IsSameInputActionAsset(Row.Action, IA_EquipmentWeaponToggle))
 		{
@@ -608,6 +611,15 @@ void ADFPlayerCharacter::RegisterAbilityInputFromConfig(UEnhancedInputComponent*
 		if (InputId <= 0)
 		{
 			InputId = Index + 1;
+		}
+		if (InputId >= 1 && InputId <= DFAbilityBarSlotCount)
+		{
+			const int32 CapturedSlot = InputId;
+			EIC->BindActionValueLambda(Row.Action, ETriggerEvent::Started, [this, CapturedSlot](const FInputActionValue&)
+			{
+				TryActivateAbilitySlot(CapturedSlot);
+			});
+			continue;
 		}
 		const int32 CapturedId = InputId;
 		EIC->BindActionValueLambda(Row.Action, ETriggerEvent::Started, [this, CapturedId](const FInputActionValue&)
@@ -653,6 +665,8 @@ void ADFPlayerCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 
 void ADFPlayerCharacter::OnRep_CurrentAbilitySlots()
 {
+	EnsureAbilityBarSlotArraySize();
+	BroadcastAbilityBarSlotsChanged();
 }
 
 void ADFPlayerCharacter::BindPlayerOutOfHealth()
@@ -849,6 +863,31 @@ void ADFPlayerCharacter::Input_Attack()
 	}
 }
 
+void ADFPlayerCharacter::Input_SecondaryAttack()
+{
+	for (const FGameplayTag& Tag : RMBAbilityTryTags)
+	{
+		if (!Tag.IsValid())
+		{
+			continue;
+		}
+		if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponent())
+		{
+			FGameplayTagContainer C;
+			C.AddTag(Tag);
+			if (ASC->TryActivateAbilitiesByTag(C, true))
+			{
+				return;
+			}
+		}
+	}
+}
+
+void ADFPlayerCharacter::Input_AbilityBarSlot(const int32 Slot1Based)
+{
+	TryActivateAbilitySlot(Slot1Based);
+}
+
 void ADFPlayerCharacter::Input_Ability1()
 {
 	TryActivateAbilitySlot(1);
@@ -938,14 +977,142 @@ void ADFPlayerCharacter::TryActivateByGameplayTagName(const FName& TagName)
 	}
 }
 
-void ADFPlayerCharacter::TryActivateAbilitySlot(int32 Slot1Based)
+void ADFPlayerCharacter::EnsureAbilityBarSlotArraySize()
 {
-	if (Slot1Based < 1 || Slot1Based > 4)
+	if (CurrentAbilitySlots.Num() == DFAbilityBarSlotCount)
 	{
 		return;
 	}
-	const FName N(*FString::Printf(TEXT("Ability.Slot.%d"), Slot1Based));
-	TryActivateByGameplayTagName(N);
+	const int32 OldNum = CurrentAbilitySlots.Num();
+	CurrentAbilitySlots.SetNum(DFAbilityBarSlotCount);
+	for (int32 i = OldNum; i < DFAbilityBarSlotCount; ++i)
+	{
+		CurrentAbilitySlots[i] = NAME_None;
+	}
+}
+
+void ADFPlayerCharacter::BroadcastAbilityBarSlotsChanged()
+{
+	OnAbilityBarSlotsChanged.Broadcast();
+}
+
+void ADFPlayerCharacter::BindAbilityBarSlotInputs(UEnhancedInputComponent* const EIC)
+{
+	if (!EIC)
+	{
+		return;
+	}
+
+	auto BindSlot = [this, EIC](UInputAction* const Action, const int32 Slot1Based)
+	{
+		if (!Action)
+		{
+			return;
+		}
+		const int32 Captured = Slot1Based;
+		EIC->BindActionValueLambda(Action, ETriggerEvent::Started, [this, Captured](const FInputActionValue&)
+		{
+			TryActivateAbilitySlot(Captured);
+		});
+	};
+
+	if (IA_AbilityBarSlots.Num() > 0)
+	{
+		const int32 Count = FMath::Min(IA_AbilityBarSlots.Num(), DFAbilityBarSlotCount);
+		for (int32 i = 0; i < Count; ++i)
+		{
+			BindSlot(IA_AbilityBarSlots[i], i + 1);
+		}
+		return;
+	}
+
+	if (!InputConfig)
+	{
+		BindSlot(IA_Ability1, 1);
+		BindSlot(IA_Ability2, 2);
+		BindSlot(IA_Ability3, 3);
+		BindSlot(IA_Ability4, 4);
+	}
+}
+
+void ADFPlayerCharacter::TryActivateAbilitySlot(const int32 Slot1Based)
+{
+	if (Slot1Based < 1 || Slot1Based > DFAbilityBarSlotCount)
+	{
+		return;
+	}
+
+	const int32 SlotIndex = Slot1Based - 1;
+	if (!CurrentAbilitySlots.IsValidIndex(SlotIndex))
+	{
+		return;
+	}
+
+	const FName RowName = CurrentAbilitySlots[SlotIndex];
+	if (RowName.IsNone())
+	{
+		return;
+	}
+
+	UGameInstance* const GI = GetGameInstance();
+	const UDFRunManager* const RM = GI ? GI->GetSubsystem<UDFRunManager>() : nullptr;
+	UDataTable* const AbilityDT = RM ? RM->AbilityDataTable : nullptr;
+	if (!AbilityDT)
+	{
+		const FName LegacyTag(*FString::Printf(TEXT("Ability.Slot.%d"), Slot1Based));
+		TryActivateByGameplayTagName(LegacyTag);
+		return;
+	}
+
+	const FDFAbilityTableRow* const Row =
+		AbilityDT->FindRow<FDFAbilityTableRow>(RowName, TEXT("ADFPlayerCharacter::TryActivateAbilitySlot"), false);
+	if (!Row || !Row->AbilityTag.IsValid())
+	{
+		return;
+	}
+
+	if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponent())
+	{
+		FGameplayTagContainer ActivateTags;
+		ActivateTags.AddTag(Row->AbilityTag);
+		ASC->TryActivateAbilitiesByTag(ActivateTags, true);
+	}
+}
+
+void ADFPlayerCharacter::RequestSwapAbilityBarSlots(const int32 SlotIndexA, const int32 SlotIndexB)
+{
+	if (SlotIndexA == SlotIndexB)
+	{
+		return;
+	}
+	if (SlotIndexA < 0 || SlotIndexA >= DFAbilityBarSlotCount || SlotIndexB < 0 || SlotIndexB >= DFAbilityBarSlotCount)
+	{
+		return;
+	}
+	if (HasAuthority())
+	{
+		Server_SwapAbilityBarSlots_Implementation(SlotIndexA, SlotIndexB);
+	}
+	else
+	{
+		Server_SwapAbilityBarSlots(SlotIndexA, SlotIndexB);
+	}
+}
+
+void ADFPlayerCharacter::Server_SwapAbilityBarSlots_Implementation(const int32 SlotIndexA, const int32 SlotIndexB)
+{
+	if (SlotIndexA == SlotIndexB)
+	{
+		return;
+	}
+	EnsureAbilityBarSlotArraySize();
+	if (!CurrentAbilitySlots.IsValidIndex(SlotIndexA) || !CurrentAbilitySlots.IsValidIndex(SlotIndexB))
+	{
+		return;
+	}
+	CurrentAbilitySlots.Swap(SlotIndexA, SlotIndexB);
+	ForceNetUpdate();
+	BroadcastAbilityBarSlotsChanged();
 }
 
 void ADFPlayerCharacter::ClientOpenMerchantShop_Implementation(ADFMerchantActor* Shop)

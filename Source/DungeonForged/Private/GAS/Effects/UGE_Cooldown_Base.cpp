@@ -18,7 +18,14 @@ void UGE_Cooldown_Base::ConfigureEffectCDO()
 {
 	Super::ConfigureEffectCDO();
 	UAssetTagsGameplayEffectComponent& AssetTags = FindOrAddComponent<UAssetTagsGameplayEffectComponent>();
-	FInheritedTagContainer Tags;
-	Tags.AddTag(FDFGameplayTags::Ability_Cooldown);
-	AssetTags.SetAndApplyAssetTagChanges(Tags);
+	FInheritedTagContainer AssetTagChanges;
+	AssetTagChanges.AddTag(FDFGameplayTags::Ability_Cooldown);
+	AssetTags.SetAndApplyAssetTagChanges(AssetTagChanges);
+
+	// FGameplayEffectQuery::MakeQuery_Match*EffectTags matches InheritableGameplayEffectTags, not asset-tag components alone.
+	InheritableGameplayEffectTags.AddTag(FDFGameplayTags::Ability_Cooldown);
+	if (CooldownAssociatedAbilityTag.IsValid())
+	{
+		InheritableGameplayEffectTags.AddTag(CooldownAssociatedAbilityTag);
+	}
 }

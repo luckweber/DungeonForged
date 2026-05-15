@@ -1,6 +1,7 @@
 // Source/DungeonForged/Private/GAS/UDFGameplayAbility.cpp
 
 #include "GAS/UDFGameplayAbility.h"
+#include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Boss/ADFBossBase.h"
 
@@ -8,6 +9,7 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Animation/AnimMontage.h"
+#include "GameplayEffect.h"
 
 UDFGameplayAbility::UDFGameplayAbility()
 {
@@ -109,6 +111,30 @@ void UDFGameplayAbility::PostInitProperties()
 	{
 		AbilityTags.AppendTags(AdditionalAutoMergeTags);
 	}
+}
+
+void UDFGameplayAbility::ApplyCooldown(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo) const
+{
+	UGameplayEffect* const CooldownGE = GetCooldownGameplayEffect();
+	if (!CooldownGE || BaseCooldown <= 0.f || !FDFGameplayTags::Data_Cooldown.IsValid())
+	{
+		Super::ApplyCooldown(Handle, ActorInfo, ActivationInfo);
+		return;
+	}
+
+	const FGameplayEffectSpecHandle SpecHandle =
+		MakeOutgoingGameplayEffectSpec(CooldownGE->GetClass(), GetAbilityLevel(Handle, ActorInfo));
+	if (!SpecHandle.IsValid() || !SpecHandle.Data.IsValid())
+	{
+		Super::ApplyCooldown(Handle, ActorInfo, ActivationInfo);
+		return;
+	}
+
+	SpecHandle.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Cooldown, BaseCooldown);
+	ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, SpecHandle);
 }
 
 void UDFGameplayAbility::ApplyResourceCostsToOwner(UAbilitySystemComponent* ASC) const

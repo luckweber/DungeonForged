@@ -2,9 +2,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "UI/DFAbilityBarTypes.h"
 #include "UI/UDFUserWidgetBase.h"
 #include "UDFAbilityHotbarWidget.generated.h"
 
+class ADFPlayerCharacter;
 class UDFAbilitySlotWidget;
 class UDataTable;
 class UProgressBar;
@@ -18,8 +20,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|UI|Hotbar")
 	void RefreshHotbar();
 
+	/** Server swap via owning player (drag-and-drop between slots). */
+	UFUNCTION(BlueprintCallable, Category = "DF|UI|AbilityBar")
+	void RequestSwapSlots(int32 SlotIndexA, int32 SlotIndexB);
+
 protected:
 	virtual void NativeConstruct() override;
+	virtual void NativeDestruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 	UDataTable* ResolveAbilityDataTable() const;
@@ -48,6 +55,30 @@ protected:
 	TObjectPtr<UDFAbilitySlotWidget> AbilitySlot4 = nullptr;
 
 	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UDFAbilitySlotWidget> AbilitySlot5 = nullptr;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UDFAbilitySlotWidget> AbilitySlot6 = nullptr;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UDFAbilitySlotWidget> AbilitySlot7 = nullptr;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UDFAbilitySlotWidget> AbilitySlot8 = nullptr;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UDFAbilitySlotWidget> AbilitySlot9 = nullptr;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UDFAbilitySlotWidget> AbilitySlot10 = nullptr;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UDFAbilitySlotWidget> AbilitySlot11 = nullptr;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UDFAbilitySlotWidget> AbilitySlot12 = nullptr;
+
+	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UDFAbilitySlotWidget> Slot1 = nullptr;
 
 	UPROPERTY(meta = (BindWidgetOptional))
@@ -68,4 +99,12 @@ protected:
 	TArray<TObjectPtr<UDFAbilitySlotWidget>> Slots;
 	TArray<FName> LastShownAbilityRows;
 	float RefreshAccumulator = 0.f;
+
+	void BindToPlayerCharacter();
+	void UnbindFromPlayerCharacter();
+
+	UFUNCTION()
+	void HandleAbilityBarSlotsChanged();
+
+	TWeakObjectPtr<ADFPlayerCharacter> BoundPlayerCharacter;
 };

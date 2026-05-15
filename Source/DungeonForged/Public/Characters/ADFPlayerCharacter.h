@@ -10,6 +10,7 @@
 #include "GameplayTagContainer.h"
 #include "Input/DFInputConfig.h"
 #include "InputAction.h"
+#include "UI/DFAbilityBarTypes.h"
 #include "Audio/UDFAudioComponent.h"
 #include "Equipment/DFEquipmentTypes.h"
 #include "FX/UDFCombatFeedbackTypes.h"
@@ -90,6 +91,20 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> IA_Ability4;
 
+	/** LMB stays on IA_Attack. RMB: tries RMBAbilityTryTags in order (e.g. block / heavy). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input|Combat")
+	TObjectPtr<UInputAction> IA_SecondaryAttack;
+
+	/**
+	 * Optional bar keys when InputConfig is null: index 0 = slot 1 (key "1"), … index 11 = "=".
+	 * If empty, IA_Ability1..4 still map to slots 1-4.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input|AbilityBar")
+	TArray<TObjectPtr<UInputAction>> IA_AbilityBarSlots;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input|Combat", meta = (Categories = "Ability"))
+	FGameplayTagContainer RMBAbilityTryTags;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> IA_Interact;
 
@@ -161,11 +176,15 @@ public:
 	TObjectPtr<UDFDebugComponent> DFDebug = nullptr;
 
 	/**
-	 * Co-op UI: 4 bar slots, ability row names (or `NAME_None`); server should refresh when the loadout changes.
+	 * Co-op UI: {@link DFAbilityBarSlotCount} bar slots (DT_Abilities row names, or NAME_None).
+	 * Activation uses row AbilityTag; drag-drop swaps entries on the server.
 	 * @see UDFReplicationAudit.h
 	 */
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_CurrentAbilitySlots, Category = "DF|GAS|Coop")
 	TArray<FName> CurrentAbilitySlots;
+
+	UPROPERTY(BlueprintAssignable, Category = "DF|GAS|AbilityBar")
+	FDFOnAbilityBarSlotsChanged OnAbilityBarSlotsChanged;
 
 	/** Paper-doll / GAS: slot-based equipping, modular meshes, leader-pose. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Equipment")
@@ -266,6 +285,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|Mesh|Modular")
 	void SetOffHandAttachedToMeshBaseSocket(FName SocketName);
 
+	/** Slot1Based in [1, DFAbilityBarSlotCount]; reads CurrentAbilitySlots then DT_Abilities AbilityTag. */
+	UFUNCTION(BlueprintCallable, Category = "DF|GAS|AbilityBar")
+	void TryActivateAbilitySlot(int32 Slot1Based);
+
+	UFUNCTION(BlueprintCallable, Category = "DF|GAS|AbilityBar")
+	void RequestSwapAbilityBarSlots(int32 SlotIndexA, int32 SlotIndexB);
+
+	UFUNCTION(Server, Reliable, Category = "DF|GAS|AbilityBar")
+	void Server_SwapAbilityBarSlots(int32 SlotIndexA, int32 SlotIndexB);
+
+	UFUNCTION(BlueprintCallable, Category = "DF|GAS|AbilityBar")
+	void EnsureAbilityBarSlotArraySize();
+
 protected:
 	virtual void PostInitializeComponents() override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -288,11 +320,13 @@ protected:
 	void Input_JumpEnd();
 	void Input_CameraZoom(const FInputActionValue& Value);
 	void Input_Attack();
+	void Input_SecondaryAttack();
 	void Input_Ability1();
 	void Input_Ability2();
 	void Input_Ability3();
 	void Input_Ability4();
 	void Input_Interact();
+	void Input_AbilityBarSlot(int32 Slot1Based);
 	void Input_SprintStart();
 	void Input_SprintEnd();
 	void Input_Dodge();
@@ -300,7 +334,6 @@ protected:
 
 	void TryActivateByGameplayTagName(const FName& TagName);
 	void CancelAbilitiesByGameplayTagName(const FName& TagName);
-	void TryActivateAbilitySlot(int32 Slot1Based);
 
 	void SetupModularMeshPart(USkeletalMeshComponent* Part);
 	void RegisterModularSlotsWithEquipment();
@@ -344,4 +377,7 @@ private:
 
 	UFUNCTION()
 	void OnRep_CurrentAbilitySlots();
+
+	void BroadcastAbilityBarSlotsChanged();
+	void BindAbilityBarSlotInputs(class UEnhancedInputComponent* EIC);
 };

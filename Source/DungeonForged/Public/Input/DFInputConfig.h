@@ -24,7 +24,7 @@ enum class EDFAbilityInput : uint8
 	Ability3 = 3,
 	/** Skill bar 4 (e.g. F) */
 	Ability4 = 4,
-	/** Basic attack */
+	/** Basic attack (LMB) — not a bar slot index */
 	Attack = 5,
 	/** Interact (e.g. G) */
 	Interact = 6,
@@ -55,9 +55,9 @@ struct DUNGEONFORGED_API FDFInputAction
 	FGameplayTag InputTag;
 
 	/**
-	 * When > 0, used as the int32 for AbilityLocalInputPressed/Released and should match
-	 * the InputID on granted FGameplayAbilitySpec. When 0, BindAbilityInputFromConfig falls
-	 * back to 1-based array index for the AbilityInputActions list only.
+	 * When 1..12, binds to action bar slot activation (CurrentAbilitySlots), not AbilityLocalInputPressed.
+	 * When > 12 (or other), used for AbilityLocalInputPressed/Released and should match FGameplayAbilitySpec::InputID.
+	 * When 0, BindAbilityInputFromConfig falls back to 1-based array index for the AbilityInputActions list only.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input|GAS", meta = (ClampMin = "0", UIMin = "0"))
 	int32 GameplayInputId = 0;

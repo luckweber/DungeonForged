@@ -12,6 +12,7 @@
 #include "GameModes/Run/ADFRunGameState.h"
 #include "Events/UDFRandomEventSubsystem.h"
 #include "Characters/ADFPlayerCharacter.h"
+#include "UI/DFAbilityBarTypes.h"
 #include "Characters/ADFPlayerState.h"
 #include "DFInventoryComponent.h"
 #include "Equipment/DFEquipmentTypes.h"
@@ -565,7 +566,7 @@ void UDFRunManager::GrantAbilitiesForCurrentRun(ADFPlayerState* PlayerState)
 	}
 	if (PlayerCharacter)
 	{
-		PlayerCharacter->CurrentAbilitySlots.Init(NAME_None, 4);
+		PlayerCharacter->CurrentAbilitySlots.Init(NAME_None, DFAbilityBarSlotCount);
 	}
 
 	for (int32 Idx = 0; Idx < RunState.GrantedAbilities.Num(); ++Idx)
@@ -581,7 +582,7 @@ void UDFRunManager::GrantAbilitiesForCurrentRun(ADFPlayerState* PlayerState)
 			UE_LOG(LogDFRun, Warning, TEXT("GrantAbilitiesForCurrentRun: missing or invalid row %s"), *AbilityName.ToString());
 			continue;
 		}
-		int32 InId = FMath::Min(Idx, 3);
+		int32 InId = FMath::Min(Idx, DFAbilityBarSlotCount - 1);
 		if (Row->GameplayAbilityInputID >= 0)
 		{
 			InId = FMath::Clamp(Row->GameplayAbilityInputID, 0, 63);
@@ -589,8 +590,8 @@ void UDFRunManager::GrantAbilitiesForCurrentRun(ADFPlayerState* PlayerState)
 		const FGameplayAbilitySpec Spec(Row->AbilityClass, Row->AbilityLevel, InId, PlayerState);
 		ASC->GiveAbility(Spec);
 		const int32 UiSlotIndex = Row->GameplayAbilityInputID > 0
-			? Row->GameplayAbilityInputID - 1
-			: FMath::Min(Idx, 3);
+			? FMath::Clamp(Row->GameplayAbilityInputID - 1, 0, DFAbilityBarSlotCount - 1)
+			: FMath::Min(Idx, DFAbilityBarSlotCount - 1);
 		if (PlayerCharacter && PlayerCharacter->CurrentAbilitySlots.IsValidIndex(UiSlotIndex))
 		{
 			PlayerCharacter->CurrentAbilitySlots[UiSlotIndex] = AbilityName;

@@ -17,7 +17,8 @@ DECLARE_MULTICAST_DELEGATE_ThreeParams(
 	uint8 /* PreviousCustomMode */);
 
 /**
- * Project CharacterMovement: sprint, stamina drain, dodge root motion, movement-mode anim notify.
+ * Project CharacterMovement: default ground speed (RunSpeed), faster sprint (ability + hold input),
+ * stamina drain, dodge root motion, movement-mode anim notify.
  * FSavedMove_DF: network prediction bWantsSprint in FLAG_Custom_0.
  */
 UCLASS()
@@ -28,11 +29,13 @@ class DUNGEONFORGED_API UDFCharacterMovementComponent : public UCharacterMovemen
 public:
 	UDFCharacterMovementComponent(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
-	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement")
-	float WalkSpeed = 400.f;
+	/** Max ground speed while not sprinting (default locomotion / "run"). */
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement", meta = (FormerlySerializedAs = "WalkSpeed", ClampMin = "0.0"))
+	float RunSpeed = 540.f;
 
-	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement")
-	float SprintSpeed = 700.f;
+	/** Max ground speed while sprint ability is active (typically hold sprint). */
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement", meta = (ClampMin = "0.0"))
+	float SprintSpeed = 750.f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement")
 	float CrouchSpeed = 200.f;

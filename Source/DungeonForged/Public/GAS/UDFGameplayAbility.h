@@ -76,5 +76,10 @@ public:
 protected:
 	virtual void PostInitProperties() override;
 
+	virtual void ApplyCooldown(
+		const FGameplayAbilitySpecHandle Handle,
+		const FGameplayAbilityActorInfo* ActorInfo,
+		const FGameplayAbilityActivationInfo ActivationInfo) const override;
+
 	void ApplyResourceCostsToOwner(UAbilitySystemComponent* ASC) const;
 };

@@ -3,6 +3,7 @@
 #include "Debug/UDFCheatManager.h"
 
 #if !UE_BUILD_SHIPPING
+#include "Abilities/GameplayAbility.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "ADFDungeonManager.h"
 #include "Boss/ADFBossBase.h"
@@ -21,6 +22,7 @@
 #include "Engine/DataTable.h"
 #include "Engine/World.h"
 #include "GAS/DFGameplayTags.h"
+#include "GAS/UDFGameplayAbility.h"
 #include "GAS/Effects/UDFGameplayEffectLibrary.h"
 #include "GAS/UDFAttributeSet.h"
 #include "HAL/IConsoleManager.h"
@@ -787,6 +789,171 @@ static void Cmd_df_meleedebug(TArray<FString> const& Args)
 	DF_LOG(Log, "df.DebugMeleeWeapon 1 ou 2: preview continuo dos sockets durante o Tick (somente desenvolvimento); ver ajuda na consola.");
 }
 
+static void Cmd_df_dumpabilities(TArray<FString> const& /*Args*/)
+{
+	UWorld* const W = GetCheatWorld();
+	ADFPlayerCharacter* const P = GetLocalDFPawn(W);
+	UAbilitySystemComponent* const ASC = GetLocalASC(W);
+	if (!P)
+	{
+		DF_LOG(Warning, "df.dumpabilities: no local ADFPlayerCharacter pawn");
+		return;
+	}
+	if (!ASC)
+	{
+		DF_LOG(Warning, "df.dumpabilities: no AbilitySystemComponent (PlayerState?)");
+		return;
+	}
+
+	UGameInstance* const GI = W ? W->GetGameInstance() : nullptr;
+	const UDFRunManager* const RM = GI ? GI->GetSubsystem<UDFRunManager>() : nullptr;
+	UDataTable* const AbilityDT = RM ? RM->AbilityDataTable : nullptr;
+
+	static constexpr float DumpScreenDuration = 22.f;
+	static const FVector2D DumpTextScale(1.65f, 1.65f);
+	// Key -1: cada linha fica visível em stack (evita sobrescrever com mesma key); escala ajuda a ler no viewport.
+	auto OnScreen = [](const int32 Key, const float Duration, const FColor Color, const FString& Msg)
+	{
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(Key, Duration, Color, Msg, true, DumpTextScale);
+		}
+	};
+
+	DF_LOG(Log, "=== df.dumpabilities (CurrentAbilitySlots + cooldown query) ===");
+	OnScreen(-1, DumpScreenDuration, FColor::Cyan, TEXT("=== df.dumpabilities (detalhe no Output Log) ==="));
+
+	const int32 MaxSlots = P->CurrentAbilitySlots.Num();
+	for (int32 SlotIndex = 0; SlotIndex < MaxSlots; ++SlotIndex)
+	{
+		const FName RowName = P->CurrentAbilitySlots.IsValidIndex(SlotIndex) ? P->CurrentAbilitySlots[SlotIndex] : NAME_None;
+		if (RowName.IsNone())
+		{
+			const FString Line = FString::Printf(TEXT("[%d] (empty slot)"), SlotIndex);
+			DF_LOG(Log, "%s", *Line);
+			OnScreen(-1, DumpScreenDuration, FColor::Silver, Line);
+			continue;
+		}
+		if (!AbilityDT)
+		{
+			const FString Line = FString::Printf(TEXT("[%d] Row=%s | (no AbilityDataTable on RunManager)"), SlotIndex, *RowName.ToString());
+			DF_LOG(Warning, "%s", *Line);
+			OnScreen(-1, DumpScreenDuration, FColor::Orange, Line.Left(200));
+			continue;
+		}
+
+		const FDFAbilityTableRow* const Row = AbilityDT->FindRow<FDFAbilityTableRow>(RowName, TEXT("df.dumpabilities"), false);
+		if (!Row)
+		{
+			const FString Line = FString::Printf(TEXT("[%d] Row=%s | NOT FOUND in DT_Abilities"), SlotIndex, *RowName.ToString());
+			DF_LOG(Warning, "%s", *Line);
+			OnScreen(-1, DumpScreenDuration, FColor::Red, Line.Left(200));
+			continue;
+		}
+
+		FString CdoLine = TEXT("CDO=(no AbilityClass)");
+		FString SpecLine = TEXT("Spec=(no matching granted ability)");
+		if (Row->AbilityClass)
+		{
+			const UGameplayAbility* const GaDef = Row->AbilityClass->GetDefaultObject<UGameplayAbility>();
+			const UDFGameplayAbility* const DfDef = Cast<const UDFGameplayAbility>(GaDef);
+			const UGameplayEffect* const CdGeCdo = GaDef ? GaDef->GetCooldownGameplayEffect() : nullptr;
+			const FString GeN = (CdGeCdo && CdGeCdo->GetClass()) ? CdGeCdo->GetClass()->GetName() : TEXT("None");
+			const float BaseCdVal = DfDef ? DfDef->BaseCooldown : 0.f;
+			const FString DfKind = DfDef ? TEXT("UDF") : TEXT("non-UDF");
+			CdoLine = FString::Printf(
+				TEXT("CDO=%s (%s BaseCooldown=%.2f, CooldownGE=%s)"),
+				*Row->AbilityClass->GetName(),
+				*DfKind,
+				BaseCdVal,
+				*GeN);
+
+			for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+			{
+				if (!Spec.Ability)
+				{
+					continue;
+				}
+				if (Spec.Ability->GetClass() == *Row->AbilityClass)
+				{
+					SpecLine = FString::Printf(TEXT("Spec Lv=%d IsActive=%s"), Spec.Level, Spec.IsActive() ? TEXT("true") : TEXT("false"));
+					break;
+				}
+			}
+		}
+
+		const FString TagStr = Row->AbilityTag.IsValid() ? Row->AbilityTag.ToString() : TEXT("(AbilityTag invalid)");
+		const FString IconStr = Row->Icon ? Row->Icon->GetName() : TEXT("NULL");
+		FString CdPart = TEXT("| CD: n/a (no AbilityTag)");
+		if (Row->AbilityTag.IsValid())
+		{
+			FGameplayTagContainer QueryTags;
+			QueryTags.AddTag(FDFGameplayTags::Ability_Cooldown);
+			QueryTags.AddTag(Row->AbilityTag);
+			const FGameplayEffectQuery QAll = FGameplayEffectQuery::MakeQuery_MatchAllEffectTags(QueryTags);
+			TArray<TPair<float, float>> Times = ASC->GetActiveEffectsTimeRemainingAndDuration(QAll);
+			if (Times.Num() == 0)
+			{
+				FGameplayTagContainer LegacyTags;
+				LegacyTags.AddTag(Row->AbilityTag);
+				const FGameplayEffectQuery LegacyQuery = FGameplayEffectQuery::MakeQuery_MatchAnyEffectTags(LegacyTags);
+				Times = ASC->GetActiveEffectsTimeRemainingAndDuration(LegacyQuery);
+			}
+			if (Times.Num() > 0)
+			{
+				const float Rem = Times[0].Key;
+				const float Dur = Times[0].Value;
+				CdPart = FString::Printf(TEXT("| CD rem=%.2fs total=%.2fs"), Rem, Dur);
+			}
+			else
+			{
+				CdPart = TEXT("| CD GE: none (idle; ok if BaseCooldown=0 / no Cooldown GE, e.g. Sprint)");
+			}
+		}
+
+		const FString LogLine = FString::Printf(
+			TEXT("[%d] Row=%s | Tag=%s | %s | Icon=%s %s | %s | %s"),
+			SlotIndex,
+			*RowName.ToString(),
+			*TagStr,
+			*Row->DisplayName.ToString(),
+			*IconStr,
+			*CdPart,
+			*SpecLine,
+			*CdoLine);
+		DF_LOG(Log, "%s", *LogLine);
+
+		const FString Short = FString::Printf(TEXT("[%d] %s | %s | %s"), SlotIndex, *RowName.ToString(), *SpecLine, *CdPart).Left(220);
+		OnScreen(-1, DumpScreenDuration, FColor::Yellow, Short);
+	}
+
+	DF_LOG(Log, "--- Active GEs matching effect-tag query Ability.Cooldown (any) ---");
+	FGameplayTagContainer CdTag;
+	CdTag.AddTag(FDFGameplayTags::Ability_Cooldown);
+	const FGameplayEffectQuery QCd = FGameplayEffectQuery::MakeQuery_MatchAnyEffectTags(CdTag);
+	const TArray<FActiveGameplayEffectHandle> CdHandles = ASC->GetActiveEffects(QCd);
+	if (CdHandles.Num() == 0)
+	{
+		DF_LOG(Log, "  (none)");
+		OnScreen(-1, DumpScreenDuration, FColor::Green, TEXT("Ability.Cooldown GEs ativos: 0 (esperado se nada em CD)"));
+	}
+	else
+	{
+		for (const FActiveGameplayEffectHandle& H : CdHandles)
+		{
+			const FActiveGameplayEffect* const E = ASC->GetActiveGameplayEffect(H);
+			const float Now = W ? W->GetTimeSeconds() : 0.f;
+			const float Rem = E ? E->GetTimeRemaining(Now) : -1.f;
+			const float Tot = E ? E->GetDuration() : -1.f;
+			const FString GeName = (E && E->Spec.Def) ? E->Spec.Def->GetName() : TEXT("(unknown)");
+			const FString GeLine = FString::Printf(TEXT("  %s | rem=%.2f total=%.2f"), *GeName, Rem, Tot);
+			DF_LOG(Log, "%s", *GeLine);
+		}
+		const FString Summary = FString::Printf(TEXT("Ability.Cooldown GEs ativos: %d (ver log)"), CdHandles.Num());
+		OnScreen(-1, DumpScreenDuration, FColor::White, Summary);
+	}
+}
+
 static FAutoConsoleCommand GCmdGod(
 	TEXT("df.god"),
 	TEXT("df.god [0|1]"),
@@ -875,6 +1042,10 @@ static FAutoConsoleCommand GCmdClearCd(
 	TEXT("df.clearcd"),
 	TEXT(""),
 	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_clearcd));
+static FAutoConsoleCommand GCmdDumpAbilities(
+	TEXT("df.dumpabilities"),
+	TEXT("Hotbar slots (CurrentAbilitySlots): row, AbilityTag, icon, CD (same query as HUD) + active GEs with Ability.Cooldown. Log + on-screen."),
+	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_dumpabilities));
 static FAutoConsoleCommand GCmdMeleeDebug(
 	TEXT("df.MeleeDebug"),
 	TEXT("Toggle sphere-sweep melee debug durante o sweep. Preview continuo nos sockets: df.DebugMeleeWeapon 1|2. df.MeleeDebug [0|1|on|off] | collision — ShowFlag.Collision"),

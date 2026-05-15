@@ -14,7 +14,7 @@ UDFCharacterMovementComponent::UDFCharacterMovementComponent(const FObjectInitia
 	: Super(ObjectInitializer)
 {
 	PrimaryComponentTick.bCanEverTick = true;
-	MaxWalkSpeed = WalkSpeed;
+	MaxWalkSpeed = RunSpeed;
 	MaxWalkSpeedCrouched = CrouchSpeed;
 	// Snappy but smooth turn toward movement (hack-and-slash / action third-person).
 	RotationRate = FRotator(0.f, 720.f, 0.f);
@@ -73,7 +73,7 @@ void UDFCharacterMovementComponent::RefreshMaxWalkSpeed()
 		MaxWalkSpeedCrouched = CrouchSpeed;
 		return;
 	}
-	MaxWalkSpeed = bIsSprinting ? SprintSpeed : WalkSpeed;
+	MaxWalkSpeed = bIsSprinting ? SprintSpeed : RunSpeed;
 }
 
 void UDFCharacterMovementComponent::TickSprintStamina(const float DeltaTime)

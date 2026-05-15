@@ -2,6 +2,7 @@
 #include "UI/UDFAbilityHotbarWidget.h"
 #include "AbilitySystemComponent.h"
 #include "Characters/ADFPlayerCharacter.h"
+#include "UI/DFAbilityBarTypes.h"
 #include "Components/ProgressBar.h"
 #include "Data/DFDataTableStructs.h"
 #include "Engine/DataTable.h"
@@ -34,12 +35,27 @@ void UDFAbilityHotbarWidget::NativeConstruct()
 			NSLOCTEXT("DFHUD", "HotbarInput1", "1"),
 			NSLOCTEXT("DFHUD", "HotbarInput2", "2"),
 			NSLOCTEXT("DFHUD", "HotbarInput3", "3"),
-			NSLOCTEXT("DFHUD", "HotbarInput4", "4")
+			NSLOCTEXT("DFHUD", "HotbarInput4", "4"),
+			NSLOCTEXT("DFHUD", "HotbarInput5", "5"),
+			NSLOCTEXT("DFHUD", "HotbarInput6", "6"),
+			NSLOCTEXT("DFHUD", "HotbarInput7", "7"),
+			NSLOCTEXT("DFHUD", "HotbarInput8", "8"),
+			NSLOCTEXT("DFHUD", "HotbarInput9", "9"),
+			NSLOCTEXT("DFHUD", "HotbarInput0", "0"),
+			NSLOCTEXT("DFHUD", "HotbarInputMinus", "-"),
+			NSLOCTEXT("DFHUD", "HotbarInputEquals", "=")
 		};
 	}
 
 	CollectSlots();
+	BindToPlayerCharacter();
 	RefreshHotbar();
+}
+
+void UDFAbilityHotbarWidget::NativeDestruct()
+{
+	UnbindFromPlayerCharacter();
+	Super::NativeDestruct();
 }
 
 void UDFAbilityHotbarWidget::NativeTick(const FGeometry& MyGeometry, const float InDeltaTime)
@@ -57,11 +73,63 @@ void UDFAbilityHotbarWidget::NativeTick(const FGeometry& MyGeometry, const float
 void UDFAbilityHotbarWidget::CollectSlots()
 {
 	Slots.Reset();
-	Slots.Add(AbilitySlot1.Get() ? AbilitySlot1 : Slot1);
-	Slots.Add(AbilitySlot2.Get() ? AbilitySlot2 : Slot2);
-	Slots.Add(AbilitySlot3.Get() ? AbilitySlot3 : Slot3);
-	Slots.Add(AbilitySlot4.Get() ? AbilitySlot4 : Slot4);
+	const TObjectPtr<UDFAbilitySlotWidget> Ordered[] = {
+		AbilitySlot1.Get() ? AbilitySlot1 : Slot1,
+		AbilitySlot2.Get() ? AbilitySlot2 : Slot2,
+		AbilitySlot3.Get() ? AbilitySlot3 : Slot3,
+		AbilitySlot4.Get() ? AbilitySlot4 : Slot4,
+		AbilitySlot5,
+		AbilitySlot6,
+		AbilitySlot7,
+		AbilitySlot8,
+		AbilitySlot9,
+		AbilitySlot10,
+		AbilitySlot11,
+		AbilitySlot12,
+	};
+	for (int32 i = 0; i < UE_ARRAY_COUNT(Ordered); ++i)
+	{
+		if (UDFAbilitySlotWidget* const S = Ordered[i].Get())
+		{
+			S->SetBarSlotIndex(i);
+			S->SetOwningHotbar(this);
+			Slots.Add(S);
+		}
+	}
 	LastShownAbilityRows.Init(NAME_None, Slots.Num());
+}
+
+void UDFAbilityHotbarWidget::BindToPlayerCharacter()
+{
+	UnbindFromPlayerCharacter();
+	if (ADFPlayerCharacter* const PC = GetDFPlayerCharacter())
+	{
+		BoundPlayerCharacter = PC;
+		PC->OnAbilityBarSlotsChanged.AddDynamic(this, &UDFAbilityHotbarWidget::HandleAbilityBarSlotsChanged);
+	}
+}
+
+void UDFAbilityHotbarWidget::UnbindFromPlayerCharacter()
+{
+	if (ADFPlayerCharacter* const PC = BoundPlayerCharacter.Get())
+	{
+		PC->OnAbilityBarSlotsChanged.RemoveDynamic(this, &UDFAbilityHotbarWidget::HandleAbilityBarSlotsChanged);
+	}
+	BoundPlayerCharacter.Reset();
+}
+
+void UDFAbilityHotbarWidget::HandleAbilityBarSlotsChanged()
+{
+	LastShownAbilityRows.Init(NAME_None, Slots.Num());
+	RefreshHotbar();
+}
+
+void UDFAbilityHotbarWidget::RequestSwapSlots(const int32 SlotIndexA, const int32 SlotIndexB)
+{
+	if (ADFPlayerCharacter* const PC = GetDFPlayerCharacter())
+	{
+		PC->RequestSwapAbilityBarSlots(SlotIndexA, SlotIndexB);
+	}
 }
 
 UDataTable* UDFAbilityHotbarWidget::ResolveAbilityDataTable() const
