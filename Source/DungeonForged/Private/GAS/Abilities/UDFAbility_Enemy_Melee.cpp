@@ -262,6 +262,7 @@ void UDFAbility_Enemy_Melee::ApplyDamageToOverlappingTargets()
 		{
 			S.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Damage, Dmg);
 			SourceASC->ApplyGameplayEffectSpecToTarget(*S.Data.Get(), TASC);
+			ApplyBonusOnHitEffects(SourceASC, TASC, Ctx);
 			if (UDFHitReactionComponent* const Hit = A->FindComponentByClass<UDFHitReactionComponent>())
 			{
 				FVector HitDir = A->GetActorLocation() - Char->GetActorLocation();
@@ -272,6 +273,44 @@ void UDFAbility_Enemy_Melee::ApplyDamageToOverlappingTargets()
 			}
 			PlayImpactCosmetics(Char, A->GetActorLocation(), Char->GetActorLocation() - A->GetActorLocation());
 		}
+	}
+}
+
+void UDFAbility_Enemy_Melee::ApplyBonusOnHitEffects(
+	UAbilitySystemComponent* const SourceASC,
+	UAbilitySystemComponent* const TargetASC,
+	FGameplayEffectContextHandle const& Ctx) const
+{
+	if (!SourceASC || !TargetASC || BonusOnHitEffects.Num() == 0)
+	{
+		return;
+	}
+	for (FDFEnemyMeleeBonusOnHitEffect const& Entry : BonusOnHitEffects)
+	{
+		if (!Entry.EffectClass || Entry.Chance <= 0.f || FMath::FRand() > Entry.Chance)
+		{
+			continue;
+		}
+		const float Level = static_cast<float>(FMath::Max(1, Entry.EffectLevel));
+		const FGameplayEffectSpecHandle Bonus = SourceASC->MakeOutgoingSpec(Entry.EffectClass, Level, Ctx);
+		if (!Bonus.IsValid() || !Bonus.Data)
+		{
+			continue;
+		}
+		const float EffDur =
+			Entry.SetByCallerDuration > KINDA_SMALL_NUMBER ? Entry.SetByCallerDuration : BonusOnHitDefaultSetByCallerDuration;
+		const float EffDmg =
+			Entry.SetByCallerDamage > KINDA_SMALL_NUMBER ? Entry.SetByCallerDamage : BonusOnHitDefaultSetByCallerDamage;
+
+		if (FDFGameplayTags::Data_Duration.IsValid() && EffDur > KINDA_SMALL_NUMBER)
+		{
+			Bonus.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Duration, EffDur);
+		}
+		if (FDFGameplayTags::Data_Damage.IsValid() && EffDmg > KINDA_SMALL_NUMBER)
+		{
+			Bonus.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Damage, EffDmg);
+		}
+		SourceASC->ApplyGameplayEffectSpecToTarget(*Bonus.Data.Get(), TargetASC);
 	}
 }
 
