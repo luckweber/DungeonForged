@@ -188,6 +188,10 @@ void UDFComboComponent::NotifyAbilitySwingMontageStarted(UAnimMontage* Montage)
 	}
 	TryBindEndDelegateFor(Montage);
 	bPlayingComboMontage = true;
+	if (MeleeTrace)
+	{
+		MeleeTrace->ScheduleAuthorityTraceWindowsFromMontage(Montage, 1.f);
+	}
 }
 
 void UDFComboComponent::NotifyAbilitySwingMontagePlaybackEnded()
@@ -228,6 +232,10 @@ void UDFComboComponent::PlayCurrentComboMontage()
 	}
 	TryBindEndDelegateFor(M);
 	bPlayingComboMontage = true;
+	if (MeleeTrace)
+	{
+		MeleeTrace->ScheduleAuthorityTraceWindowsFromMontage(M, 1.f);
+	}
 }
 
 void UDFComboComponent::AdvanceCombo()
@@ -279,6 +287,11 @@ void UDFComboComponent::ResetCombo()
 	if (UWorld* W = GetWorld())
 	{
 		W->GetTimerManager().ClearTimer(ComboWindowTimer);
+	}
+	if (MeleeTrace)
+	{
+		MeleeTrace->ClearScheduledTraceWindows();
+		MeleeTrace->EndTrace();
 	}
 	UnbindMontageEndDelegate();
 	if (UAnimInstance* A = GetAnimInstance())

@@ -7,6 +7,7 @@
 #include "Animation/AnimMontage.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Combat/UDFComboComponent.h"
+#include "Combat/UDFMeleeTraceComponent.h"
 #include "GameFramework/Actor.h"
 #include "GAS/DFGameplayTags.h"
 
@@ -109,6 +110,10 @@ void UDFAbility_Warrior_MeleeSwing::OnMontageEnd()
 {
 	if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(GetAvatarActorFromActorInfo()))
 	{
+		if (PC->MeleeTrace)
+		{
+			PC->MeleeTrace->EndTrace();
+		}
 		if (UDFComboComponent* const Combo = PC->Combo)
 		{
 			Combo->NotifyAbilitySwingMontagePlaybackEnded();

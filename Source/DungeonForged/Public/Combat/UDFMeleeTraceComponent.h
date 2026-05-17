@@ -13,6 +13,7 @@ struct FHitResult;
 class UDFHitReactionComponent;
 class UGameplayEffect;
 class USkeletalMeshComponent;
+class UAnimMontage;
 
 UCLASS(ClassGroup = (Combat), meta = (BlueprintSpawnableComponent))
 class DUNGEONFORGED_API UDFMeleeTraceComponent : public UActorComponent
@@ -33,6 +34,17 @@ public:
 	/** Swept sphere radius (cm). */
 	UPROPERTY(EditAnywhere, Category = "Combat|Trace", meta = (ClampMin = "0.0"))
 	float TraceRadius = 20.f;
+
+	/**
+	 * If socket mid-point is farther than this from the owner, sockets are treated as stale
+	 * (common when Mesh_Weapon leader-pose has not updated) and a hand/forward fallback segment is used.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Combat|Trace", meta = (ClampMin = "50.0"))
+	float MaxTraceSocketDistanceFromOwner = 350.f;
+
+	/** Blade reach (cm) for hand/forward fallback when weapon sockets are invalid or too far from the owner. */
+	UPROPERTY(EditAnywhere, Category = "Combat|Trace", meta = (ClampMin = "10.0"))
+	float FallbackReachCm = 120.f;
 
 	/** If empty, `GetOwner()`'s ACharacter->GetMesh() is used. */
 	UPROPERTY(EditAnywhere, Category = "Combat|Trace")
@@ -95,9 +107,21 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Combat|Net")
 	bool bServerOnlyTraces = true;
 
+	/** When false, WorldDynamic overlaps (e.g. loot pickup spheres) are ignored by melee queries. */
+	UPROPERTY(EditAnywhere, Category = "Combat|Trace")
+	bool bIncludeWorldDynamicInTraceQuery = false;
+
 	/** Draw sweep for debugging. */
 	UPROPERTY(EditAnywhere, Category = "Combat|Debug")
 	bool bDrawDebugTrace = false;
+
+	/** Extra Output Log detail (weapon mesh, sweep hits, enemy collision). Toggle with df.meleedebug verbose. */
+	UPROPERTY(EditAnywhere, Category = "Combat|Debug")
+	bool bVerboseTraceLog = false;
+
+	/** One-shot dump: weapon mesh, sockets, nearest enemies, collision (df.meleedebug dump). */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Debug")
+	void DumpMeleeTraceDiagnostics() const;
 
 	/** Clears per-swing tracking and sets bTracing. Rebuilds CachedDamageSpec. */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Trace")
@@ -105,6 +129,14 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Combat|Trace")
 	void EndTrace();
+
+	/**
+	 * Server-only fallback: start/end trace at AN_TraceStart / AN_TraceEnd times on the montage
+	 * (when anim notifies do not fire under LocalPredicted GAS montages).
+	 */
+	void ScheduleAuthorityTraceWindowsFromMontage(UAnimMontage* Montage, float PlayRate = 1.f);
+
+	void ClearScheduledTraceWindows();
 
 	/** Called from Tick while bTracing. */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Trace")
@@ -130,6 +162,10 @@ public:
 	/** Mesh used for socket-based traces (assigned weapon skeletal or owner fallback); for tooling / debug dumps. */
 	USkeletalMeshComponent* GetResolvedTraceMesh() const;
 
+	/** Human-readable trace mesh + socket span for `df.meleedebug` / logs (development). */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Debug")
+	FString GetMeleeTraceDiagnosticString() const;
+
 protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void BeginPlay() override;
@@ -137,8 +173,33 @@ protected:
 	/** Resolve SkeletalMesh from owner if unset. */
 	USkeletalMeshComponent* GetMesh() const;
 
+	void ProcessHitResults(TArray<FHitResult>& Hits, UWorld* World);
+	bool TryMeleeOverlapFallback(UWorld* World, AActor* Owner, const FVector& Center, float Radius);
+
+	FCollisionObjectQueryParams BuildMeleeTraceObjectQuery() const;
+	/** Returns false when no valid segment could be built. */
+	bool ResolveTraceSegmentWorld(FVector& OutStart, FVector& OutEnd);
+	bool TryBuildFallbackTraceSegment(FVector& OutStart, FVector& OutEnd) const;
+	bool TrySegmentFromBodyMesh(AActor* Owner, FVector& OutStart, FVector& OutEnd) const;
+	USkeletalMeshComponent* GetOwnerBodyMesh() const;
+	static bool IsTraceSegmentNearOwner(const AActor* Owner, const FVector& A, const FVector& B, float MaxDistFromOwner);
+
+	bool ShouldLogMeleeTraceDetail() const;
+	void LogMeleeTraceWeaponAndSockets() const;
+	void LogMeleeTraceNearestTargets(const FVector& TraceStart, const FVector& TraceEnd) const;
+	void LogActorCollisionForMelee(AActor* Actor, const TCHAR* Label) const;
+
 	bool bUseOverrideBaseDamage = false;
 	float OverrideBaseDamage = 0.f;
 	bool bUseOverrideKnockback = false;
 	float OverrideBaseKnockback = 0.f;
+
+	FTimerHandle ScheduledTraceStartTimer;
+	FTimerHandle ScheduledTraceEndTimer;
+
+	FVector LastTraceStartWS = FVector::ZeroVector;
+	FVector LastTraceEndWS = FVector::ZeroVector;
+	bool bHasLastTraceSegment = false;
+
+	bool bLastTraceUsedFallbackSegment = false;
 };

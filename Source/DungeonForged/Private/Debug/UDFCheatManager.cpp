@@ -761,32 +761,66 @@ static void Cmd_df_meleedebug(TArray<FString> const& Args)
 	if (Args.Num() > 0)
 	{
 		const FString A = Args[0].ToLower();
+		if (A == TEXT("dump"))
+		{
+			M->bVerboseTraceLog = true;
+			M->DumpMeleeTraceDiagnostics();
+			DF_LOG(Log, "df.meleedebug dump: full report in Output Log (filter: MeleeTrace)");
+			return;
+		}
+		if (A == TEXT("verbose") || A == TEXT("log"))
+		{
+			M->bVerboseTraceLog = !M->bVerboseTraceLog;
+			if (M->bVerboseTraceLog)
+			{
+				M->bDrawDebugTrace = true;
+			}
+			DF_LOG(Log, "df.meleedebug: bVerboseTraceLog=%d bDrawDebugTrace=%d (df.MeleeTraceLog 2 = log every sweep tick)",
+				M->bVerboseTraceLog ? 1 : 0, M->bDrawDebugTrace ? 1 : 0);
+			if (M->bVerboseTraceLog)
+			{
+				M->DumpMeleeTraceDiagnostics();
+			}
+			return;
+		}
 		if (A == TEXT("1") || A == TEXT("true") || A == TEXT("on"))
 		{
 			M->bDrawDebugTrace = true;
+			M->bVerboseTraceLog = true;
 		}
 		else if (A == TEXT("0") || A == TEXT("false") || A == TEXT("off"))
 		{
 			M->bDrawDebugTrace = false;
+			M->bVerboseTraceLog = false;
 		}
 		else
 		{
 			M->bDrawDebugTrace = !M->bDrawDebugTrace;
+			if (M->bDrawDebugTrace)
+			{
+				M->bVerboseTraceLog = true;
+			}
 		}
 	}
 	else
 	{
 		M->bDrawDebugTrace = !M->bDrawDebugTrace;
+		if (M->bDrawDebugTrace)
+		{
+			M->bVerboseTraceLog = true;
+		}
 	}
 
-	const TCHAR* MeshName = TEXT("(fallback body mesh)");
-	if (M->SkeletalMesh)
-	{
-		MeshName = *M->SkeletalMesh->GetName();
-	}
-	DF_LOG(Log, "df.meleedebug: bDrawDebugTrace=%d | radius=%.1f | %s -> %s | mesh=%s",
-		M->bDrawDebugTrace ? 1 : 0, M->TraceRadius, *M->TraceStartSocket.ToString(), *M->TraceEndSocket.ToString(), MeshName);
-	DF_LOG(Log, "df.DebugMeleeWeapon 1 ou 2: preview continuo dos sockets durante o Tick (somente desenvolvimento); ver ajuda na consola.");
+	const FString MeshDiag = M->GetMeleeTraceDiagnosticString();
+	DF_LOG(Log, "df.meleedebug: draw=%d verbose=%d | radius=%.1f | %s -> %s | %s",
+		M->bDrawDebugTrace ? 1 : 0,
+		M->bVerboseTraceLog ? 1 : 0,
+		M->TraceRadius,
+		*M->TraceStartSocket.ToString(),
+		*M->TraceEndSocket.ToString(),
+		*MeshDiag);
+	DF_LOG(Log, "df.meleedebug dump | verbose | collision — df.MeleeTraceLog 2 = cada tick do sweep");
+	DF_LOG(Log, "df.DebugMeleeWeapon 1: linha continua nos sockets da espada");
 }
 
 static void Cmd_df_dumpabilities(TArray<FString> const& /*Args*/)

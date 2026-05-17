@@ -439,6 +439,10 @@ void ADFPlayerCharacter::RefreshWeaponTraceForMelee()
 	{
 		return;
 	}
+	if (MeleeTrace->SkeletalMesh && !IsValid(MeleeTrace->SkeletalMesh))
+	{
+		MeleeTrace->SkeletalMesh = nullptr;
+	}
 	if (Mesh_Weapon && Mesh_Weapon->GetSkeletalMeshAsset())
 	{
 		MeleeTrace->SkeletalMesh = Mesh_Weapon;
