@@ -1,6 +1,8 @@
 // Source/DungeonForged/Private/Characters/ADFEnemyBase.cpp
 
 #include "Characters/ADFEnemyBase.h"
+#include "Animation/DFDeathAnimation.h"
+#include "GAS/DFGameplayTags.h"
 #include "AI/ADFAIController.h"
 #include "ADFDungeonManager.h"
 #include "Characters/ADFPlayerState.h"
@@ -120,6 +122,14 @@ void ADFEnemyBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
 
 void ADFEnemyBase::OnRep_bHasDied()
 {
+	if (bHasDied)
+	{
+		PlayDeathMontageCosmetic();
+		if (HealthBar)
+		{
+			HealthBar->SetVisibility(false);
+		}
+	}
 }
 
 void ADFEnemyBase::OnRep_ReplicatedDataTableMaxWalkSpeed()
@@ -560,6 +570,7 @@ void ADFEnemyBase::HandleServerDeath(AActor* Killer)
 		return;
 	}
 	bHasDied = true;
+	ApplyDeathGameplayState();
 	if (HasAuthority())
 	{
 		if (ADFPlayerState* const PState = ResolveKillerPlayerState(Killer))
@@ -614,19 +625,36 @@ void ADFEnemyBase::HandleServerDeath(AActor* Killer)
 	DisableEnemyActions();
 	if (UWorld* W = GetWorld())
 	{
-		W->GetTimerManager().SetTimer(DeathDestroyTimer, this, &ADFEnemyBase::OnDestroyAfterDeath, 3.f, false);
+		const float DestroyDelay = DFDeathAnimation::GetDeathDestroyDelaySeconds(DeathMontage);
+		W->GetTimerManager().SetTimer(DeathDestroyTimer, this, &ADFEnemyBase::OnDestroyAfterDeath, DestroyDelay, false);
 	}
+}
+
+void ADFEnemyBase::ApplyDeathGameplayState()
+{
+	if (AbilitySystemComponent)
+	{
+		AbilitySystemComponent->CancelAllAbilities();
+		if (FDFGameplayTags::State_Dead.IsValid())
+		{
+			AbilitySystemComponent->AddLooseGameplayTag(FDFGameplayTags::State_Dead, 1);
+		}
+	}
+}
+
+void ADFEnemyBase::PlayDeathMontageCosmetic()
+{
+	if (bDeathCosmeticPlayed || IsRunningDedicatedServer())
+	{
+		return;
+	}
+	bDeathCosmeticPlayed = true;
+	DFDeathAnimation::PlayDeathMontage(GetMesh(), DeathMontage);
 }
 
 void ADFEnemyBase::MulticastOnDeath_Implementation(AActor* /*Killer*/)
 {
-	if (UAnimInstance* const Anim = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
-	{
-		if (DeathMontage)
-		{
-			Anim->Montage_Play(DeathMontage, 1.f);
-		}
-	}
+	PlayDeathMontageCosmetic();
 	if (HealthBar)
 	{
 		HealthBar->SetVisibility(false);

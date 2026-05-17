@@ -2,6 +2,7 @@
 #include "Animation/UDFAnimInstance.h"
 
 #include "Animation/UDFLocomotionTypes.h"
+#include "Characters/ADFEnemyBase.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Characters/UDFCharacterMovementComponent.h"
 #include "Data/DFDataTableStructs.h"
@@ -112,7 +113,14 @@ void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 		bIsCasting = false;
 		bIsStunned = false;
 	}
-	bShouldStrafe = bIsLockedOn || bIsInCombat;
+	if (!bIsDead)
+	{
+		if (const ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(OwningCharacter))
+		{
+			bIsDead = Enemy->HasDied();
+		}
+	}
+	bShouldStrafe = !bIsDead && (bIsLockedOn || bIsInCombat);
 	CalculateLean(DeltaSeconds);
 	CalculateAimOffsets();
 	DetermineMovementDirection(bShouldStrafe);

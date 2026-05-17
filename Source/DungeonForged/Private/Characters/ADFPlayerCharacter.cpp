@@ -1,5 +1,6 @@
 #include "Characters/ADFPlayerCharacter.h"
 
+#include "Animation/DFDeathAnimation.h"
 #include "Characters/ADFPlayerState.h"
 #include "Characters/UDFCharacterMovementComponent.h"
 #include "GAS/DFGameplayTags.h"
@@ -29,6 +30,7 @@
 #include "InputMappingContext.h"
 #include "GameplayTagContainer.h"
 #include "Components/CapsuleComponent.h"
+#include "Engine/CollisionProfile.h"
 #include "Blueprint/UserWidget.h"
 #include "Merchant/ADFMerchantActor.h"
 #include "UI/UDFShopWidget.h"
@@ -732,13 +734,38 @@ void ADFPlayerCharacter::HandlePlayerOutOfHealth()
 
 void ADFPlayerCharacter::LockDeathPose()
 {
+	FinalizeDeathPresentation();
+}
+
+void ADFPlayerCharacter::FinalizeDeathPresentation()
+{
 	if (UWorld* const World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(DeathPoseLockTimerHandle);
 	}
-	if (USkeletalMeshComponent* const MeshComp = GetMesh())
+	if (bUseRagdollOnDeath)
 	{
-		MeshComp->bPauseAnims = true;
+		EnterDeathRagdoll();
+		return;
+	}
+	DFDeathAnimation::LockDeathPoseOnMesh(GetMesh(), DeathMontage);
+}
+
+void ADFPlayerCharacter::EnterDeathRagdoll()
+{
+	UnlockDeathPose();
+	USkeletalMeshComponent* const MeshComp = GetMesh();
+	if (!MeshComp)
+	{
+		return;
+	}
+	MeshComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	MeshComp->SetCollisionProfileName(UCollisionProfile::PhysicsActor_ProfileName);
+	MeshComp->SetAllBodiesSimulatePhysics(true);
+	MeshComp->WakeAllRigidBodies();
+	if (UCapsuleComponent* const Cap = GetCapsuleComponent())
+	{
+		Cap->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 }
 
@@ -1251,33 +1278,49 @@ void ADFPlayerCharacter::Multicast_PlayDeathMontage_Implementation()
 		return;
 	}
 	UnlockDeathPose();
-	if (UAnimInstance* const Anim = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
+	USkeletalMeshComponent* const MeshComp = GetMesh();
+	if (!MeshComp)
 	{
-		if (DeathMontage)
+		FinalizeDeathPresentation();
+		return;
+	}
+	if (!DeathMontage)
+	{
+		FinalizeDeathPresentation();
+		return;
+	}
+	if (UAnimInstance* const Anim = MeshComp->GetAnimInstance())
+	{
+		FOnMontageBlendingOutStarted BlendOut;
+		BlendOut.BindUObject(this, &ADFPlayerCharacter::OnDeathMontageBlendingOut);
+		Anim->Montage_SetBlendingOutDelegate(BlendOut, DeathMontage);
+
+		FOnMontageEnded OnEnded;
+		OnEnded.BindUObject(this, &ADFPlayerCharacter::OnDeathMontageEnded);
+		Anim->Montage_SetEndDelegate(OnEnded, DeathMontage);
+
+		const float Duration = DFDeathAnimation::PlayDeathMontage(MeshComp, DeathMontage);
+		if (Duration > KINDA_SMALL_NUMBER)
 		{
-			FOnMontageBlendingOutStarted BlendOut;
-			BlendOut.BindUObject(this, &ADFPlayerCharacter::OnDeathMontageBlendingOut);
-			Anim->Montage_SetBlendingOutDelegate(BlendOut, DeathMontage);
-
-			FOnMontageEnded OnEnded;
-			OnEnded.BindUObject(this, &ADFPlayerCharacter::OnDeathMontageEnded);
-			Anim->Montage_SetEndDelegate(OnEnded, DeathMontage);
-
-			const float Duration = Anim->Montage_Play(DeathMontage, 1.f);
-			if (Duration > KINDA_SMALL_NUMBER)
+			const float LockDelay = FMath::Max(0.01f, Duration - 0.03f);
+			if (UWorld* const World = GetWorld())
 			{
-				const float LockDelay = FMath::Max(0.01f, Duration - 0.03f);
-				if (UWorld* const World = GetWorld())
-				{
-					World->GetTimerManager().SetTimer(
-						DeathPoseLockTimerHandle,
-						this,
-						&ADFPlayerCharacter::LockDeathPose,
-						LockDelay,
-						false);
-				}
+				World->GetTimerManager().SetTimer(
+					DeathPoseLockTimerHandle,
+					this,
+					&ADFPlayerCharacter::FinalizeDeathPresentation,
+					LockDelay,
+					false);
 			}
 		}
+		else
+		{
+			FinalizeDeathPresentation();
+		}
+	}
+	else
+	{
+		FinalizeDeathPresentation();
 	}
 }
 

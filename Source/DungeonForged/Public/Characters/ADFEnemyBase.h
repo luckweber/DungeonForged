@@ -221,7 +221,13 @@ protected:
 	/** Stops the brain, movement, and AI controller input. */
 	void DisableEnemyActions();
 
+	void ApplyDeathGameplayState();
+	void PlayDeathMontageCosmetic();
+
 	FTimerHandle DeathDestroyTimer;
+
+	/** Prevents double montage when multicast and OnRep both run. */
+	bool bDeathCosmeticPlayed = false;
 	FTimerHandle SpawnBirthBTDelayTimer;
 
 	/** Servidor: quando true, `ADFAIController::OnPossess` não corre a BT — @ref OnSpawnBirthMontageDelayElapsed liberta. */

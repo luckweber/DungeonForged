@@ -147,6 +147,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|Death")
 	TObjectPtr<UAnimMontage> DeathMontage;
 
+	/** When true, death ends with ragdoll physics instead of freezing the last montage frame. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|Death")
+	bool bUseRagdollOnDeath = false;
+
 	/** If true, basic attack skips Ability.Warrior.MeleeSwing and uses only Combo montages. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|GAS")
 	bool bDisableWarriorMeleeSwingGameplayAbility = false;
@@ -346,6 +350,8 @@ protected:
 	void HandlePlayerOutOfHealth();
 	void LockDeathPose();
 	void UnlockDeathPose();
+	void FinalizeDeathPresentation();
+	void EnterDeathRagdoll();
 	void OnDeathMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted);
 	void OnDeathMontageEnded(UAnimMontage* Montage, bool bInterrupted);
 
