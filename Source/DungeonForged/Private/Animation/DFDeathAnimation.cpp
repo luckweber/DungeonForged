@@ -36,18 +36,21 @@ void LockDeathPoseOnMesh(USkeletalMeshComponent* const Mesh, UAnimMontage* const
 	{
 		return;
 	}
+
+	if (UAnimInstance* const Anim = Mesh->GetAnimInstance())
+	{
+		if (Montage && Anim->Montage_IsPlaying(Montage))
+		{
+			const float EndPos = FMath::Max(0.f, Montage->GetPlayLength() - 0.05f);
+			Anim->Montage_SetPosition(Montage, EndPos);
+			Anim->Montage_Pause(Montage);
+		}
+	}
+
+	// Freeze the whole mesh tick so the AnimGraph can't blend back to idle and root motion stops.
+	// More robust than bPauseAnims alone — also halts locomotion/state machine evaluation and any root motion extraction.
 	Mesh->bPauseAnims = true;
-	UAnimInstance* const Anim = Mesh->GetAnimInstance();
-	if (!Anim)
-	{
-		return;
-	}
-	if (Montage && Anim->Montage_IsPlaying(Montage))
-	{
-		const float EndPos = FMath::Max(0.f, Montage->GetPlayLength() - 0.05f);
-		Anim->Montage_SetPosition(Montage, EndPos);
-		Anim->Montage_Pause(Montage);
-	}
+	Mesh->SetComponentTickEnabled(false);
 }
 
 float GetDeathDestroyDelaySeconds(UAnimMontage* const Montage, const float MinSeconds, const float PaddingSeconds)
