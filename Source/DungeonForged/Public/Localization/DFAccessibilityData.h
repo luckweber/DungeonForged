@@ -29,6 +29,16 @@ struct DUNGEONFORGED_API FDFAccessibilitySettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Accessibility")
 	bool bReduceMotion = false;
 
+	/** 0 = off, 1 = full. Ignored when @c bReduceMotion (uses 0.1). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Accessibility", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float CameraShakeIntensity = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Accessibility", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float HitStopIntensity = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Accessibility")
+	bool bShowDamageNumbers = true;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Accessibility")
 	bool bColorBlindMode = false;
 

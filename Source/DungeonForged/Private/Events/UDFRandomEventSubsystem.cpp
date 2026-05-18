@@ -18,6 +18,14 @@
 void UDFRandomEventSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	if (EventChancePerFloorCurve.IsEmpty())
+	{
+		EventChancePerFloorCurve = {
+			0.25f, 0.25f, 0.25f,
+			0.40f, 0.40f, 0.40f,
+			0.60f, 0.60f, 0.60f,
+			0.00f};
+	}
 }
 
 void UDFRandomEventSubsystem::ResetUsedEvents()
@@ -25,9 +33,19 @@ void UDFRandomEventSubsystem::ResetUsedEvents()
 	UsedEvents.Reset();
 }
 
-bool UDFRandomEventSubsystem::ShouldTriggerEvent() const
+float UDFRandomEventSubsystem::GetEventChanceForFloor(const int32 Floor) const
 {
-	return FMath::FRand() < FMath::Clamp(EventChancePerFloor, 0.f, 1.f);
+	if (EventChancePerFloorCurve.IsEmpty())
+	{
+		return EventChancePerFloor;
+	}
+	const int32 Idx = FMath::Clamp(Floor - 1, 0, EventChancePerFloorCurve.Num() - 1);
+	return FMath::Clamp(EventChancePerFloorCurve[Idx], 0.f, 1.f);
+}
+
+bool UDFRandomEventSubsystem::ShouldTriggerEvent(const int32 Floor) const
+{
+	return FMath::FRand() < GetEventChanceForFloor(Floor);
 }
 
 const FDFRandomEventRow* UDFRandomEventSubsystem::RollEvent(int32 const CurrentFloor, FName& OutRowName)

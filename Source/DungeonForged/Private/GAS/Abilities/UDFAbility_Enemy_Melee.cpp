@@ -2,6 +2,7 @@
 
 #include "GAS/Abilities/UDFAbility_Enemy_Melee.h"
 #include "Characters/ADFEnemyBase.h"
+#include "Combat/UDFCombatDirectorSubsystem.h"
 #include "Combat/UDFHitReactionComponent.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
@@ -71,6 +72,22 @@ void UDFAbility_Enemy_Melee::ActivateAbility(
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
+	}
+	bHoldsAttackToken = false;
+	if (ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(GetAvatarActorFromActorInfo()))
+	{
+		if (UWorld* const World = GetWorld())
+		{
+			if (UDFCombatDirectorSubsystem* const Director = World->GetSubsystem<UDFCombatDirectorSubsystem>())
+			{
+				if (!Director->RequestAttackToken(Enemy))
+				{
+					EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+					return;
+				}
+				bHoldsAttackToken = true;
+			}
+		}
 	}
 	ActiveParallelTasks = 0;
 	bHitWindowDone = false;
@@ -177,6 +194,30 @@ void UDFAbility_Enemy_Melee::OnMontageOrInstantFinished()
 	}
 	bMontageFinishHandled = true;
 	TryEndWhenIdle();
+}
+
+void UDFAbility_Enemy_Melee::EndAbility(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo,
+	const bool bReplicateEndAbility,
+	const bool bWasCancelled)
+{
+	if (bHoldsAttackToken)
+	{
+		if (ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(GetAvatarActorFromActorInfo()))
+		{
+			if (UWorld* const World = GetWorld())
+			{
+				if (UDFCombatDirectorSubsystem* const Director = World->GetSubsystem<UDFCombatDirectorSubsystem>())
+				{
+					Director->ReleaseAttackToken(Enemy);
+				}
+			}
+		}
+		bHoldsAttackToken = false;
+	}
+	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
 
 void UDFAbility_Enemy_Melee::TryEndWhenIdle()

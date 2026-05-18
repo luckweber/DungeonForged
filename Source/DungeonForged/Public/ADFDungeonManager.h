@@ -108,6 +108,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Dungeon")
 	bool GetCurrentFloorData(FDFDungeonFloorRow& OutRow) const;
 
+	/** @c FDFDungeonFloorRow::DifficultyMultiplier for @c CurrentFloor (1.0 if unknown). */
+	UFUNCTION(BlueprintPure, Category = "DF|Dungeon")
+	float GetCurrentFloorDifficultyMultiplier() const;
+
 	UFUNCTION(BlueprintCallable, Category = "DF|Dungeon")
 	void NotifyRunFailed(AActor* Player);
 

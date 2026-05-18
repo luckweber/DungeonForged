@@ -1,6 +1,7 @@
 // Source/DungeonForged/Private/Audio/UDFMusicManagerSubsystem.cpp
 #include "Audio/UDFMusicManagerSubsystem.h"
 #include "Audio/ADFMusicLayerHost.h"
+#include "Combat/UDFCombatDirectorSubsystem.h"
 #include "GAS/DFGameplayTags.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
@@ -95,6 +96,13 @@ void UDFMusicManagerSubsystem::OnInCombatTagChanged(
 	{
 		GetWorld()->GetTimerManager().ClearTimer(CombatExploreTimer);
 		SetMusicState(EMusicState::Combat);
+		if (UDFCombatDirectorSubsystem* const Director = GetWorld()->GetSubsystem<UDFCombatDirectorSubsystem>())
+		{
+			const int32 Nearby = Director->GetEnemiesNearLocalPlayer(2000.f);
+			const float CombatVol = Nearby >= Director->HighIntensityEnemyThreshold ? 1.f : 0.65f;
+			SetLayerTargetVolumes(0.25f, CombatVol, 0.f);
+			StartVolumeLerp();
+		}
 	}
 	else
 	{
@@ -231,7 +239,15 @@ void UDFMusicManagerSubsystem::CrossfadeToStateInternal(const EMusicState Target
 	case EMusicState::Elite:
 		AssignLoopingSoundIfNeeded(H->MusicLayerBase, SoundExplorationBase, true);
 		AssignLoopingSoundIfNeeded(H->MusicLayerCombat, SoundCombat, true);
-		SetLayerTargetVolumes(0.4f, 1.f, 0.f);
+		{
+			float CombatVol = 1.f;
+			if (UDFCombatDirectorSubsystem* const Director = GetWorld()->GetSubsystem<UDFCombatDirectorSubsystem>())
+			{
+				const int32 Nearby = Director->GetEnemiesNearLocalPlayer(2000.f);
+				CombatVol = Nearby >= Director->HighIntensityEnemyThreshold ? 1.f : 0.65f;
+			}
+			SetLayerTargetVolumes(0.25f, CombatVol, 0.f);
+		}
 		break;
 	case EMusicState::Boss:
 		AssignLoopingSoundIfNeeded(H->MusicLayerBase, SoundExplorationBase, false);

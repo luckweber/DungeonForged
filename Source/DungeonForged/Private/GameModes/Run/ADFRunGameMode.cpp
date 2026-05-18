@@ -261,7 +261,7 @@ void ADFRunGameMode::HandlePlayerOutOfHealth()
 			DefeatAfterDeathAnimTimer,
 			[this]()
 			{
-				TriggerDefeat();
+				TriggerDefeat(TEXT("Your health reached zero."));
 			},
 			3.f,
 			false);
@@ -289,7 +289,7 @@ void ADFRunGameMode::HandleRunTimeExpired()
 	}
 	if (RGS->ElapsedRunTime >= RunTimeLimit)
 	{
-		TriggerDefeat();
+		TriggerDefeat(TEXT("Time limit exceeded."));
 	}
 }
 
@@ -358,13 +358,14 @@ void ADFRunGameMode::ScheduleFinishVictoryToNexus()
 	}
 }
 
-void ADFRunGameMode::TriggerDefeat()
+void ADFRunGameMode::TriggerDefeat(const FString& DefeatCause)
 {
 	if (bDefeatInProgress)
 	{
 		return;
 	}
 	bDefeatInProgress = true;
+	const FString CauseText = DefeatCause.IsEmpty() ? FString(TEXT("Defeated")) : DefeatCause;
 	if (ADFRunGameState* const RGS = GetGameState<ADFRunGameState>())
 	{
 		RGS->SetPhase(ERunPhase::Defeat);
@@ -378,7 +379,7 @@ void ADFRunGameMode::TriggerDefeat()
 			{
 				if (ADFRunPlayerController* const RPC = Cast<ADFRunPlayerController>(It->Get()))
 				{
-					RPC->Client_OpenDefeatScreen(S, FString());
+					RPC->Client_OpenDefeatScreen(S, CauseText);
 				}
 			}
 		}

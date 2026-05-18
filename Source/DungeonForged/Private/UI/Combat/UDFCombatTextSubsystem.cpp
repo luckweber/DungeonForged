@@ -1,6 +1,8 @@
 // Source/DungeonForged/Private/UI/Combat/UDFCombatTextSubsystem.cpp
 #include "UI/Combat/UDFCombatTextSubsystem.h"
 #include "UI/Combat/UDFCombatTextWidget.h"
+#include "Localization/UDFAccessibilitySubsystem.h"
+#include "Engine/GameInstance.h"
 #include "Blueprint/UserWidget.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/Engine.h"
@@ -80,19 +82,36 @@ float UDFCombatTextSubsystem::ResolveDuration(const ECombatTextType Type, const 
 	return 1.2f;
 }
 
+namespace
+{
+FString AbbreviateDamageNumber(const int32 Value)
+{
+	const int32 AbsVal = FMath::Abs(Value);
+	if (AbsVal >= 1000000)
+	{
+		return FString::Printf(TEXT("%.1fM"), AbsVal / 1000000.f);
+	}
+	if (AbsVal >= 1000)
+	{
+		return FString::Printf(TEXT("%.1fk"), AbsVal / 1000.f);
+	}
+	return FString::FromInt(AbsVal);
+}
+} // namespace
+
 FString UDFCombatTextSubsystem::BuildStringForValue(const float Value, const ECombatTextType Type)
 {
 	switch (Type)
 	{
 	case ECombatTextType::Damage_Critical:
-		return FString::Printf(TEXT("★ %d ★"), FMath::RoundToInt(Value));
+		return FString::Printf(TEXT("★ %s ★"), *AbbreviateDamageNumber(FMath::RoundToInt(Value)));
 	case ECombatTextType::Heal:
 		return FString::Printf(TEXT("+%d"), FMath::RoundToInt(FMath::Max(0.f, Value)));
 	case ECombatTextType::Damage_Physical:
 	case ECombatTextType::Damage_Magic:
 	case ECombatTextType::Damage_True:
 	case ECombatTextType::Damage_DoT:
-		return FString::FromInt(FMath::Max(0, FMath::RoundToInt(FMath::Abs(Value))));
+		return AbbreviateDamageNumber(FMath::Max(0, FMath::RoundToInt(FMath::Abs(Value))));
 	case ECombatTextType::Mana_Restore:
 		return FString::Printf(TEXT("+%d"), FMath::RoundToInt(FMath::Max(0.f, Value)));
 	case ECombatTextType::XPGain:
@@ -117,12 +136,43 @@ void UDFCombatTextSubsystem::SpawnText(
 	SpawnTextString(WorldLocation, S, Type, CustomDuration);
 }
 
+namespace
+{
+bool IsFloatingDamageCombatText(const ECombatTextType Type)
+{
+	switch (Type)
+	{
+	case ECombatTextType::Damage_Physical:
+	case ECombatTextType::Damage_Magic:
+	case ECombatTextType::Damage_True:
+	case ECombatTextType::Damage_Critical:
+	case ECombatTextType::Damage_DoT:
+		return true;
+	default:
+		return false;
+	}
+}
+} // namespace
+
 void UDFCombatTextSubsystem::SpawnTextString(
 	const FVector WorldLocation, const FString& Text, const ECombatTextType Type, const float CustomDuration)
 {
 	if (!GetWorld() || IsRunningDedicatedServer())
 	{
 		return;
+	}
+	if (IsFloatingDamageCombatText(Type))
+	{
+		if (UGameInstance* const GI = GetWorld()->GetGameInstance())
+		{
+			if (const UDFAccessibilitySubsystem* const A11y = GI->GetSubsystem<UDFAccessibilitySubsystem>())
+			{
+				if (!A11y->GetSettings().bShowDamageNumbers)
+				{
+					return;
+				}
+			}
+		}
 	}
 	if (!WidgetClass)
 	{

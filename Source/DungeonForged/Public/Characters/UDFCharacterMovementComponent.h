@@ -45,7 +45,7 @@ public:
 	float SprintStaminaDrain = 15.f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Dodge", meta = (ClampMin = "0.0"))
-	float DodgeCooldown = 0.8f;
+	float DodgeCooldown = 0.7f;
 
 	/** World-space dodge displacement magnitude (cm) over DodgeDuration. */
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Dodge", meta = (ClampMin = "0.0"))
@@ -56,7 +56,7 @@ public:
 
 	/** i-frames: State.Invulnerable window (may be shorter than DodgeDuration). */
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Dodge", meta = (ClampMin = "0.0"))
-	float IFrameDuration = 0.25f;
+	float IFrameDuration = 0.35f;
 
 	UPROPERTY(BlueprintReadOnly, Category = "DF|Movement|Sprint")
 	bool bIsSprinting = false;

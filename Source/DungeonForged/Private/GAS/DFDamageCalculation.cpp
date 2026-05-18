@@ -74,7 +74,9 @@ void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExe
 	float PreMitigation = 0.f;
 	if (bPhysical)
 	{
-		PreMitigation = (SetByCallerBase + Str * 0.5f) * (1.f - FMath::Clamp(Armor, 0.f, 100.f) / 100.f);
+		const float ArmorK = 100.f;
+		const float ArmorReduction = Armor / (Armor + ArmorK);
+		PreMitigation = (SetByCallerBase + Str * 0.5f) * (1.f - FMath::Clamp(ArmorReduction, 0.f, 0.85f));
 	}
 	else if (bMagic)
 	{
@@ -87,7 +89,15 @@ void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExe
 	}
 	PreMitigation = FMath::Max(0.f, PreMitigation);
 
-	const bool bCrit = FMath::FRand() < FMath::Clamp(CritChance, 0.f, 1.f);
+	if (FDFGameplayTags::State_BossVulnerable.IsValid()
+		&& TargetASC->HasMatchingGameplayTag(FDFGameplayTags::State_BossVulnerable))
+	{
+		PreMitigation *= 1.5f;
+	}
+
+	const float CritRaw = FMath::Clamp(CritChance, 0.f, 1.f);
+	const float CritEffective = CritRaw <= 0.5f ? CritRaw : 0.5f + (CritRaw - 0.5f) * 0.6f;
+	const bool bCrit = FMath::FRand() < FMath::Clamp(CritEffective, 0.f, 0.75f);
 	if (bCrit)
 	{
 		PreMitigation *= FMath::Max(1.f, CritMult);

@@ -39,7 +39,10 @@ public:
 	void ResetUsedEvents();
 
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "DF|Events")
-	bool ShouldTriggerEvent() const;
+	bool ShouldTriggerEvent(int32 Floor = 1) const;
+
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "DF|Events")
+	float GetEventChanceForFloor(int32 Floor) const;
 
 	/**
 	 * Weighted random among rows matching `CurrentFloor` and repeat rules.
@@ -67,8 +70,13 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "DF|Events")
 	TArray<FName> UsedEvents;
 
+	/** Fallback when @c EventChancePerFloorCurve is empty. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DF|Events", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float EventChancePerFloor = 0.4f;
+
+	/** Index 0 = floor 1. Default: 25% early, 40% mid, 60% late, 0% boss floor. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "DF|Events", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	TArray<float> EventChancePerFloorCurve;
 
 	/** Fires after `ExecuteChoice` so UMG can play `WBP_EventOutcome` + animations. */
 	UPROPERTY(BlueprintAssignable, Category = "DF|Events")

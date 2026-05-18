@@ -40,9 +40,24 @@ void UDFOptionsScreenWidget::NativeConstruct()
 	if (Check_ColorBlind) { Check_ColorBlind->OnCheckStateChanged.AddDynamic(this, &UDFOptionsScreenWidget::OnColorBlindToggled); }
 	if (Combo_ColorBlind) { Combo_ColorBlind->OnSelectionChanged.AddDynamic(this, &UDFOptionsScreenWidget::OnColorBlindComboSelectionChanged); }
 	if (Button_ApplyAccessibility) { Button_ApplyAccessibility->OnClicked.AddDynamic(this, &UDFOptionsScreenWidget::ApplyAndSaveAccessibility); }
+	if (Slider_CameraShakeIntensity)
+	{
+		Slider_CameraShakeIntensity->OnValueChanged.AddDynamic(
+			this, &UDFOptionsScreenWidget::OnCameraShakeIntensityChanged);
+	}
+	if (Slider_HitStopIntensity)
+	{
+		Slider_HitStopIntensity->OnValueChanged.AddDynamic(this, &UDFOptionsScreenWidget::OnHitStopIntensityChanged);
+	}
+	if (Check_ShowDamageNumbers)
+	{
+		Check_ShowDamageNumbers->OnCheckStateChanged.AddDynamic(
+			this, &UDFOptionsScreenWidget::OnShowDamageNumbersToggled);
+	}
 
 	RebuildColorBlindCombo();
 	SyncAudioFromSubsystem();
+	SyncAccessibilityFromSubsystem();
 	if (UGameInstance* const GI = GetGameInstance())
 	{
 		if (UDFInputRemappingSubsystem* const RS = GI->GetSubsystem<UDFInputRemappingSubsystem>())
@@ -140,6 +155,9 @@ void UDFOptionsScreenWidget::ApplyAndSaveAccessibility()
 	if (Check_ColorBlind) { S.bColorBlindMode = Check_ColorBlind->IsChecked(); }
 	if (S.bColorBlindMode) { S.ColorBlindType = ParseColorBlindCombo(); }
 	else { S.ColorBlindType = EDFColorBlindMode::Off; }
+	if (Slider_CameraShakeIntensity) { S.CameraShakeIntensity = static_cast<float>(Slider_CameraShakeIntensity->GetValue()); }
+	if (Slider_HitStopIntensity) { S.HitStopIntensity = static_cast<float>(Slider_HitStopIntensity->GetValue()); }
+	if (Check_ShowDamageNumbers) { S.bShowDamageNumbers = Check_ShowDamageNumbers->IsChecked(); }
 	A11y->ApplySettings(S, true);
 }
 
@@ -174,6 +192,20 @@ void UDFOptionsScreenWidget::SyncAudioFromSubsystem()
 	if (Check_HighContrast) { Check_HighContrast->SetIsChecked(S.bHighContrast); }
 	if (Check_ReduceMotion) { Check_ReduceMotion->SetIsChecked(S.bReduceMotion); }
 	if (Check_ColorBlind) { Check_ColorBlind->SetIsChecked(S.bColorBlindMode); }
+	SyncAccessibilityFromSubsystem();
+}
+
+void UDFOptionsScreenWidget::SyncAccessibilityFromSubsystem()
+{
+	UDFAccessibilitySubsystem* A11y = GetGameInstance() ? GetGameInstance()->GetSubsystem<UDFAccessibilitySubsystem>() : nullptr;
+	if (!A11y)
+	{
+		return;
+	}
+	const FDFAccessibilitySettings& S = A11y->GetSettings();
+	if (Slider_CameraShakeIntensity) { Slider_CameraShakeIntensity->SetValue(S.CameraShakeIntensity); }
+	if (Slider_HitStopIntensity) { Slider_HitStopIntensity->SetValue(S.HitStopIntensity); }
+	if (Check_ShowDamageNumbers) { Check_ShowDamageNumbers->SetIsChecked(S.bShowDamageNumbers); }
 }
 
 void UDFOptionsScreenWidget::RefreshLanguagePreview()
@@ -317,6 +349,42 @@ void UDFOptionsScreenWidget::OnSfxChanged(float /*Value*/)
 void UDFOptionsScreenWidget::OnVoiceChanged(float /*Value*/)
 {
 	ApplyAudioFromSliders();
+}
+
+void UDFOptionsScreenWidget::OnCameraShakeIntensityChanged(const float Value)
+{
+	UDFAccessibilitySubsystem* A11y = GetGameInstance() ? GetGameInstance()->GetSubsystem<UDFAccessibilitySubsystem>() : nullptr;
+	if (!A11y)
+	{
+		return;
+	}
+	FDFAccessibilitySettings S = A11y->GetSettings();
+	S.CameraShakeIntensity = Value;
+	A11y->ApplySettings(S, false);
+}
+
+void UDFOptionsScreenWidget::OnHitStopIntensityChanged(const float Value)
+{
+	UDFAccessibilitySubsystem* A11y = GetGameInstance() ? GetGameInstance()->GetSubsystem<UDFAccessibilitySubsystem>() : nullptr;
+	if (!A11y)
+	{
+		return;
+	}
+	FDFAccessibilitySettings S = A11y->GetSettings();
+	S.HitStopIntensity = Value;
+	A11y->ApplySettings(S, false);
+}
+
+void UDFOptionsScreenWidget::OnShowDamageNumbersToggled(const bool bOn)
+{
+	UDFAccessibilitySubsystem* A11y = GetGameInstance() ? GetGameInstance()->GetSubsystem<UDFAccessibilitySubsystem>() : nullptr;
+	if (!A11y)
+	{
+		return;
+	}
+	FDFAccessibilitySettings S = A11y->GetSettings();
+	S.bShowDamageNumbers = bOn;
+	A11y->ApplySettings(S, false);
 }
 
 void UDFOptionsScreenWidget::RebuildColorBlindCombo()

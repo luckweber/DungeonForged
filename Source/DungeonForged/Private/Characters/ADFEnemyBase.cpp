@@ -1,6 +1,7 @@
 // Source/DungeonForged/Private/Characters/ADFEnemyBase.cpp
 
 #include "Characters/ADFEnemyBase.h"
+#include "Combat/UDFCombatDirectorSubsystem.h"
 #include "Animation/DFDeathAnimation.h"
 #include "DungeonForgedModule.h"
 #include "GAS/DFGameplayTags.h"
@@ -14,6 +15,7 @@
 #include "GameplayEffectTypes.h"
 #include "AI/ADFAIController.h"
 #include "ADFDungeonManager.h"
+#include "Audio/UDFMusicManagerSubsystem.h"
 #include "Characters/ADFPlayerState.h"
 #include "Data/DFDataTableStructs.h"
 #include "DFLootGeneratorSubsystem.h"
@@ -312,6 +314,16 @@ void ADFEnemyBase::BeginPlay()
 	{
 		bDeathDetectionArmed = true;
 	}
+	if (HasAuthority())
+	{
+		if (UWorld* const World = GetWorld())
+		{
+			if (UDFCombatDirectorSubsystem* const Director = World->GetSubsystem<UDFCombatDirectorSubsystem>())
+			{
+				Director->RegisterEnemy(this);
+			}
+		}
+	}
 }
 
 void ADFEnemyBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -330,6 +342,16 @@ void ADFEnemyBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		DeathDissolveTimeline->Stop();
 	}
 	UnbindAttributeDelegates();
+	if (HasAuthority())
+	{
+		if (UWorld* const World = GetWorld())
+		{
+			if (UDFCombatDirectorSubsystem* const Director = World->GetSubsystem<UDFCombatDirectorSubsystem>())
+			{
+				Director->UnregisterEnemy(this);
+			}
+		}
+	}
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -562,11 +584,39 @@ void ADFEnemyBase::ApplyBaseStatsFromRow(const FDFEnemyTableRow& Row)
 	{
 		return;
 	}
-	const float Hp = FMath::Max(1.f, Row.BaseHealth);
+
+	CachedEnemyTier = Row.Tier;
+	CachedEnemyArchetype = Row.Archetype;
+
+	int32 Floor = 0;
+	float DifficultyMultiplier = 1.f;
+	if (UWorld* const W = GetWorld())
+	{
+		if (UGameInstance* const GI = W->GetGameInstance())
+		{
+			if (UDFDungeonManager* const Dm = GI->GetSubsystem<UDFDungeonManager>())
+			{
+				Floor = FMath::Max(0, Dm->CurrentFloor);
+				DifficultyMultiplier = Dm->GetCurrentFloorDifficultyMultiplier();
+			}
+		}
+	}
+	const float FloorScale = 1.f + 0.15f * static_cast<float>(Floor);
+	const float ScaleFinal = FloorScale * DifficultyMultiplier;
+
+	float Hp = FMath::Max(1.f, Row.BaseHealth * ScaleFinal);
+	float Armor = Row.BaseArmor * FMath::Sqrt(ScaleFinal);
+	float Damage = FMath::Max(0.f, Row.BaseDamage * ScaleFinal);
+	if (Row.Tier == EEnemyTier::Elite)
+	{
+		Hp *= 2.5f;
+		Damage *= 1.5f;
+	}
+
 	S->SetMaxHealth(Hp);
 	S->SetHealth(Hp);
-	S->SetArmor(Row.BaseArmor);
-	S->SetStrength(FMath::Max(0.f, Row.BaseDamage));
+	S->SetArmor(Armor);
+	S->SetStrength(Damage);
 }
 
 void ADFEnemyBase::GrantAbilitiesForRow(const FDFEnemyTableRow& Row)
@@ -612,6 +662,29 @@ void ADFEnemyBase::RegisterDamageFromContext(const FGameplayEffectContextHandle&
 	if (K && K != GetOwner())
 	{
 		LastDamageAttacker = K;
+	}
+	if (CachedEnemyTier == EEnemyTier::Elite && !bEliteMusicNotified && K)
+	{
+		if (Cast<APawn>(K) && Cast<APawn>(K)->IsPlayerControlled())
+		{
+			bEliteMusicNotified = true;
+			Multicast_NotifyEliteEngaged();
+		}
+	}
+}
+
+void ADFEnemyBase::Multicast_NotifyEliteEngaged_Implementation()
+{
+	if (IsRunningDedicatedServer())
+	{
+		return;
+	}
+	if (UWorld* const W = GetWorld())
+	{
+		if (UDFMusicManagerSubsystem* const Music = W->GetSubsystem<UDFMusicManagerSubsystem>())
+		{
+			Music->SetMusicState(EMusicState::Elite);
+		}
 	}
 }
 

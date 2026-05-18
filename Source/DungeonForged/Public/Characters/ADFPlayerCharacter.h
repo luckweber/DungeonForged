@@ -38,7 +38,9 @@ class UDFInventoryComponent;
 class UDFScreenEffectsComponent;
 class UDFMinimapFogComponent;
 class UDFDebugComponent;
+class UDFStaminaExhaustionComponent;
 class USkeletalMeshComponent;
+class UGameplayEffect;
 
 UCLASS(Blueprintable)
 class DUNGEONFORGED_API ADFPlayerCharacter : public ACharacter, public IAbilitySystemInterface
@@ -184,6 +186,12 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|FX")
 	TObjectPtr<UDFScreenEffectsComponent> ScreenEffects = nullptr;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Combat|Stamina")
+	TObjectPtr<UDFStaminaExhaustionComponent> StaminaExhaustion = nullptr;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|GAS|Passive")
+	TSubclassOf<UGameplayEffect> DefaultStaminaRegenEffect;
+
 	/** Minimap fog-of-war: room overlap → reveal/visit, current room for icon pulse. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Minimap")
 	TObjectPtr<UDFMinimapFogComponent> MinimapFog = nullptr;
@@ -277,6 +285,11 @@ public:
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_FinalizeDeathPresentation();
 
+	/** Local UI: damage direction + combat HUD (source world location, 0–1 intensity). */
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnPlayerDamageTakenForUI, FVector, DamageSourceWorld, float, Intensity);
+	UPROPERTY(BlueprintAssignable, Category = "DF|UI|Combat")
+	FOnPlayerDamageTakenForUI OnDamageTakenForUI;
+
 	UFUNCTION(BlueprintPure, Category = "DF|Equipment")
 	UDFEquipmentComponent* GetDFEquipment() const { return Equipment; }
 
@@ -318,6 +331,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|GAS|AbilityBar")
 	void EnsureAbilityBarSlotArraySize();
 
+	UFUNCTION(Server, Reliable, Category = "DF|Combat|Heavy")
+	void Server_CommitHeavyAttack();
+
 protected:
 	virtual void PostInitializeComponents() override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -330,6 +346,7 @@ protected:
 
 	void AddDefaultMappingContext();
 	void InitializeGAS();
+	void ApplyDefaultPassiveGameplayEffects();
 
 	/** Binds each AbilityInputAction to ASC::AbilityLocalInputPressed/Released; InputID from FDFInputAction::GameplayInputId or 1-based array index. */
 	void RegisterAbilityInputFromConfig(class UEnhancedInputComponent* EIC);
@@ -339,7 +356,8 @@ protected:
 	void Input_JumpStart();
 	void Input_JumpEnd();
 	void Input_CameraZoom(const FInputActionValue& Value);
-	void Input_Attack();
+	void Input_AttackPressed();
+	void Input_AttackReleased();
 	void Input_SecondaryAttack();
 	void Input_Ability1();
 	void Input_Ability2();
@@ -389,6 +407,7 @@ private:
 	bool bHasWeaponLSocket = false;
 	bool bPlayerDeathHandled = false;
 	bool bDeathPresentationFinalized = false;
+	FActiveGameplayEffectHandle StaminaRegenEffectHandle;
 
 	FGameplayAbilitySpecHandle DeathAbilitySpecHandle;
 

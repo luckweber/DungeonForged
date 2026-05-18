@@ -54,6 +54,7 @@ void ADFBossBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (GetWorld())
 	{
 		GetWorldTimerManager().ClearTimer(EnrageTimerHandle);
+		GetWorldTimerManager().ClearTimer(VulnerabilityTimerHandle);
 	}
 	ClearSpawnedMinions();
 	Super::EndPlay(EndPlayReason);
@@ -144,9 +145,35 @@ void ADFBossBase::TriggerPhaseTransition(const int32 NewPhase)
 	}
 
 	Multicast_OnPhaseTransitionVFX();
+	BeginBossVulnerabilityWindow();
 	OnBossPhaseChanged.Broadcast(Old, NewPhase, this);
 	ForceNetUpdate();
 }
+
+void ADFBossBase::BeginBossVulnerabilityWindow()
+{
+	if (!HasAuthority() || !AbilitySystemComponent || !FDFGameplayTags::State_BossVulnerable.IsValid())
+	{
+		return;
+	}
+	AbilitySystemComponent->AddLooseGameplayTag(FDFGameplayTags::State_BossVulnerable, 1);
+	if (UWorld* const World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(VulnerabilityTimerHandle);
+		const float Duration = FMath::Max(0.1f, BossVulnerabilityDuration);
+		World->GetTimerManager().SetTimer(
+			VulnerabilityTimerHandle, this, &ADFBossBase::EndBossVulnerabilityWindow, Duration, false);
+	}
+}
+
+void ADFBossBase::EndBossVulnerabilityWindow()
+{
+	if (AbilitySystemComponent && FDFGameplayTags::State_BossVulnerable.IsValid())
+	{
+		AbilitySystemComponent->RemoveLooseGameplayTag(FDFGameplayTags::State_BossVulnerable, 1);
+	}
+}
+
 
 void ADFBossBase::OnEnrageTimerExpired()
 {
@@ -274,7 +301,9 @@ void ADFBossBase::HandleServerDeath(AActor* Killer)
 	if (GetWorld())
 	{
 		GetWorldTimerManager().ClearTimer(EnrageTimerHandle);
+		GetWorldTimerManager().ClearTimer(VulnerabilityTimerHandle);
 	}
+	EndBossVulnerabilityWindow();
 	ClearSpawnedMinions();
 	Super::HandleServerDeath(Killer);
 }

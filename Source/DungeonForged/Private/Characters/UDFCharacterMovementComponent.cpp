@@ -168,6 +168,16 @@ void UDFCharacterMovementComponent::PerformDodge(const FVector& DirectionWorld)
 	{
 		return;
 	}
+	if (IAbilitySystemInterface* const ASI = Cast<IAbilitySystemInterface>(CharacterOwner))
+	{
+		if (UAbilitySystemComponent* const ASC = ASI->GetAbilitySystemComponent())
+		{
+			if (FDFGameplayTags::State_Exhausted.IsValid() && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Exhausted))
+			{
+				return;
+			}
+		}
+	}
 	UWorld* const W = GetWorld();
 	if (!W)
 	{

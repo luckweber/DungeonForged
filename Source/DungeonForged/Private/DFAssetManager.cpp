@@ -1,6 +1,7 @@
 // Source/DungeonForged/Private/DFAssetManager.cpp
 // UDFAssetManager: tag registration + primary assets. GAS InitGlobalData is in UDFGameInstance::Init.
 #include "DFAssetManager.h"
+#include "Data/UDFCombatTuningData.h"
 #include "Engine/AssetManager.h"
 #include "GAS/DFGameplayTags.h"
 
@@ -15,4 +16,21 @@ void UDFAssetManager::StartInitialLoading()
 {
 	Super::StartInitialLoading();
 	FDFGameplayTags::RegisterGameplayTags();
+}
+
+const UDFCombatTuningData* UDFAssetManager::GetCombatTuningData() const
+{
+	if (CombatTuningDataAsset.IsNull())
+	{
+		return GetDefault<UDFCombatTuningData>();
+	}
+	if (UDFCombatTuningData* const Loaded = CombatTuningDataAsset.Get())
+	{
+		return Loaded;
+	}
+	if (UDFCombatTuningData* const Sync = CombatTuningDataAsset.LoadSynchronous())
+	{
+		return Sync;
+	}
+	return GetDefault<UDFCombatTuningData>();
 }

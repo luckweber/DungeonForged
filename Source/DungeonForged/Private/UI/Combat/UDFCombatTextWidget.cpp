@@ -61,11 +61,14 @@ void UDFCombatTextWidget::InitializeCombatText(
 	}
 	ApplyStyleForType(Type);
 	bInUse = true;
+	bCritShakeActive = Type == ECombatTextType::Damage_Critical;
+	CritShakeElapsed = 0.f;
 	SetVisibility(ESlateVisibility::HitTestInvisible);
 	{
 		FWidgetTransform T;
-		if (Type == ECombatTextType::Damage_Critical)
+		if (bCritShakeActive)
 		{
+			T.Scale = FVector2D(1.4f, 1.4f);
 			T.Angle = FMath::DegreesToRadians(FMath::FRandRange(-5.f, 5.f));
 		}
 		SetRenderTransform(T);
@@ -147,6 +150,24 @@ void UDFCombatTextWidget::ApplyStyleForType(const ECombatTextType Type) const
 	}
 }
 
+void UDFCombatTextWidget::NativeTick(const FGeometry& MyGeometry, const float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+	if (!bCritShakeActive)
+	{
+		return;
+	}
+	CritShakeElapsed += InDeltaTime;
+	if (CritShakeElapsed > 0.35f)
+	{
+		bCritShakeActive = false;
+		return;
+	}
+	FWidgetTransform T = GetRenderTransform();
+	T.Translation.X = FMath::Sin(CritShakeElapsed * 45.f) * 6.f;
+	SetRenderTransform(T);
+}
+
 void UDFCombatTextWidget::ReturnToPool()
 {
 	if (UWorld* const W = GetWorld())
@@ -159,6 +180,7 @@ void UDFCombatTextWidget::ReturnToPool()
 		StopAnimation(FloatAnimation);
 	}
 	bInUse = false;
+	bCritShakeActive = false;
 	SetVisibility(ESlateVisibility::Collapsed);
 	if (UDFCombatTextSubsystem* const S = OwnerSubsystem.Get())
 	{

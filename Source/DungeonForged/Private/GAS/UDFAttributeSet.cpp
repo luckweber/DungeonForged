@@ -201,9 +201,13 @@ void UDFAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 		NewValue = FMath::Max(NewValue, 0.f);
 	}
 	// 0..1 stats
-	else if (Attribute == GetCritChanceAttribute() || Attribute == GetCooldownReductionAttribute())
+	else if (Attribute == GetCritChanceAttribute())
 	{
-		NewValue = FMath::Clamp(NewValue, 0.f, 1.f);
+		NewValue = FMath::Clamp(NewValue, 0.f, 0.75f);
+	}
+	else if (Attribute == GetCooldownReductionAttribute())
+	{
+		NewValue = FMath::Clamp(NewValue, 0.f, 0.4f);
 	}
 	else if (Attribute == GetCritMultiplierAttribute())
 	{

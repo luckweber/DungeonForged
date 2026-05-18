@@ -26,6 +26,8 @@
 #include "Kismet/GameplayStatics.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "AbilitySystemComponent.h"
+#include "GAS/Abilities/Warrior/UDFAbility_Warrior_HeavyAttack.h"
+#include "GAS/DFGameplayTags.h"
 #include "HAL/PlatformTime.h"
 DEFINE_LOG_CATEGORY_STATIC(LogDFRun, Log, All);
 
@@ -601,6 +603,41 @@ void UDFRunManager::GrantAbilitiesForCurrentRun(ADFPlayerState* PlayerState)
 	{
 		PlayerCharacter->ForceNetUpdate();
 	}
+
+	GrantImplicitHeavyMeleeAbilityIfNeeded(ASC, PlayerState);
+}
+
+void UDFRunManager::GrantImplicitHeavyMeleeAbilityIfNeeded(UAbilitySystemComponent* ASC, ADFPlayerState* PlayerState)
+{
+	if (!ASC || !FDFGameplayTags::Ability_Warrior_HeavyAttack.IsValid())
+	{
+		return;
+	}
+
+	bool bHasMeleeSwing = false;
+	bool bHasHeavy = false;
+	for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		if (!Spec.Ability)
+		{
+			continue;
+		}
+		if (Spec.Ability->AbilityTags.HasTag(FDFGameplayTags::Ability_Warrior_MeleeSwing))
+		{
+			bHasMeleeSwing = true;
+		}
+		if (Spec.Ability->AbilityTags.HasTag(FDFGameplayTags::Ability_Warrior_HeavyAttack))
+		{
+			bHasHeavy = true;
+		}
+	}
+	if (!bHasMeleeSwing || bHasHeavy)
+	{
+		return;
+	}
+
+	const FGameplayAbilitySpec HeavySpec(UDFAbility_Warrior_HeavyAttack::StaticClass(), 1, INDEX_NONE, PlayerState);
+	ASC->GiveAbility(HeavySpec);
 }
 
 void UDFRunManager::RemoveOneRandomGrantedAbility(ADFPlayerState* PlayerState)

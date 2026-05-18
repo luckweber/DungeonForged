@@ -36,6 +36,7 @@ Sempre que possível, mantém:
 | 06 | [Audio Mix](06_AudioMix.md) | Music intensity, elite trigger, layering, SFX banding | 🎨 MÉDIA |
 | 07 | [UI / UX](07_UI_UX.md) | HUD adaptativo, boss intro, defeat polish, indicadores | 🎨 MÉDIA |
 | 08 | [Accessibility](08_Accessibility.md) | Sliders, colorblind, hold/toggle, motion sickness | ♿ BAIXA |
+| 09 | [Implementation Status](09_ImplementationStatus.md) | O que já está no C++ vs. pendente | 📋 |
 
 ---
 

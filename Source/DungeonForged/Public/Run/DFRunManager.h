@@ -299,6 +299,8 @@ private:
 	void RestoreInventoryFromRunState(UDFInventoryComponent* Inv) const;
 	void AddUniqueName(TArray<FName>& ToArray, FName Name) const;
 	void SyncReplicatedRunGoldToPlayerStates() const;
+	/** No hotbar slot — granted when the run includes warrior light melee GAS. */
+	void GrantImplicitHeavyMeleeAbilityIfNeeded(class UAbilitySystemComponent* ASC, ADFPlayerState* PlayerState);
 
 	UPROPERTY(Transient)
 	FDFRunState RunState;

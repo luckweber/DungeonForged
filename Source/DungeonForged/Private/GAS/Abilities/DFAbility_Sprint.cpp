@@ -26,6 +26,7 @@ void UDFAbility_Sprint::PostInitProperties()
 		BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Stunned);
 		BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Rooted);
 		BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Dodging);
+		BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Exhausted);
 	}
 }
 

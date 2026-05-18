@@ -25,6 +25,7 @@ void UDFAbility_Dodge::PostInitProperties()
 		BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Dead);
 		BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Stunned);
 		BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Dodging);
+		BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Exhausted);
 		CancelAbilitiesWithTag.AddTag(FDFGameplayTags::Ability_Attack_Melee);
 	}
 }

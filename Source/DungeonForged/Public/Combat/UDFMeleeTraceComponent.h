@@ -159,6 +159,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Trace")
 	void SetBaseKnockbackForNextSwing(float NewKnockback) { OverrideBaseKnockback = NewKnockback; bUseOverrideKnockback = true; }
 
+	/** Next swing uses heavy damage/knockback multipliers and wider trace. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Trace|Heavy")
+	void ConfigureHeavySwing(float DamageMultiplier, float KnockbackMultiplier, float TraceRadiusBonus);
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Trace|Heavy")
+	void ClearHeavySwing();
+
+	UFUNCTION(BlueprintPure, Category = "Combat|Trace|Heavy")
+	float GetEffectiveTraceRadius() const;
+
 	/** Mesh used for socket-based traces (assigned weapon skeletal or owner fallback); for tooling / debug dumps. */
 	USkeletalMeshComponent* GetResolvedTraceMesh() const;
 
@@ -202,4 +212,7 @@ protected:
 	bool bHasLastTraceSegment = false;
 
 	bool bLastTraceUsedFallbackSegment = false;
+
+	bool bHeavySwingActive = false;
+	float HeavySwingTraceRadius = 0.f;
 };

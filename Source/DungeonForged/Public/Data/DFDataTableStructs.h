@@ -58,6 +58,21 @@ enum class EEnemyTier : uint8
 	Boss   UMETA(DisplayName = "Boss"),
 };
 
+UENUM(BlueprintType)
+enum class EDFEnemyArchetype : uint8
+{
+	Grunt UMETA(DisplayName = "Grunt"),
+	Tank UMETA(DisplayName = "Tank"),
+	Skirmisher UMETA(DisplayName = "Skirmisher"),
+	Caster UMETA(DisplayName = "Caster"),
+	Berserker UMETA(DisplayName = "Berserker"),
+	Healer UMETA(DisplayName = "Healer"),
+	Spawner UMETA(DisplayName = "Spawner"),
+	Shielder UMETA(DisplayName = "Shielder"),
+	Sniper UMETA(DisplayName = "Sniper"),
+	Bomber UMETA(DisplayName = "Bomber"),
+};
+
 /** DataTable: grant a UDF gameplay ability; used e.g. with ADFPlayerState::GrantAbilitiesFromDataTable. */
 USTRUCT(BlueprintType)
 struct DUNGEONFORGED_API FDFAbilityTableRow : public FTableRowBase
@@ -175,6 +190,9 @@ struct DUNGEONFORGED_API FDFItemTableRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat")
 	TArray<TObjectPtr<UAnimMontage>> WeaponMeleeComboMontages;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat")
+	TObjectPtr<UAnimMontage> WeaponHeavyAttackMontage;
+
 	/** Overrides UDFMeleeTraceComponent::BaseDamage while equipped; leave 0 to use character defaults. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat", meta = (ClampMin = "0.0"))
 	float WeaponMeleeBaseDamage = 0.f;
@@ -253,6 +271,9 @@ struct DUNGEONFORGED_API FDFEnemyTableRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy")
 	EEnemyTier Tier = EEnemyTier::Normal;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI")
+	EDFEnemyArchetype Archetype = EDFEnemyArchetype::Grunt;
 
 	/**
 	 * When > 0, `ADFEnemyBase::InitializeFromDataTable` sets `UCharacterMovementComponent::MaxWalkSpeed`
@@ -389,6 +410,9 @@ struct DUNGEONFORGED_API FDFClassTableRow : public FTableRowBase
 	/** Fallback armed montages when the equipped weapon row has no WeaponMeleeComboMontages. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat")
 	TArray<TObjectPtr<UAnimMontage>> ArmedMeleeComboMontagesFallback;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat")
+	TObjectPtr<UAnimMontage> ArmedHeavyAttackMontageFallback;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|GAS")
 	TMap<FGameplayAttribute, float> BaseAttributeValues;

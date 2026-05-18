@@ -79,6 +79,12 @@ protected:
 	void OnSfxChanged(float Value);
 	UFUNCTION()
 	void OnVoiceChanged(float Value);
+	UFUNCTION()
+	void OnCameraShakeIntensityChanged(float Value);
+	UFUNCTION()
+	void OnHitStopIntensityChanged(float Value);
+	UFUNCTION()
+	void OnShowDamageNumbersToggled(bool bOn);
 
 	UFUNCTION()
 	void OnTabButtonAudio() { ShowTabByIndex(0); }
@@ -95,6 +101,7 @@ protected:
 	void RebuildColorBlindCombo();
 	EDFColorBlindMode ParseColorBlindCombo();
 	void SetPendingLanguage(EDFLanguage L);
+	void SyncAccessibilityFromSubsystem();
 
 	/* --- Layout (WBP_BP_OptionsScreen names must match) --- */
 
@@ -141,6 +148,13 @@ protected:
 	TObjectPtr<UComboBoxString> Combo_ColorBlind = nullptr;
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> Button_ApplyAccessibility = nullptr;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<USlider> Slider_CameraShakeIntensity = nullptr;
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<USlider> Slider_HitStopIntensity = nullptr;
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UCheckBox> Check_ShowDamageNumbers = nullptr;
 
 	/* Language */
 	UPROPERTY(meta = (BindWidgetOptional))

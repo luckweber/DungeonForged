@@ -123,6 +123,13 @@ public:
 		const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 		const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 
+	virtual void EndAbility(
+		const FGameplayAbilitySpecHandle Handle,
+		const FGameplayAbilityActorInfo* ActorInfo,
+		const FGameplayAbilityActivationInfo ActivationInfo,
+		bool bReplicateEndAbility,
+		bool bWasCancelled) override;
+
 protected:
 	UFUNCTION()
 	void OnHitWindowElapsed();
@@ -146,4 +153,5 @@ protected:
 	int32 ActiveParallelTasks = 0;
 	bool bHitWindowDone = false;
 	bool bMontageFinishHandled = false;
+	bool bHoldsAttackToken = false;
 };

@@ -35,6 +35,9 @@ Content/Sword_and_Shield
 
 
 
+# Claude/Cursor worktrees must not live under Source/ (duplicate Build.cs breaks UBT)
+Source/.claude/
+
 # Visual Studio Code (optional local settings)
 .vscode/
 

@@ -51,6 +51,8 @@ private:
 	FVector WorldLocation = FVector::ZeroVector;
 	bool bInUse = false;
 	float ScreenScatterX = 0.f;
+	bool bCritShakeActive = false;
+	float CritShakeElapsed = 0.f;
 
 	FTimerHandle EndTimer;
 	FTimerHandle FollowTimer;
@@ -58,4 +60,5 @@ private:
 	void OnFloatTimeElapsed();
 	void UpdateScreenPosition();
 	void ApplyStyleForType(ECombatTextType Type) const;
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 };

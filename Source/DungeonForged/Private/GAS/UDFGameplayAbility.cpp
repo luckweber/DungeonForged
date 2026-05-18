@@ -209,7 +209,20 @@ void UDFGameplayAbility::ApplyCooldown(
 		return;
 	}
 
-	SpecHandle.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Cooldown, BaseCooldown);
+	float EffectiveCooldown = BaseCooldown;
+	if (UAbilitySystemComponent* const ASC = ActorInfo->AbilitySystemComponent.Get())
+	{
+		if (const UDFAttributeSet* const Attrs = ASC->GetSet<UDFAttributeSet>())
+		{
+			const float CDRRaw = FMath::Max(0.f, Attrs->GetCooldownReduction());
+			const float HardCap = 0.4f;
+			const float Excess = FMath::Max(0.f, CDRRaw - HardCap);
+			const float ExtraReduction = Excess / (Excess + 0.6f) * 0.1f;
+			const float TotalCDR = FMath::Min(0.5f, HardCap + ExtraReduction);
+			EffectiveCooldown = BaseCooldown * (1.f - TotalCDR);
+		}
+	}
+	SpecHandle.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Cooldown, EffectiveCooldown);
 
 	FGameplayTagContainer CooldownGrantTags;
 	BuildCooldownTagContainer(CooldownGrantTags);

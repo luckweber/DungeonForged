@@ -57,6 +57,7 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Ability_Warrior_Charge;
 	static FGameplayTag Ability_Warrior_Execute;
 	static FGameplayTag Ability_Warrior_MeleeSwing;
+	static FGameplayTag Ability_Warrior_HeavyAttack;
 	static FGameplayTag Ability_Equipment;
 	static FGameplayTag Ability_Equipment_DrawWeapon;
 	static FGameplayTag Ability_Equipment_StowWeapon;
@@ -148,6 +149,7 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag State_Invulnerable;
 	static FGameplayTag State_Targeting;
 	static FGameplayTag State_InCombat;
+	static FGameplayTag State_Exhausted;
 	static FGameplayTag State_Sprinting;
 	static FGameplayTag State_Dodging;
 	static FGameplayTag State_Attacking;

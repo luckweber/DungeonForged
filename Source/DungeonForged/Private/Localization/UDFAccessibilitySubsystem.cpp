@@ -129,7 +129,20 @@ void UDFAccessibilitySubsystem::PropagateToPlayerPawns() const
 
 float UDFAccessibilitySubsystem::GetCameraShakeAmplitudeScale() const
 {
-	return CurrentSettings.bReduceMotion ? 0.1f : 1.f;
+	if (CurrentSettings.bReduceMotion)
+	{
+		return 0.1f;
+	}
+	return FMath::Clamp(CurrentSettings.CameraShakeIntensity, 0.f, 1.f);
+}
+
+float UDFAccessibilitySubsystem::GetHitStopIntensityScale() const
+{
+	if (CurrentSettings.bReduceMotion)
+	{
+		return 0.1f;
+	}
+	return FMath::Clamp(CurrentSettings.HitStopIntensity, 0.f, 1.f);
 }
 
 float UDFAccessibilitySubsystem::GetVFXIntensityScale() const

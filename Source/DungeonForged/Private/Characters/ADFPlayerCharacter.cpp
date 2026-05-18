@@ -13,6 +13,9 @@
 #include "Camera/CameraComponent.h"
 #include "Camera/UDFCameraComponent.h"
 #include "Camera/UDFLockOnComponent.h"
+#include "Combat/UDFCombatStateLibrary.h"
+#include "Combat/UDFStaminaExhaustionComponent.h"
+#include "GAS/Effects/UGE_StaminaRegen.h"
 #include "Combat/UDFComboComponent.h"
 #include "Combat/UDFComboPointsComponent.h"
 #include "Combat/UDFHitReactionComponent.h"
@@ -105,6 +108,8 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 	DFAudio->SetupAttachment(RootComponent);
 
 	ScreenEffects = CreateDefaultSubobject<UDFScreenEffectsComponent>(TEXT("ScreenEffects"));
+	StaminaExhaustion = CreateDefaultSubobject<UDFStaminaExhaustionComponent>(TEXT("StaminaExhaustion"));
+	DefaultStaminaRegenEffect = UGE_StaminaRegen::StaticClass();
 
 	MinimapFog = CreateDefaultSubobject<UDFMinimapFogComponent>(TEXT("MinimapFog"));
 	MinimapFog->SetupAttachment(RootComponent);
@@ -286,6 +291,19 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 		{
 			MeleeTrace->MeleeDamageGameplayEffect = CachedDefaultMeleeTraceDamageGameplayEffect;
 		}
+
+		if (WRow.WeaponHeavyAttackMontage)
+		{
+			Combo->HeavyAttackMontage = WRow.WeaponHeavyAttackMontage;
+		}
+		else if (ClassRow && ClassRow->ArmedHeavyAttackMontageFallback)
+		{
+			Combo->HeavyAttackMontage = ClassRow->ArmedHeavyAttackMontageFallback;
+		}
+		else
+		{
+			Combo->HeavyAttackMontage = nullptr;
+		}
 	};
 
 	if (!Equipment || Equipment->IsSlotEmpty(EEquipmentSlot::Weapon))
@@ -304,6 +322,8 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 			MeleeTrace->BaseDamage = CachedDefaultMeleeTraceBaseDamage;
 			MeleeTrace->MeleeDamageGameplayEffect = CachedDefaultMeleeTraceDamageGameplayEffect;
 		}
+
+		Combo->HeavyAttackMontage = nullptr;
 
 		return;
 	}
@@ -574,7 +594,8 @@ void ADFPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	{
 		if (IA_Attack)
 		{
-			EIC->BindAction(IA_Attack, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_Attack);
+			EIC->BindAction(IA_Attack, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_AttackPressed);
+			EIC->BindAction(IA_Attack, ETriggerEvent::Completed, this, &ADFPlayerCharacter::Input_AttackReleased);
 		}
 		if (IA_Interact)
 		{
@@ -601,7 +622,8 @@ void ADFPlayerCharacter::RegisterAbilityInputFromConfig(UEnhancedInputComponent*
 		// UDFRunManager::GrantAbilitiesForCurrentRun assigns InputID from grant list index — easy mismatch.
 		if (IA_Attack && DFPlayerCharacterInput_Impl::IsSameInputActionAsset(Row.Action, IA_Attack))
 		{
-			EIC->BindAction(Row.Action, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_Attack);
+			EIC->BindAction(Row.Action, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_AttackPressed);
+			EIC->BindAction(Row.Action, ETriggerEvent::Completed, this, &ADFPlayerCharacter::Input_AttackReleased);
 			continue;
 		}
 		if (IA_SecondaryAttack
@@ -800,6 +822,7 @@ void ADFPlayerCharacter::FinalizeDeathPresentation()
 		return;
 	}
 	bDeathPresentationFinalized = true;
+	UDFCombatStateLibrary::ForceExitCombat(this, this);
 
 	if (UWorld* const World = GetWorld())
 	{
@@ -888,6 +911,7 @@ void ADFPlayerCharacter::InitializeGAS()
 	}
 	BindPlayerOutOfHealth();
 	GrantDeathAbility();
+	ApplyDefaultPassiveGameplayEffects();
 
 	if (IsLocallyControlled() && GetWorld() && GetWorld()->GetNetMode() != NM_DedicatedServer)
 	{
@@ -902,6 +926,24 @@ void ADFPlayerCharacter::InitializeGAS()
 	if (IsLocallyControlled() && !IsRunningDedicatedServer() && AttributeSet && ScreenEffects)
 	{
 		ScreenEffects->OnGASReady(AttributeSet);
+	}
+}
+
+void ADFPlayerCharacter::ApplyDefaultPassiveGameplayEffects()
+{
+	if (!HasAuthority() || !AbilitySystemComponent)
+	{
+		return;
+	}
+	if (DefaultStaminaRegenEffect && !StaminaRegenEffectHandle.IsValid())
+	{
+		const FGameplayEffectContextHandle Ctx = AbilitySystemComponent->MakeEffectContext();
+		const FGameplayEffectSpecHandle Spec =
+			AbilitySystemComponent->MakeOutgoingSpec(DefaultStaminaRegenEffect, 1.f, Ctx);
+		if (Spec.IsValid() && Spec.Data.IsValid())
+		{
+			StaminaRegenEffectHandle = AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+		}
 	}
 }
 
@@ -956,15 +998,31 @@ void ADFPlayerCharacter::Input_CameraZoom(const FInputActionValue& Value)
 	Cam->OnZoomInput(-Value.Get<float>() * (CameraZoomStep / 50.f));
 }
 
-void ADFPlayerCharacter::Input_Attack()
+void ADFPlayerCharacter::Input_AttackPressed()
 {
 	if (Combo)
 	{
-		Combo->OnAttackInput();
+		Combo->OnPrimaryAttackPressed();
+	}
+}
+
+void ADFPlayerCharacter::Input_AttackReleased()
+{
+	if (Combo)
+	{
+		Combo->OnPrimaryAttackReleased();
 	}
 	else
 	{
 		TryActivateByGameplayTagName(FName("Ability.Attack"));
+	}
+}
+
+void ADFPlayerCharacter::Server_CommitHeavyAttack_Implementation()
+{
+	if (Combo)
+	{
+		Combo->ServerCommitHeavyAttack();
 	}
 }
 
@@ -1322,6 +1380,16 @@ void ADFPlayerCharacter::Client_HitFeedback_Implementation(
 		ScreenEffects->ApplyHitFromCombat(
 			Band, DamagePercent, InstigatorActor, GetController<APlayerController>());
 	}
+	if (IsLocallyControlled())
+	{
+		FVector SourceLoc = GetActorLocation() - GetActorForwardVector() * 200.f;
+		if (IsValid(InstigatorActor))
+		{
+			SourceLoc = InstigatorActor->GetActorLocation();
+		}
+		OnDamageTakenForUI.Broadcast(SourceLoc, FMath::Clamp(DamagePercent, 0.05f, 1.f));
+	}
+	UDFCombatStateLibrary::NotifyCombatActivity(this, this);
 }
 
 void ADFPlayerCharacter::Multicast_PlayHitReactionMontage_Implementation(UAnimMontage* Montage, const float PlayRate)

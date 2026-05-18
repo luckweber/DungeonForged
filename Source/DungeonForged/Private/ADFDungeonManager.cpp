@@ -733,6 +733,16 @@ bool UDFDungeonManager::GetCurrentFloorData(FDFDungeonFloorRow& OutRow) const
 	return false;
 }
 
+float UDFDungeonManager::GetCurrentFloorDifficultyMultiplier() const
+{
+	FDFDungeonFloorRow Row;
+	if (GetCurrentFloorData(Row))
+	{
+		return FMath::Max(0.1f, Row.DifficultyMultiplier);
+	}
+	return 1.f;
+}
+
 void UDFDungeonManager::NotifyRunFailed(AActor* Player)
 {
 	OnRunFailed.Broadcast(Player);

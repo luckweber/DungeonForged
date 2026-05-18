@@ -94,6 +94,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DF|Boss|GAS")
 	TSubclassOf<UGameplayAbility> PhaseSlamAbility;
 
+	/** After phase transition, boss takes +50% damage while this tag is active. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DF|Boss|Phase", meta = (ClampMin = "0.0"))
+	float BossVulnerabilityDuration = 2.f;
+
 	UPROPERTY(BlueprintAssignable, Category = "DF|Boss")
 	FOnDFBossPhaseChanged OnBossPhaseChanged;
 
@@ -138,8 +142,11 @@ protected:
 
 	void TryAdvancePhaseFromHealth(float Current, float Max);
 	void ClearSpawnedMinions();
+	void BeginBossVulnerabilityWindow();
+	void EndBossVulnerabilityWindow();
 
 	FTimerHandle EnrageTimerHandle;
+	FTimerHandle VulnerabilityTimerHandle;
 	bool bEnrageTimerSet = false;
 
 	/** Replicated current phase; used on clients in OnRep to build Old for OnBossPhaseChanged. */

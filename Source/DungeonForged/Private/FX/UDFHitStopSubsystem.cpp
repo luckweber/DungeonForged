@@ -6,6 +6,7 @@
 #include "HAL/PlatformTime.h"
 #include "Kismet/GameplayStatics.h"
 #include "Localization/UDFAccessibilitySubsystem.h"
+#include "DungeonForgedModule.h"
 
 float UDFHitStopSubsystem::SafeGlobalDilation(const float Requested)
 {
@@ -58,19 +59,23 @@ void UDFHitStopSubsystem::TriggerHitStop(const float Duration, const float TimeD
 	{
 		return;
 	}
+	float IntensityScale = 1.f;
 	if (UGameInstance* const GI = W->GetGameInstance())
 	{
 		if (const UDFAccessibilitySubsystem* const A11y = GI->GetSubsystem<UDFAccessibilitySubsystem>())
 		{
-			if (A11y->GetSettings().bReduceMotion)
-			{
-				return;
-			}
+			IntensityScale = A11y->GetHitStopIntensityScale();
 		}
 	}
+	if (IntensityScale <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+	const float ScaledDuration = Duration * IntensityScale;
+	const float ScaledDilation = FMath::Lerp(1.f, TimeDilation, IntensityScale);
 	const double Now = FPlatformTime::Seconds();
 	const double Remaining = bInHitStop ? FMath::Max(0.0, static_cast<double>(HitStopEndRealTime) - Now) : 0.0;
-	if (bInHitStop && Duration <= Remaining)
+	if (bInHitStop && ScaledDuration <= Remaining)
 	{
 		return;
 	}
@@ -78,10 +83,12 @@ void UDFHitStopSubsystem::TriggerHitStop(const float Duration, const float TimeD
 	{
 		EndHitStop();
 	}
-	const float D = FMath::Max(0.0001f, Duration);
-	const float G = SafeGlobalDilation(TimeDilation);
+	const float D = FMath::Max(0.0001f, ScaledDuration);
+	const float G = SafeGlobalDilation(ScaledDilation);
 	ApplyHitStop(G, ExcludeActor);
 	HitStopEndRealTime = Now + static_cast<double>(D);
+	UE_LOG(LogDFTuning, Verbose, TEXT("HitStop dur=%.3f dil=%.3f scale=%.2f instigator=%s"),
+		D, G, IntensityScale, *GetNameSafe(ExcludeActor));
 }
 
 void UDFHitStopSubsystem::ApplyHitStop(const float TimeDilation, AActor* const ExcludeActor)

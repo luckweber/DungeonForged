@@ -226,6 +226,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Enemy")
 	bool HasDied() const { return bHasDied; }
 
+	UFUNCTION(BlueprintPure, Category = "DF|Enemy")
+	EDFEnemyArchetype GetEnemyArchetype() const { return CachedEnemyArchetype; }
+
 	/** Server: death GA running; anim/hits stay active until montage ends. */
 	UFUNCTION(BlueprintPure, Category = "DF|Enemy")
 	bool IsInDeathFlow() const { return bDeathFlowActive; }
@@ -309,6 +312,9 @@ protected:
 
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastOnDeath(AActor* Killer);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_NotifyEliteEngaged();
 
 	UFUNCTION()
 	void OnDestroyAfterDeath();
@@ -400,6 +406,14 @@ protected:
 	/** Filled in InitializeFromDataTable for loot. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|Enemy")
 	TArray<FName> CachedLootTableRowNames;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|Enemy")
+	EEnemyTier CachedEnemyTier = EEnemyTier::Normal;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|Enemy")
+	EDFEnemyArchetype CachedEnemyArchetype = EDFEnemyArchetype::Grunt;
+
+	bool bEliteMusicNotified = false;
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|Enemy")
 	float CachedExperienceReward = 0.f;

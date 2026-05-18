@@ -8,6 +8,7 @@
 #include "Misc/CoreDelegates.h"
 
 DEFINE_LOG_CATEGORY(LogDungeonForged);
+DEFINE_LOG_CATEGORY(LogDFTuning);
 
 void DFPrepareWidgetForUIModeFocus(UUserWidget* const Widget)
 {

@@ -6,6 +6,7 @@
 #include "Combat/AN/AN_TraceStart.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
+#include "Combat/UDFCombatStateLibrary.h"
 #include "Combat/UDFHitReactionComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -25,6 +26,9 @@
 #include "DFLootDrop.h"
 #include "EngineUtils.h"
 #include "DungeonForgedModule.h"
+#include "FX/UDFCameraShakeFunctionLibrary.h"
+#include "FX/UDFHitStopSubsystem.h"
+#include "GameFramework/PlayerController.h"
 
 #if !UE_BUILD_SHIPPING
 #include "HAL/IConsoleManager.h"
@@ -303,6 +307,32 @@ FCollisionObjectQueryParams UDFMeleeTraceComponent::BuildMeleeTraceObjectQuery()
 		Obj.AddObjectTypesToQuery(ECC_WorldDynamic);
 	}
 	return Obj;
+}
+
+float UDFMeleeTraceComponent::GetEffectiveTraceRadius() const
+{
+	if (bHeavySwingActive && HeavySwingTraceRadius > 0.f)
+	{
+		return HeavySwingTraceRadius;
+	}
+	return TraceRadius;
+}
+
+void UDFMeleeTraceComponent::ConfigureHeavySwing(
+	const float DamageMultiplier, const float KnockbackMultiplier, const float TraceRadiusBonus)
+{
+	const float DmgMult = FMath::Max(DamageMultiplier, 1.f);
+	const float KbMult = FMath::Max(KnockbackMultiplier, 1.f);
+	SetBaseDamageForNextSwing(BaseDamage * DmgMult);
+	SetBaseKnockbackForNextSwing(BaseKnockback * KbMult);
+	bHeavySwingActive = true;
+	HeavySwingTraceRadius = TraceRadius + FMath::Max(0.f, TraceRadiusBonus);
+}
+
+void UDFMeleeTraceComponent::ClearHeavySwing()
+{
+	bHeavySwingActive = false;
+	HeavySwingTraceRadius = 0.f;
 }
 
 USkeletalMeshComponent* UDFMeleeTraceComponent::GetOwnerBodyMesh() const
@@ -712,7 +742,8 @@ void UDFMeleeTraceComponent::LogMeleeTraceNearestTargets(const FVector& TraceSta
 	}
 
 	const FVector Mid = (TraceStart + TraceEnd) * 0.5f;
-	const float SearchR = FMath::Max(400.f, FVector::Dist(TraceStart, TraceEnd) + TraceRadius + 100.f);
+	const float EffectiveRadius = GetEffectiveTraceRadius();
+	const float SearchR = FMath::Max(400.f, FVector::Dist(TraceStart, TraceEnd) + EffectiveRadius + 100.f);
 	FCollisionObjectQueryParams Obj = BuildMeleeTraceObjectQuery();
 	FCollisionQueryParams Q(SCENE_QUERY_STAT(DF_MeleeTraceDiag), false, Owner);
 	Q.bTraceComplex = true;
@@ -969,6 +1000,7 @@ void UDFMeleeTraceComponent::EndTrace()
 #endif
 	bHasLastTraceSegment = false;
 	bTracing = false;
+	ClearHeavySwing();
 #if UE_BUILD_SHIPPING
 	SetComponentTickEnabled(false);
 #endif
@@ -1308,6 +1340,49 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 		const FVector N = (OptionalHit && OptionalHit->bBlockingHit) ? OptionalHit->ImpactNormal : FVector::UpVector;
 		Hit->OnHitReceived(DmgMagnitude, KbMagnitude, ToTarget, Owner, P, N);
 	}
+
+	const bool bAppliedDamage = Applied.IsValid() || bInstantGE;
+	if (bAppliedDamage && DmgMagnitude > KINDA_SMALL_NUMBER)
+	{
+		UDFCombatStateLibrary::NotifyCombatActivity(Owner, Owner);
+	}
+	if (bAppliedDamage && DmgMagnitude > KINDA_SMALL_NUMBER && Owner->HasAuthority())
+	{
+		const bool bCrit = FDFGameplayTags::Data_CriticalHit.IsValid()
+			&& SpecHandle.Data->GetSetByCallerMagnitude(FDFGameplayTags::Data_CriticalHit, false, 0.f) > 0.5f;
+		if (UWorld* const World = GetWorld())
+		{
+			if (UDFHitStopSubsystem* const HitStop = World->GetSubsystem<UDFHitStopSubsystem>())
+			{
+				if (bCrit)
+				{
+					HitStop->CriticalHit(Owner);
+				}
+				else if (DmgMagnitude >= 30.f || KbMagnitude > 100.f)
+				{
+					HitStop->HeavyHit(Owner);
+				}
+				else
+				{
+					HitStop->LightHit(Owner);
+				}
+			}
+		}
+		if (ADFPlayerCharacter* const Player = Cast<ADFPlayerCharacter>(Owner))
+		{
+			if (APlayerController* const PC = Player->GetController<APlayerController>())
+			{
+				if (bCrit)
+				{
+					UDFCameraShakeFunctionLibrary::PlayHeavyHitOnOwner(this, PC);
+				}
+				else
+				{
+					UDFCameraShakeFunctionLibrary::PlayLightHitOnOwner(this, PC);
+				}
+			}
+		}
+	}
 }
 
 void UDFMeleeTraceComponent::TickTrace(float /*DeltaTime*/)
@@ -1333,13 +1408,14 @@ void UDFMeleeTraceComponent::TickTrace(float /*DeltaTime*/)
 	bHasLastTraceSegment = true;
 
 	const bool bAuthorityTrace = !bServerOnlyTraces || Owner->HasAuthority();
+	const float EffectiveRadius = GetEffectiveTraceRadius();
 
 #if ENABLE_DRAW_DEBUG
 	if (bDrawDebugTrace)
 	{
-		const FColor Color = FColor::Yellow;
-		DrawDebugSphere(World, TraceStart, TraceRadius, 8, Color, false, 0.05f, 0, 0.5f);
-		DrawDebugSphere(World, TraceEnd, TraceRadius, 8, Color, false, 0.05f, 0, 0.5f);
+		const FColor Color = bHeavySwingActive ? FColor::Orange : FColor::Yellow;
+		DrawDebugSphere(World, TraceStart, EffectiveRadius, 8, Color, false, 0.05f, 0, 0.5f);
+		DrawDebugSphere(World, TraceEnd, EffectiveRadius, 8, Color, false, 0.05f, 0, 0.5f);
 		DrawDebugLine(World, TraceStart, TraceEnd, Color, false, 0.05f, 0, 0.5f);
 	}
 #endif
@@ -1354,7 +1430,7 @@ void UDFMeleeTraceComponent::TickTrace(float /*DeltaTime*/)
 	Params.bTraceComplex = true;
 	Params.AddIgnoredActor(Owner);
 
-	FCollisionShape Shape = FCollisionShape::MakeSphere(TraceRadius);
+	FCollisionShape Shape = FCollisionShape::MakeSphere(EffectiveRadius);
 	TArray<FHitResult> Hits;
 	const FCollisionObjectQueryParams ObjParams = BuildMeleeTraceObjectQuery();
 	const bool bHit = World->SweepMultiByObjectType(
@@ -1368,7 +1444,7 @@ void UDFMeleeTraceComponent::TickTrace(float /*DeltaTime*/)
 			Hits.Num(),
 			bAuthorityTrace ? 1 : 0,
 			FVector::Dist(TraceStart, TraceEnd),
-			TraceRadius,
+			EffectiveRadius,
 			*TraceStart.ToCompactString(),
 			*TraceEnd.ToCompactString());
 		for (int32 i = 0; i < Hits.Num() && i < 6; ++i)
@@ -1393,7 +1469,7 @@ void UDFMeleeTraceComponent::TickTrace(float /*DeltaTime*/)
 	if (HitActorsThisSwing.Num() == HitsBefore)
 	{
 		const FVector Mid = (TraceStart + TraceEnd) * 0.5f;
-		const float FallbackRadius = FMath::Max(TraceRadius + 15.f, FVector::Dist(TraceStart, TraceEnd) * 0.35f);
+		const float FallbackRadius = FMath::Max(EffectiveRadius + 15.f, FVector::Dist(TraceStart, TraceEnd) * 0.35f);
 #if !UE_BUILD_SHIPPING
 		if (ShouldLogMeleeTraceDetail())
 		{

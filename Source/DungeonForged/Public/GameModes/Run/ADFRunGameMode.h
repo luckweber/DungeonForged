@@ -99,7 +99,7 @@ protected:
 	void HandleRunTimeExpired();
 
 	void TriggerVictory();
-	void TriggerDefeat();
+	void TriggerDefeat(const FString& DefeatCause = TEXT("Your health reached zero."));
 	void ScheduleFinishVictoryToNexus();
 	void ScheduleFinishDefeatToNexus();
 	void UnbindPawnOutOfHealth(APlayerController* PC);

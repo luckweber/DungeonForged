@@ -37,6 +37,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Accessibility")
 	float GetCameraShakeAmplitudeScale() const;
 
+	/** 0 = no hit-stop; 1 = full. @c bReduceMotion forces 0.1. */
+	UFUNCTION(BlueprintPure, Category = "DF|Accessibility")
+	float GetHitStopIntensityScale() const;
+
 	/** Intensity scale for VFX/screen pulse (0.1 when reduce motion). */
 	UFUNCTION(BlueprintPure, Category = "DF|Accessibility")
 	float GetVFXIntensityScale() const;
