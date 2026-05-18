@@ -224,7 +224,14 @@ protected:
 	void ApplyDeathGameplayState();
 	void PlayDeathMontageCosmetic();
 
+	/** Locks the mesh on the final pose so the AnimGraph cannot revert to idle while the actor lingers before destroy. */
+	void FinalizeEnemyDeathPose();
+
+	void OnDeathMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted);
+	void OnDeathMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+
 	FTimerHandle DeathDestroyTimer;
+	FTimerHandle DeathPoseLockTimer;
 
 	/** Prevents double montage when multicast and OnRep both run. */
 	bool bDeathCosmeticPlayed = false;

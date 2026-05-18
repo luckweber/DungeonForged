@@ -289,6 +289,7 @@ void ADFEnemyBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (UWorld* const W = GetWorld())
 	{
 		W->GetTimerManager().ClearTimer(SpawnBirthBTDelayTimer);
+		W->GetTimerManager().ClearTimer(DeathPoseLockTimer);
 	}
 	UnbindAttributeDelegates();
 	Super::EndPlay(EndPlayReason);
@@ -649,7 +650,66 @@ void ADFEnemyBase::PlayDeathMontageCosmetic()
 		return;
 	}
 	bDeathCosmeticPlayed = true;
-	DFDeathAnimation::PlayDeathMontage(GetMesh(), DeathMontage);
+
+	USkeletalMeshComponent* const MeshComp = GetMesh();
+	if (!MeshComp || !DeathMontage)
+	{
+		FinalizeEnemyDeathPose();
+		return;
+	}
+
+	UAnimInstance* const Anim = MeshComp->GetAnimInstance();
+	if (!Anim)
+	{
+		FinalizeEnemyDeathPose();
+		return;
+	}
+
+	FOnMontageBlendingOutStarted BlendOut;
+	BlendOut.BindUObject(this, &ADFEnemyBase::OnDeathMontageBlendingOut);
+	Anim->Montage_SetBlendingOutDelegate(BlendOut, DeathMontage);
+
+	FOnMontageEnded OnEnded;
+	OnEnded.BindUObject(this, &ADFEnemyBase::OnDeathMontageEnded);
+	Anim->Montage_SetEndDelegate(OnEnded, DeathMontage);
+
+	const float Duration = DFDeathAnimation::PlayDeathMontage(MeshComp, DeathMontage);
+	if (Duration > KINDA_SMALL_NUMBER)
+	{
+		const float LockDelay = FMath::Max(0.01f, Duration - 0.03f);
+		if (UWorld* const W = GetWorld())
+		{
+			W->GetTimerManager().SetTimer(
+				DeathPoseLockTimer,
+				this,
+				&ADFEnemyBase::FinalizeEnemyDeathPose,
+				LockDelay,
+				false);
+		}
+	}
+	else
+	{
+		FinalizeEnemyDeathPose();
+	}
+}
+
+void ADFEnemyBase::FinalizeEnemyDeathPose()
+{
+	if (UWorld* const W = GetWorld())
+	{
+		W->GetTimerManager().ClearTimer(DeathPoseLockTimer);
+	}
+	DFDeathAnimation::LockDeathPoseOnMesh(GetMesh(), DeathMontage);
+}
+
+void ADFEnemyBase::OnDeathMontageBlendingOut(UAnimMontage* /*Montage*/, bool /*bInterrupted*/)
+{
+	FinalizeEnemyDeathPose();
+}
+
+void ADFEnemyBase::OnDeathMontageEnded(UAnimMontage* /*Montage*/, bool /*bInterrupted*/)
+{
+	FinalizeEnemyDeathPose();
 }
 
 void ADFEnemyBase::MulticastOnDeath_Implementation(AActor* /*Killer*/)

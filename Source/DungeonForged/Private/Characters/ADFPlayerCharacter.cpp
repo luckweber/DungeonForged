@@ -778,6 +778,7 @@ void ADFPlayerCharacter::UnlockDeathPose()
 	if (USkeletalMeshComponent* const MeshComp = GetMesh())
 	{
 		MeshComp->bPauseAnims = false;
+		MeshComp->SetComponentTickEnabled(true);
 	}
 }
 
