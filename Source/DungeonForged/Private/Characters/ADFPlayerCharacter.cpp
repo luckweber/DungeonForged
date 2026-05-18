@@ -1,6 +1,9 @@
 #include "Characters/ADFPlayerCharacter.h"
 
 #include "Animation/DFDeathAnimation.h"
+#include "GAS/Abilities/UDFAbility_Player_Death.h"
+#include "GAS/DFGameplayTags.h"
+#include "Abilities/GameplayAbility.h"
 #include "Characters/ADFPlayerState.h"
 #include "Characters/UDFCharacterMovementComponent.h"
 #include "GAS/DFGameplayTags.h"
@@ -697,24 +700,44 @@ void ADFPlayerCharacter::UnbindPlayerOutOfHealth()
 	BoundOutOfHealthAttributeSet.Reset();
 }
 
-void ADFPlayerCharacter::HandlePlayerOutOfHealth()
+void ADFPlayerCharacter::GrantDeathAbility()
 {
-	if (!HasAuthority() || bPlayerDeathHandled)
+	if (!HasAuthority())
 	{
 		return;
 	}
-	bPlayerDeathHandled = true;
-	SetCanBeDamaged(false);
-
-	if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponent())
+	UAbilitySystemComponent* const ASC = GetAbilitySystemComponent();
+	if (!ASC || DeathAbilitySpecHandle.IsValid())
 	{
-		ASC->CancelAllAbilities();
-		if (FDFGameplayTags::State_Dead.IsValid())
-		{
-			ASC->AddLooseGameplayTag(FDFGameplayTags::State_Dead, 1);
-		}
+		return;
 	}
+	DeathAbilitySpecHandle = ASC->GiveAbility(
+		FGameplayAbilitySpec(UUDFAbility_Player_Death::StaticClass(), 1, INDEX_NONE, this));
+}
 
+bool ADFPlayerCharacter::TryActivateDeathAbility()
+{
+	UAbilitySystemComponent* const ASC = GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return false;
+	}
+	if (DeathAbilitySpecHandle.IsValid())
+	{
+		return ASC->TryActivateAbility(DeathAbilitySpecHandle);
+	}
+	if (FDFGameplayTags::Ability_Death_Player.IsValid())
+	{
+		FGameplayTagContainer DeathTagContainer;
+		DeathTagContainer.AddTag(FDFGameplayTags::Ability_Death_Player);
+		return ASC->TryActivateAbilitiesByTag(DeathTagContainer, true);
+	}
+	return false;
+}
+
+void ADFPlayerCharacter::BeginDeathPresentationFromAbility()
+{
+	SetCanBeDamaged(false);
 	if (MeleeTrace)
 	{
 		MeleeTrace->EndTrace();
@@ -728,8 +751,41 @@ void ADFPlayerCharacter::HandlePlayerOutOfHealth()
 	{
 		DisableInput(PC);
 	}
+}
 
-	Multicast_PlayDeathMontage();
+void ADFPlayerCharacter::HandlePlayerOutOfHealth()
+{
+	if (!HasAuthority() || bPlayerDeathHandled)
+	{
+		return;
+	}
+	bPlayerDeathHandled = true;
+
+	bool bDeathActivated = false;
+	if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponent())
+	{
+		FGameplayEventData EventData;
+		EventData.Instigator = this;
+		EventData.Target = this;
+		if (FDFGameplayTags::Event_Death.IsValid()
+			&& ASC->HandleGameplayEvent(FDFGameplayTags::Event_Death, &EventData) > 0)
+		{
+			bDeathActivated = true;
+		}
+	}
+	if (!bDeathActivated && !TryActivateDeathAbility())
+	{
+		BeginDeathPresentationFromAbility();
+		if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponent())
+		{
+			ASC->CancelAllAbilities();
+			if (FDFGameplayTags::State_Dead.IsValid())
+			{
+				ASC->AddLooseGameplayTag(FDFGameplayTags::State_Dead, 1);
+			}
+		}
+		Multicast_PlayDeathMontage();
+	}
 }
 
 void ADFPlayerCharacter::LockDeathPose()
@@ -739,6 +795,12 @@ void ADFPlayerCharacter::LockDeathPose()
 
 void ADFPlayerCharacter::FinalizeDeathPresentation()
 {
+	if (bDeathPresentationFinalized)
+	{
+		return;
+	}
+	bDeathPresentationFinalized = true;
+
 	if (UWorld* const World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(DeathPoseLockTimerHandle);
@@ -815,6 +877,7 @@ void ADFPlayerCharacter::InitializeGAS()
 			SetCanBeDamaged(true);
 			UnlockDeathPose();
 			bPlayerDeathHandled = false;
+			bDeathPresentationFinalized = false;
 			if (FDFGameplayTags::State_Dead.IsValid())
 			{
 				ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Dead, 0);
@@ -824,6 +887,7 @@ void ADFPlayerCharacter::InitializeGAS()
 			*PS->GetName(), *GetName());
 	}
 	BindPlayerOutOfHealth();
+	GrantDeathAbility();
 
 	if (IsLocallyControlled() && GetWorld() && GetWorld()->GetNetMode() != NM_DedicatedServer)
 	{
@@ -1272,6 +1336,11 @@ void ADFPlayerCharacter::Multicast_PlayHitReactionMontage_Implementation(UAnimMo
 	}
 }
 
+void ADFPlayerCharacter::Multicast_FinalizeDeathPresentation_Implementation()
+{
+	FinalizeDeathPresentation();
+}
+
 void ADFPlayerCharacter::Multicast_PlayDeathMontage_Implementation()
 {
 	if (IsRunningDedicatedServer())
@@ -1300,7 +1369,7 @@ void ADFPlayerCharacter::Multicast_PlayDeathMontage_Implementation()
 		OnEnded.BindUObject(this, &ADFPlayerCharacter::OnDeathMontageEnded);
 		Anim->Montage_SetEndDelegate(OnEnded, DeathMontage);
 
-		const float Duration = DFDeathAnimation::PlayDeathMontage(MeshComp, DeathMontage);
+		const float Duration = DFDeathAnimation::PlayDeathMontage(MeshComp, DeathMontage, true, this);
 		if (Duration > KINDA_SMALL_NUMBER)
 		{
 			const float LockDelay = FMath::Max(0.01f, Duration - 0.03f);

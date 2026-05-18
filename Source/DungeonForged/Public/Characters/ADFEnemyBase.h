@@ -4,6 +4,7 @@
 #include "CoreMinimal.h"
 #include "Data/DFDataTableStructs.h"
 #include "GameFramework/Character.h"
+#include "GameplayAbilitySpec.h"
 #include "GameplayEffectTypes.h"
 #include "AbilitySystemInterface.h"
 #include "GenericTeamAgentInterface.h"
@@ -23,10 +24,25 @@ class UDFElementalComponent;
 class UBehaviorTree;
 class UGameplayAbility;
 class UGameplayEffect;
+class UCurveFloat;
+class UMaterialInstanceDynamic;
+class UMaterialInterface;
+class UPrimitiveComponent;
+class UTimelineComponent;
 class UNiagaraSystem;
 class USoundBase;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnDFEnemyDied, AActor*, Enemy, AActor*, Killer, float, ExperienceReward);
+
+/** How the corpse fades after death when @c bDissolveOnDeath is enabled. */
+UENUM(BlueprintType)
+enum class EDFEnemyDeathDissolveMode : uint8
+{
+	/** Drive @c DissolveParameterName on the mesh's current material instance dynamics. */
+	ScalarOnExistingMaterials UMETA(DisplayName = "Scalar On Existing Materials"),
+	/** Replace body/weapon slot with @c DissolveMaterialInstance (Aura-style). */
+	SwapDissolveMaterial UMETA(DisplayName = "Swap Dissolve Material"),
+};
 
 UCLASS(Blueprintable)
 class DUNGEONFORGED_API ADFEnemyBase : public ACharacter, public IAbilitySystemInterface, public IGenericTeamAgentInterface
@@ -123,6 +139,60 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy")
 	TObjectPtr<UAnimMontage> DeathMontage;
 
+	/** Seconds on the ground after death montage before destroy (when @c bDissolveOnDeath is false). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy|Death", meta = (ClampMin = "0"))
+	float CorpseDestroyDelay = 2.5f;
+
+	/** Fade out corpse after lying on the ground (see dissolve mode). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy|Death")
+	bool bDissolveOnDeath = false;
+
+	/** Wait after montage ends (pose locked) before dissolve starts. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy|Death", meta = (EditCondition = "bDissolveOnDeath", ClampMin = "0"))
+	float DissolveDelayAfterMontageEnd = 1.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy|Death", meta = (EditCondition = "bDissolveOnDeath", ClampMin = "0.05"))
+	float DissolveDuration = 1.5f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy|Death", meta = (EditCondition = "bDissolveOnDeath"))
+	EDFEnemyDeathDissolveMode DeathDissolveMode = EDFEnemyDeathDissolveMode::SwapDissolveMaterial;
+
+	/** Scalar driven 0→1 on dissolve MIDs (both modes). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy|Death", meta = (EditCondition = "bDissolveOnDeath"))
+	FName DissolveParameterName = TEXT("Dissolve");
+
+	/** Parent material for body dissolve (@c DeathDissolveMode = SwapDissolveMaterial). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy|Death", meta = (EditCondition = "bDissolveOnDeath"))
+	TObjectPtr<UMaterialInterface> DissolveMaterialInstance;
+
+	/** Optional weapon/static mesh to dissolve (slot 0). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy|Death", meta = (EditCondition = "bDissolveOnDeath"))
+	TObjectPtr<UMaterialInterface> WeaponDissolveMaterialInstance;
+
+	/** Mesh component for @c WeaponDissolveMaterialInstance (assign on BP if the enemy has a weapon). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy|Death", meta = (EditCondition = "bDissolveOnDeath", UseComponentPicker))
+	TObjectPtr<UPrimitiveComponent> DissolveWeaponMesh;
+
+	/** Body material slot when using swap mode (Aura uses slot 0). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy|Death", meta = (EditCondition = "bDissolveOnDeath", ClampMin = "0"))
+	int32 DissolveBodyMaterialSlot = 0;
+
+	/** If true, every body material slot gets @c DissolveMaterialInstance. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy|Death", meta = (EditCondition = "bDissolveOnDeath"))
+	bool bDissolveAllBodyMaterialSlots = false;
+
+	/** Optional 0→1 curve; linear if unset. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy|Death", meta = (EditCondition = "bDissolveOnDeath"))
+	TObjectPtr<UCurveFloat> DissolveCurve;
+
+	/** Applied on server death; grants State.Dead and fires GameplayCue.Enemy.Death (default UGE_EnemyDeath). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy")
+	TSubclassOf<UGameplayEffect> DeathGameplayEffectClass;
+
+	/** Default @c UUDFAbility_Enemy_Death; override per enemy BP if needed. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy|Death")
+	TSubclassOf<UGameplayAbility> DeathAbilityClass;
+
 	/** If set, applied once after base stats are written from the data row (e.g. extra “always on” GEs). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GAS|Enemy")
 	TSubclassOf<UGameplayEffect> OptionalInitGameplayEffect;
@@ -155,6 +225,49 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "DF|Enemy")
 	bool HasDied() const { return bHasDied; }
+
+	/** Server: death GA running; anim/hits stay active until montage ends. */
+	UFUNCTION(BlueprintPure, Category = "DF|Enemy")
+	bool IsInDeathFlow() const { return bDeathFlowActive; }
+
+	/** Server: sets replicated @c bHasDied (after montage / at destroy). */
+	void MarkDied();
+
+	/** Server: activates @c UUDFAbility_Enemy_Death (granted in InitAbilityAndBindHealth). */
+	bool TryActivateDeathAbility();
+	/** Event.Death on ASC, then spec/class fallback (see ElderLore @c AElderCharacterBase::HandleDeath). */
+	bool TriggerDeathGameplayAbility();
+
+	void CancelAbilitiesForDeath(UGameplayAbility* IgnoreAbility = nullptr);
+	/** VFX cue only — does not grant State.Dead (keeps ABP alive for death montage). */
+	void ExecuteEnemyDeathPresentationCue();
+	/** State.Dead + death GE; call after death montage, not before. */
+	void ApplyDeathGameplayState(UGameplayAbility* IgnoreAbility = nullptr);
+	void ApplyDeathCorpseMovementState();
+	void DisableEnemyActions();
+	void ClearDeathDestroyBackup();
+
+	/** Death montage on remote clients; authority uses UUDFAbility_Enemy_Death montage task. */
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_PlayDeathCosmetic();
+
+	/** Freeze last death-montage frame (all clients). Call when montage pipeline completes. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Enemy|Death")
+	void FinalizeDeathPresentation();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_FinalizeDeathPresentation();
+
+	/** Server: wait on ground, optional dissolve, then destroy. */
+	void BeginPostDeathCleanup(float DestroyDelayOverride = -1.f);
+
+	/** Server: starts dissolve on all clients (Aura-style material swap or scalar mode). */
+	UFUNCTION(BlueprintCallable, Category = "DF|Enemy|Death")
+	void Dissolve();
+
+	UFUNCTION(BlueprintNativeEvent, Category = "DF|Enemy")
+	void SpawnDeathLoot();
+	virtual void SpawnDeathLoot_Implementation();
 
 	UFUNCTION(BlueprintPure, Category = "DF|Enemy")
 	float GetCachedExperienceReward() const { return CachedExperienceReward; }
@@ -197,12 +310,38 @@ protected:
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastOnDeath(AActor* Killer);
 
-	UFUNCTION(BlueprintNativeEvent, Category = "DF|Enemy")
-	void SpawnDeathLoot();
-	virtual void SpawnDeathLoot_Implementation();
-
 	UFUNCTION()
 	void OnDestroyAfterDeath();
+
+	void SyncDeathToBlackboardAndAI();
+	void ScheduleDeathDestroyBackup();
+	void FallbackDeathPresentation();
+	void OnFallbackDeathPresentationFinished();
+	void OnPostDeathDelayElapsed();
+	void SetupDeathDissolveTimeline();
+	void StartDeathDissolvePresentation();
+	void ApplyScalarDissolveOnExistingMaterials();
+	void ApplySwapDissolveMaterials();
+
+	UFUNCTION()
+	void OnDeathDissolveTimelineUpdate(float Alpha);
+
+	UFUNCTION()
+	void OnDeathDissolveTimelineFinished();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_StartDeathDissolve();
+
+	FTimerHandle PostDeathCleanupTimer;
+	FTimerHandle FallbackDeathTimer;
+
+	UPROPERTY()
+	TArray<TObjectPtr<UMaterialInstanceDynamic>> DeathDissolveMIDs;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Enemy|Death", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UTimelineComponent> DeathDissolveTimeline;
+
+	bool bDeathDissolveTimelineInitialized = false;
 
 	void ApplyBaseStatsFromRow(const FDFEnemyTableRow& Row);
 	void ApplyMovementConfigFromRow(const FDFEnemyTableRow& Row);
@@ -218,23 +357,14 @@ protected:
 	UFUNCTION()
 	void OnSpawnBirthMontageDelayElapsed();
 
-	/** Stops the brain, movement, and AI controller input. */
-	void DisableEnemyActions();
-
-	void ApplyDeathGameplayState();
-	void PlayDeathMontageCosmetic();
-
-	/** Locks the mesh on the final pose so the AnimGraph cannot revert to idle while the actor lingers before destroy. */
-	void FinalizeEnemyDeathPose();
-
-	void OnDeathMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted);
-	void OnDeathMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+	void GrantDeathAbility();
+	float ScheduleDestroyAfterDeath();
 
 	FTimerHandle DeathDestroyTimer;
+	/** Legacy timer from pre-GAS death path; cleared in @c EndPlay. */
 	FTimerHandle DeathPoseLockTimer;
 
-	/** Prevents double montage when multicast and OnRep both run. */
-	bool bDeathCosmeticPlayed = false;
+	FGameplayAbilitySpecHandle DeathAbilitySpecHandle;
 	FTimerHandle SpawnBirthBTDelayTimer;
 
 	/** Servidor: quando true, `ADFAIController::OnPossess` não corre a BT — @ref OnSpawnBirthMontageDelayElapsed liberta. */
@@ -243,9 +373,22 @@ protected:
 	UPROPERTY(Transient, DuplicateTransient)
 	bool bAttributeDelegatesBound = false;
 
-	/** Replicated to all clients for co-op VFX and UI. Server sets in `HandleServerDeath`. */
+	/** Replicated to all clients for co-op VFX and UI. Server sets when death presentation completes. */
 	UPROPERTY(Transient, ReplicatedUsing = OnRep_bHasDied, BlueprintReadOnly, Category = "DF|Combat")
 	bool bHasDied = false;
+
+	/** Server-only: HandleServerDeath / death GA in progress (before @c bHasDied). */
+	bool bDeathFlowActive = false;
+
+	/** False until base stats from data table are applied (avoids spurious death at spawn). */
+	UPROPERTY()
+	bool bDeathDetectionArmed = false;
+
+	UPROPERTY()
+	bool bDeathLootSpawned = false;
+
+	UPROPERTY()
+	bool bDeathPresentationFinalized = false;
 
 	/**
 	 * > 0: walk speed from `FDFEnemyTableRow::MaxWalkSpeed` (server `InitializeFromDataTable`). Used so clients

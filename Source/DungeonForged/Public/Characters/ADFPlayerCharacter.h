@@ -6,6 +6,7 @@
 #include "GameFramework/Character.h"
 #include "AbilitySystemInterface.h"
 #include "Animation/AnimMontage.h"
+#include "GameplayAbilitySpec.h"
 #include "GameplayEffectTypes.h"
 #include "GameplayTagContainer.h"
 #include "Input/DFInputConfig.h"
@@ -151,6 +152,18 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|Death")
 	bool bUseRagdollOnDeath = false;
 
+	UFUNCTION(BlueprintPure, Category = "Combat|Death")
+	bool IsPlayerDeathHandled() const { return bPlayerDeathHandled; }
+
+	/** Called from @c UUDFAbility_Player_Death at activation. */
+	void BeginDeathPresentationFromAbility();
+
+	/** Called from @c UUDFAbility_Player_Death / Multicast when montage ends. */
+	void FinalizeDeathPresentation();
+
+	/** Server: activates @c UUDFAbility_Player_Death. */
+	bool TryActivateDeathAbility();
+
 	/** If true, basic attack skips Ability.Warrior.MeleeSwing and uses only Combo montages. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat|GAS")
 	bool bDisableWarriorMeleeSwingGameplayAbility = false;
@@ -261,6 +274,9 @@ public:
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_PlayDeathMontage();
 
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_FinalizeDeathPresentation();
+
 	UFUNCTION(BlueprintPure, Category = "DF|Equipment")
 	UDFEquipmentComponent* GetDFEquipment() const { return Equipment; }
 
@@ -348,9 +364,9 @@ protected:
 	void BindPlayerOutOfHealth();
 	void UnbindPlayerOutOfHealth();
 	void HandlePlayerOutOfHealth();
+	void GrantDeathAbility();
 	void LockDeathPose();
 	void UnlockDeathPose();
-	void FinalizeDeathPresentation();
 	void EnterDeathRagdoll();
 	void OnDeathMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted);
 	void OnDeathMontageEnded(UAnimMontage* Montage, bool bInterrupted);
@@ -372,6 +388,9 @@ private:
 	bool bHasWeaponRSocket = false;
 	bool bHasWeaponLSocket = false;
 	bool bPlayerDeathHandled = false;
+	bool bDeathPresentationFinalized = false;
+
+	FGameplayAbilitySpecHandle DeathAbilitySpecHandle;
 
 	TWeakObjectPtr<UDFAttributeSet> BoundOutOfHealthAttributeSet;
 	FTimerHandle DeathPoseLockTimerHandle;

@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/Combat/UDFHitReactionComponent.cpp
 #include "Combat/UDFHitReactionComponent.h"
+#include "Characters/ADFEnemyBase.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Engine/Engine.h"
 #include "FX/UDFCombatFeedbackTypes.h"
@@ -36,6 +37,13 @@ void UDFHitReactionComponent::OnHitReceived(
 	if (!GetOwner() || !GetOwner()->HasAuthority())
 	{
 		return;
+	}
+	if (const ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(GetOwner()))
+	{
+		if (Enemy->HasDied() || Enemy->IsInDeathFlow())
+		{
+			return;
+		}
 	}
 	FVector Dir = HitDirection2D;
 	if (Dir.IsNearlyZero())

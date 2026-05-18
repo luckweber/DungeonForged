@@ -51,6 +51,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Run|Input")
 	void SetupInputModeUI();
 
+	/** Pause (optional) + mouse cursor + UI-only input focused on @a Widget (defeat/victory/pause/inventory). */
+	UFUNCTION(BlueprintCallable, Category = "Run|Input")
+	void SetupInputModeUIForWidget(UUserWidget* Widget, bool bPauseGame = true);
+
 	UFUNCTION(BlueprintCallable, Category = "Run|UI")
 	void ToggleInventory();
 

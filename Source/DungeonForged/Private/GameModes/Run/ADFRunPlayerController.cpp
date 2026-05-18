@@ -41,17 +41,27 @@ void ADFRunPlayerController::SetupInputModeGameplay()
 	}
 }
 
-void ADFRunPlayerController::SetupInputModeUI()
+void ADFRunPlayerController::SetupInputModeUIForWidget(UUserWidget* const Widget, const bool bPauseGame)
 {
-	UGameplayStatics::SetGamePaused(GetWorld(), true);
+	if (bPauseGame)
+	{
+		UGameplayStatics::SetGamePaused(GetWorld(), true);
+	}
 	SetShowMouseCursor(true);
 	FInputModeUIOnly M;
-	if (UUserWidget* const W = CharacterScreenInstance ? CharacterScreenInstance : PauseMenuInstance)
+	M.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	if (Widget)
 	{
-		DFPrepareWidgetForUIModeFocus(W);
-		M.SetWidgetToFocus(W->TakeWidget());
+		DFPrepareWidgetForUIModeFocus(Widget);
+		M.SetWidgetToFocus(Widget->TakeWidget());
 	}
 	SetInputMode(M);
+}
+
+void ADFRunPlayerController::SetupInputModeUI()
+{
+	UUserWidget* const W = CharacterScreenInstance ? CharacterScreenInstance.Get() : PauseMenuInstance.Get();
+	SetupInputModeUIForWidget(W, true);
 }
 
 void ADFRunPlayerController::ToggleInventory()
@@ -90,12 +100,7 @@ void ADFRunPlayerController::OnPause()
 	if (PauseMenuInstance)
 	{
 		PauseMenuInstance->AddToViewport(20);
-		UGameplayStatics::SetGamePaused(GetWorld(), true);
-		SetShowMouseCursor(true);
-		FInputModeUIOnly M;
-		DFPrepareWidgetForUIModeFocus(PauseMenuInstance);
-		M.SetWidgetToFocus(PauseMenuInstance->TakeWidget());
-		SetInputMode(M);
+		SetupInputModeUIForWidget(PauseMenuInstance, true);
 	}
 }
 
@@ -127,6 +132,7 @@ void ADFRunPlayerController::Client_OpenVictoryScreen_Implementation(const FDFRu
 		{
 			W->SetSummary(Summary);
 			W->AddToViewport(20);
+			SetupInputModeUIForWidget(W, true);
 		}
 	}
 }
@@ -142,6 +148,7 @@ void ADFRunPlayerController::Client_OpenDefeatScreen_Implementation(
 			const FText CauseText = FText::FromString(DefeatCause);
 			W->SetDefeatData(Summary, CauseText, FText::GetEmpty());
 			W->AddToViewport(20);
+			SetupInputModeUIForWidget(W, true);
 		}
 	}
 }

@@ -78,6 +78,9 @@ FGameplayTag FDFGameplayTags::Ability_Cooldown_Boss_TerrorShout;
 FGameplayTag FDFGameplayTags::Ability_Cooldown_Boss_MeteorStrike;
 FGameplayTag FDFGameplayTags::Ability_Cooldown_Boss_VoidBarrier;
 FGameplayTag FDFGameplayTags::Ability_Cooldown_Boss_EnragePulse;
+FGameplayTag FDFGameplayTags::Ability_Death;
+FGameplayTag FDFGameplayTags::Ability_Death_Enemy;
+FGameplayTag FDFGameplayTags::Ability_Death_Player;
 FGameplayTag FDFGameplayTags::Event_Boss_PhaseErupt;
 FGameplayTag FDFGameplayTags::Event_Boss_WhiteFlash;
 FGameplayTag FDFGameplayTags::Effect_Debuff_Terrified;
@@ -98,6 +101,7 @@ FGameplayTag FDFGameplayTags::Event_Warrior_Execute_Trace;
 FGameplayTag FDFGameplayTags::Event_Warrior_WarCry;
 FGameplayTag FDFGameplayTags::Equipment_OffHand_Shield;
 FGameplayTag FDFGameplayTags::State_Spinning;
+FGameplayTag FDFGameplayTags::GameplayCue_Enemy_Death;
 FGameplayTag FDFGameplayTags::State_Dead;
 FGameplayTag FDFGameplayTags::State_Stunned;
 FGameplayTag FDFGameplayTags::State_Rooted;
@@ -154,6 +158,8 @@ FGameplayTag FDFGameplayTags::Effect_Reaction_Steam;
 FGameplayTag FDFGameplayTags::Effect_Reaction_Electrocute;
 FGameplayTag FDFGameplayTags::Event_Ability_Fire_Launch;
 FGameplayTag FDFGameplayTags::Event_Ability_Melee_Hit;
+FGameplayTag FDFGameplayTags::Event_Death;
+FGameplayTag FDFGameplayTags::Event_Death_Loot;
 FGameplayTag FDFGameplayTags::Event_Ability_Montage_End;
 FGameplayTag FDFGameplayTags::Event_Hit_Received;
 FGameplayTag FDFGameplayTags::Event_Ability_Kill;
@@ -282,6 +288,9 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(Ability_Cooldown_Boss_MeteorStrike)(FName("Ability.Cooldown.Boss.MeteorStrike"), FString("Meteor 45s CD."));
 	DF_TAG(Ability_Cooldown_Boss_VoidBarrier)(FName("Ability.Cooldown.Boss.VoidBarrier"), FString("Void barrier 60s CD."));
 	DF_TAG(Ability_Cooldown_Boss_EnragePulse)(FName("Ability.Cooldown.Boss.EnragePulse"), FString("Enrage pulse 8s CD."));
+	DF_TAG(Ability_Death)(FName("Ability.Death"), FString("Death montage abilities (enemy + player)."));
+	DF_TAG(Ability_Death_Enemy)(FName("Ability.Death.Enemy"), FString("Enemy death: montage, loot event, destroy."));
+	DF_TAG(Ability_Death_Player)(FName("Ability.Death.Player"), FString("Player death: montage, defeat flow."));
 	DF_TAG(Event_Boss_PhaseErupt)(FName("Event.Boss.PhaseErupt"), FString("AN_PhaseErupt: execute slam room damage + FX."));
 	DF_TAG(Event_Boss_WhiteFlash)(FName("Event.Boss.WhiteFlash"), FString("Payload EventMagnitude = seconds; post-process flash."));
 	DF_TAG(Effect_Debuff_Terrified)(FName("Effect.Debuff.Terrified"), FString("Fear: slow, restricted control."));
@@ -303,6 +312,7 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(Equipment_OffHand_Shield)(FName("Equipment.OffHand.Shield"), FString("Off-hand is a shield (requirement)."));
 	DF_TAG(State_Spinning)(FName("State.Spinning"), FString("Whirlwind or spin attack active."));
 
+	DF_TAG(GameplayCue_Enemy_Death)(FName("GameplayCue.Enemy.Death"), FString("Enemy death montage / corpse cosmetic."));
 	DF_TAG(State_Dead)(FName("State.Dead"), FString("Actor is dead; cannot act."));
 	DF_TAG(State_Stunned)(FName("State.Stunned"), FString("Stun — no actions."));
 	DF_TAG(State_Rooted)(FName("State.Rooted"), FString("Root — cannot move."));
@@ -367,6 +377,8 @@ void FDFGameplayTags::RegisterGameplayTags()
 
 	DF_TAG(Event_Ability_Fire_Launch)(FName("Event.Ability.Fire.Launch"), FString("Anim notify: fire projectile release."));
 	DF_TAG(Event_Ability_Melee_Hit)(FName("Event.Ability.Melee.Hit"), FString("Melee impact / damage window."));
+	DF_TAG(Event_Death)(FName("Event.Death"), FString("Health reached 0 — activate death ability."));
+	DF_TAG(Event_Death_Loot)(FName("Event.Death.Loot"), FString("Death montage: spawn loot drops."));
 	DF_TAG(Event_Ability_Montage_End)(FName("Event.Ability.Montage.End"), FString("Ability montage finished."));
 	DF_TAG(Event_Hit_Received)(FName("Event.Hit.Received"), FString("On damage: victim; EventMagnitude = damage this execute."));
 	DF_TAG(Event_Ability_Kill)(FName("Event.Ability.Kill"), FString("Killer: lethal when context has gameplay ability (Mana Vortex, etc.)."));

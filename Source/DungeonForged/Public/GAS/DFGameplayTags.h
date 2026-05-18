@@ -106,6 +106,10 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Ability_Cooldown_Boss_MeteorStrike;
 	static FGameplayTag Ability_Cooldown_Boss_VoidBarrier;
 	static FGameplayTag Ability_Cooldown_Boss_EnragePulse;
+	/** Parent: death abilities (enemy + player). */
+	static FGameplayTag Ability_Death;
+	static FGameplayTag Ability_Death_Enemy;
+	static FGameplayTag Ability_Death_Player;
 	/** AN_PhaseErupt: phase slam room-wide hit frame. */
 	static FGameplayTag Event_Boss_PhaseErupt;
 	static FGameplayTag Event_Boss_WhiteFlash;
@@ -132,6 +136,9 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	/** Off-hand must be shield. */
 	static FGameplayTag Equipment_OffHand_Shield;
 	static FGameplayTag State_Spinning;
+
+	/** Instant GE cue: enemy death montage (replicated cosmetic). */
+	static FGameplayTag GameplayCue_Enemy_Death;
 
 	//~ State
 	static FGameplayTag State_Dead;
@@ -170,6 +177,10 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Event_Rogue_Eviscerate_Trace;
 	static FGameplayTag Event_Ability_Fire_Launch;
 	static FGameplayTag Event_Ability_Melee_Hit;
+	/** Fired from HandleServerDeath / Die — triggers death GA (ElderLore-style). */
+	static FGameplayTag Event_Death;
+	/** Death montage notify: spawn loot (enemy GA listens). */
+	static FGameplayTag Event_Death_Loot;
 	static FGameplayTag Event_Ability_Montage_End;
 	static FGameplayTag Event_Hit_Received;
 	static FGameplayTag Event_Ability_Kill;

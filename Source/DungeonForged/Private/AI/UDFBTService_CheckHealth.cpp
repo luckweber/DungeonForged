@@ -33,7 +33,7 @@ void UDFBTService_CheckHealth::TickNode(
 	}
 	const float Hp = AS->GetHealth();
 	const float Mx = FMath::Max(1.f, AS->GetMaxHealth());
-	if (Hp <= 0.f)
+	if (E->HasDied() || Hp <= 0.f)
 	{
 		BB->SetValueAsBool(DFAIKeys::bIsDead, true);
 		return;

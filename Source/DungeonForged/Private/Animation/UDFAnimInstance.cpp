@@ -113,12 +113,12 @@ void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 		bIsCasting = false;
 		bIsStunned = false;
 	}
-	if (!bIsDead)
+	if (bIsDead)
 	{
-		if (const ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(OwningCharacter))
-		{
-			bIsDead = Enemy->HasDied();
-		}
+		Speed = 0.f;
+		Velocity = FVector::ZeroVector;
+		bShouldStrafe = false;
+		return;
 	}
 	bShouldStrafe = !bIsDead && (bIsLockedOn || bIsInCombat);
 	CalculateLean(DeltaSeconds);

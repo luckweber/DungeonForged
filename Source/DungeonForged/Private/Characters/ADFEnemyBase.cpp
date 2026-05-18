@@ -2,7 +2,16 @@
 
 #include "Characters/ADFEnemyBase.h"
 #include "Animation/DFDeathAnimation.h"
+#include "DungeonForgedModule.h"
 #include "GAS/DFGameplayTags.h"
+#include "GAS/Abilities/UDFAbility_Enemy_Death.h"
+#include "GAS/Effects/UGE_EnemyDeath.h"
+#include "Abilities/GameplayAbility.h"
+#include "AI/DFAIKeys.h"
+#include "AIController.h"
+#include "BehaviorTree/BlackboardComponent.h"
+#include "BrainComponent.h"
+#include "GameplayEffectTypes.h"
 #include "AI/ADFAIController.h"
 #include "ADFDungeonManager.h"
 #include "Characters/ADFPlayerState.h"
@@ -18,6 +27,10 @@
 #include "BrainComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
+#include "Components/TimelineComponent.h"
+#include "Curves/CurveFloat.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SceneComponent.h"
@@ -39,6 +52,8 @@
 #include "UI/Status/UDFEnemyDebuffStatusBarWidget.h"
 #include "GameFramework/PlayerController.h"
 #include "Net/UnrealNetwork.h"
+
+DEFINE_LOG_CATEGORY_STATIC(LogDFEnemy, Log, All);
 
 namespace
 {
@@ -94,6 +109,11 @@ ADFEnemyBase::ADFEnemyBase()
 	DebuffStatusBar->SetWidgetSpace(EWidgetSpace::Screen);
 	DebuffStatusBar->SetDrawAtDesiredSize(true);
 	DebuffStatusBar->SetRelativeLocation(FVector(0.f, 0.f, 12.f));
+
+	DeathGameplayEffectClass = UGE_EnemyDeath::StaticClass();
+	DeathAbilityClass = UUDFAbility_Enemy_Death::StaticClass();
+
+	DeathDissolveTimeline = CreateDefaultSubobject<UTimelineComponent>(TEXT("DeathDissolveTimeline"));
 }
 
 void ADFEnemyBase::PostInitializeComponents()
@@ -122,13 +142,9 @@ void ADFEnemyBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
 
 void ADFEnemyBase::OnRep_bHasDied()
 {
-	if (bHasDied)
+	if (bHasDied && HealthBar)
 	{
-		PlayDeathMontageCosmetic();
-		if (HealthBar)
-		{
-			HealthBar->SetVisibility(false);
-		}
+		HealthBar->SetVisibility(false);
 	}
 }
 
@@ -262,6 +278,13 @@ void ADFEnemyBase::BeginPlay()
 		HealthBar->SetWidgetClass(HealthBarWidgetClass);
 		HealthBar->InitWidget();
 	}
+	else if (HealthBar && !HealthBarWidgetClass)
+	{
+		UE_LOG(
+			LogDFEnemy, Verbose,
+			TEXT("%s: HealthBarWidgetClass not set — no floating HP bar (boss uses HUD UDFBossHealthBarWidget)."),
+			*GetName());
+	}
 	if (DebuffStatusBar && DebuffStatusBarWidgetClass)
 	{
 		DebuffStatusBar->SetWidgetClass(DebuffStatusBarWidgetClass);
@@ -282,14 +305,29 @@ void ADFEnemyBase::BeginPlay()
 			DBar->SetupObservedEnemy(this, EnemyDebuffStatusLibrary, LocalAsc);
 		}
 	}
+	SetupDeathDissolveTimeline();
+
+	// Manual spawn paths without InitializeFromDataTable: arm only if health is already valid.
+	if (AttributeSet && AttributeSet->GetHealth() > 0.f)
+	{
+		bDeathDetectionArmed = true;
+	}
 }
 
 void ADFEnemyBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	bDeathFlowActive = false;
 	if (UWorld* const W = GetWorld())
 	{
 		W->GetTimerManager().ClearTimer(SpawnBirthBTDelayTimer);
+		W->GetTimerManager().ClearTimer(DeathDestroyTimer);
 		W->GetTimerManager().ClearTimer(DeathPoseLockTimer);
+		W->GetTimerManager().ClearTimer(PostDeathCleanupTimer);
+		W->GetTimerManager().ClearTimer(FallbackDeathTimer);
+	}
+	if (DeathDissolveTimeline)
+	{
+		DeathDissolveTimeline->Stop();
 	}
 	UnbindAttributeDelegates();
 	Super::EndPlay(EndPlayReason);
@@ -303,6 +341,7 @@ void ADFEnemyBase::InitAbilityAndBindHealth()
 	}
 	AttributeSet->OnHealthChanged.AddUObject(this, &ADFEnemyBase::OnHealthOrMaxChanged);
 	bAttributeDelegatesBound = true;
+	GrantDeathAbility();
 }
 
 void ADFEnemyBase::UnbindAttributeDelegates()
@@ -321,7 +360,12 @@ void ADFEnemyBase::NotifyHealthChangedFromAttributes(float /*Current*/, float /*
 void ADFEnemyBase::OnHealthOrMaxChanged(float Current, float Max)
 {
 	NotifyHealthChangedFromAttributes(Current, Max);
-	if (bHasDied)
+
+	if (!bDeathDetectionArmed)
+	{
+		return;
+	}
+	if (bHasDied || bDeathFlowActive)
 	{
 		return;
 	}
@@ -359,6 +403,10 @@ void ADFEnemyBase::InitializeFromDataTable(UDataTable* EnemyTable, FName RowName
 
 	const bool bPlaySpawnBirth = Row->SpawnBirthMontage != nullptr;
 	const bool bDeferBT = bPlaySpawnBirth && Row->bDelayAIUntilSpawnBirthMontageFinishes;
+
+	bDeathDetectionArmed = false;
+	bDeathLootSpawned = false;
+	bDeathPresentationFinalized = false;
 
 	CachedExperienceReward = Row->ExperienceReward;
 	CachedGoldDropMin = Row->GoldDropMin;
@@ -400,6 +448,9 @@ void ADFEnemyBase::InitializeFromDataTable(UDataTable* EnemyTable, FName RowName
 	{
 		InitAbilityAndBindHealth();
 	}
+
+	// Base stats applied — safe to react to Health <= 0.
+	bDeathDetectionArmed = true;
 
 	if (bPlaySpawnBirth)
 	{
@@ -558,23 +609,497 @@ void ADFEnemyBase::RegisterDamageFromContext(const FGameplayEffectContextHandle&
 	{
 		K = Ctx.GetInstigator();
 	}
-	if (K)
+	if (K && K != GetOwner())
 	{
 		LastDamageAttacker = K;
 	}
 }
 
-void ADFEnemyBase::HandleServerDeath(AActor* Killer)
+void ADFEnemyBase::GrantDeathAbility()
+{
+	if (!HasAuthority() || !AbilitySystemComponent || DeathAbilitySpecHandle.IsValid())
+	{
+		return;
+	}
+	TSubclassOf<UGameplayAbility> Class = DeathAbilityClass;
+	if (!Class || !Class->IsChildOf(UUDFAbility_Enemy_Death::StaticClass()))
+	{
+		if (Class)
+		{
+			UE_LOG(
+				LogDungeonForged, Warning,
+				TEXT("[EnemyDeath] %s: DeathAbilityClass=%s is not a child of UUDFAbility_Enemy_Death — using C++ default."),
+				*GetName(), *GetNameSafe(Class));
+		}
+		Class = UUDFAbility_Enemy_Death::StaticClass();
+	}
+	DeathAbilitySpecHandle = AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(Class, 1, INDEX_NONE, this));
+}
+
+bool ADFEnemyBase::TriggerDeathGameplayAbility()
+{
+	if (!AbilitySystemComponent)
+	{
+		return false;
+	}
+
+	if (FDFGameplayTags::Event_Death.IsValid())
+	{
+		FGameplayEventData EventData;
+		EventData.Instigator = this;
+		EventData.Target = this;
+		const int32 NumTriggered =
+			AbilitySystemComponent->HandleGameplayEvent(FDFGameplayTags::Event_Death, &EventData);
+		if (NumTriggered > 0)
+		{
+			DFDeathAnimation::LogEnemyDeath(
+				1, this,
+				FString::Printf(TEXT("TriggerDeathGameplayAbility: Event.Death -> %d"), NumTriggered));
+			return true;
+		}
+	}
+
+	if (TryActivateDeathAbility())
+	{
+		return true;
+	}
+
+	TSubclassOf<UGameplayAbility> Class = DeathAbilityClass;
+	if (!Class)
+	{
+		Class = UUDFAbility_Enemy_Death::StaticClass();
+	}
+	const bool bByClass = AbilitySystemComponent->TryActivateAbilityByClass(Class, true);
+	DFDeathAnimation::LogEnemyDeath(
+		1, this,
+		FString::Printf(
+			TEXT("TriggerDeathGameplayAbility: fallback class(%s) -> %d"),
+			*GetNameSafe(Class),
+			bByClass ? 1 : 0));
+	return bByClass;
+}
+
+bool ADFEnemyBase::TryActivateDeathAbility()
+{
+	if (!AbilitySystemComponent)
+	{
+		DFDeathAnimation::LogEnemyDeath(1, this, TEXT("TryActivateDeathAbility: no ASC"));
+		return false;
+	}
+	bool bActivated = false;
+	if (DeathAbilitySpecHandle.IsValid())
+	{
+		bActivated = AbilitySystemComponent->TryActivateAbility(DeathAbilitySpecHandle);
+	}
+	else if (FDFGameplayTags::Ability_Death.IsValid())
+	{
+		FGameplayTagContainer DeathTagContainer;
+		DeathTagContainer.AddTag(FDFGameplayTags::Ability_Death);
+		bActivated = AbilitySystemComponent->TryActivateAbilitiesByTag(DeathTagContainer, true);
+	}
+	DFDeathAnimation::LogEnemyDeath(
+		1, this,
+		FString::Printf(
+			TEXT("TryActivateDeathAbility -> %d | SpecValid=%d | DeathAbilityClass=%s"),
+			bActivated ? 1 : 0,
+			DeathAbilitySpecHandle.IsValid() ? 1 : 0,
+			*GetNameSafe(DeathAbilityClass)));
+	return bActivated;
+}
+
+void ADFEnemyBase::SyncDeathToBlackboardAndAI()
+{
+	if (AAIController* const AI = Cast<AAIController>(GetController()))
+	{
+		if (UBlackboardComponent* const BB = AI->GetBlackboardComponent())
+		{
+			BB->SetValueAsBool(DFAIKeys::bIsDead, true);
+		}
+		AI->StopMovement();
+		AI->ClearFocus(EAIFocusPriority::Gameplay);
+		if (UBrainComponent* const Brain = AI->GetBrainComponent())
+		{
+			Brain->StopLogic(TEXT("Death"));
+		}
+	}
+}
+
+void ADFEnemyBase::ScheduleDeathDestroyBackup()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+	if (UWorld* const W = GetWorld())
+	{
+		W->GetTimerManager().ClearTimer(DeathDestroyTimer);
+		const float DestroyDelay = ScheduleDestroyAfterDeath();
+		DFDeathAnimation::LogEnemyDeath(
+			1, this, FString::Printf(TEXT("Destroy backup scheduled in %.2fs"), DestroyDelay));
+		W->GetTimerManager().SetTimer(DeathDestroyTimer, this, &ADFEnemyBase::OnDestroyAfterDeath, DestroyDelay, false);
+	}
+}
+
+void ADFEnemyBase::ClearDeathDestroyBackup()
+{
+	if (UWorld* const W = GetWorld())
+	{
+		W->GetTimerManager().ClearTimer(DeathDestroyTimer);
+	}
+}
+
+void ADFEnemyBase::Multicast_PlayDeathCosmetic_Implementation()
+{
+	if (IsRunningDedicatedServer() || !DeathMontage)
+	{
+		return;
+	}
+	// Authority / listen-server host: montage is driven by UUDFAbility_Enemy_Death (PlayMontageAndWait).
+	// Simulated proxies (remote clients) need this multicast for replication.
+	if (GetLocalRole() != ROLE_SimulatedProxy)
+	{
+		return;
+	}
+	ApplyDeathCorpseMovementState();
+	DFDeathAnimation::PlayDeathMontage(GetMesh(), DeathMontage, true, this, false);
+}
+
+void ADFEnemyBase::FallbackDeathPresentation()
+{
+	DFDeathAnimation::LogEnemyDeath(1, this, TEXT("FallbackDeathPresentation (GA_Enemy_Death did not activate)"));
+	ApplyDeathCorpseMovementState();
+	DisableEnemyActions();
+	if (HealthBar)
+	{
+		HealthBar->SetVisibility(false);
+	}
+	ExecuteEnemyDeathPresentationCue();
+	float MontageLen = 0.f;
+	if (DeathMontage && GetMesh())
+	{
+		MontageLen = DFDeathAnimation::PlayDeathMontage(GetMesh(), DeathMontage, true, this, true);
+	}
+	if (HasAuthority())
+	{
+		if (UWorld* const W = GetWorld())
+		{
+			W->GetTimerManager().ClearTimer(FallbackDeathTimer);
+			const float Wait = MontageLen > KINDA_SMALL_NUMBER ? MontageLen : 0.5f;
+			W->GetTimerManager().SetTimer(
+				FallbackDeathTimer, this, &ADFEnemyBase::OnFallbackDeathPresentationFinished, Wait, false);
+		}
+	}
+}
+
+void ADFEnemyBase::FinalizeDeathPresentation()
+{
+	if (bDeathPresentationFinalized)
+	{
+		return;
+	}
+	bDeathPresentationFinalized = true;
+	DFDeathAnimation::LockDeathPoseOnMesh(GetMesh(), DeathMontage);
+}
+
+void ADFEnemyBase::Multicast_FinalizeDeathPresentation_Implementation()
+{
+	if (IsRunningDedicatedServer())
+	{
+		return;
+	}
+	FinalizeDeathPresentation();
+}
+
+void ADFEnemyBase::Dissolve()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+	Multicast_StartDeathDissolve();
+}
+
+void ADFEnemyBase::SetupDeathDissolveTimeline()
+{
+	if (!DeathDissolveTimeline || bDeathDissolveTimelineInitialized)
+	{
+		return;
+	}
+	bDeathDissolveTimelineInitialized = true;
+
+	UCurveFloat* CurveToUse = DissolveCurve;
+	if (!CurveToUse)
+	{
+		UCurveFloat* const Linear = NewObject<UCurveFloat>(this, TEXT("EnemyDeathDissolveLinear"));
+		Linear->FloatCurve.AddKey(0.f, 0.f);
+		Linear->FloatCurve.AddKey(1.f, 1.f);
+		CurveToUse = Linear;
+	}
+	FOnTimelineFloatStatic UpdateDelegate;
+	UpdateDelegate.BindUObject(this, &ADFEnemyBase::OnDeathDissolveTimelineUpdate);
+	DeathDissolveTimeline->AddInterpFloat(CurveToUse, UpdateDelegate);
+
+	FOnTimelineEventStatic FinishedDelegate;
+	FinishedDelegate.BindUObject(this, &ADFEnemyBase::OnDeathDissolveTimelineFinished);
+	DeathDissolveTimeline->SetTimelineFinishedFunc(FinishedDelegate);
+	DeathDissolveTimeline->SetLooping(false);
+}
+
+void ADFEnemyBase::BeginPostDeathCleanup(const float DestroyDelayOverride)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+	UWorld* const W = GetWorld();
+	if (!W)
+	{
+		return;
+	}
+	W->GetTimerManager().ClearTimer(PostDeathCleanupTimer);
+	if (DeathDissolveTimeline)
+	{
+		DeathDissolveTimeline->Stop();
+	}
+
+	const float GroundWait = bDissolveOnDeath
+		? DissolveDelayAfterMontageEnd
+		: (DestroyDelayOverride >= 0.f ? DestroyDelayOverride : CorpseDestroyDelay);
+
+	DFDeathAnimation::LogEnemyDeath(
+		1, this,
+		FString::Printf(
+			TEXT("BeginPostDeathCleanup | dissolve=%d | groundWait=%.2fs"),
+			bDissolveOnDeath ? 1 : 0,
+			GroundWait));
+
+	W->GetTimerManager().SetTimer(
+		PostDeathCleanupTimer, this, &ADFEnemyBase::OnPostDeathDelayElapsed, FMath::Max(0.f, GroundWait), false);
+}
+
+void ADFEnemyBase::OnPostDeathDelayElapsed()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+	if (bDissolveOnDeath)
+	{
+		Multicast_StartDeathDissolve();
+		if (UWorld* const W = GetWorld())
+		{
+			W->GetTimerManager().SetTimer(
+				PostDeathCleanupTimer, this, &ADFEnemyBase::OnDestroyAfterDeath, DissolveDuration, false);
+		}
+	}
+	else
+	{
+		OnDestroyAfterDeath();
+	}
+}
+
+void ADFEnemyBase::Multicast_StartDeathDissolve_Implementation()
+{
+	if (IsRunningDedicatedServer())
+	{
+		return;
+	}
+	StartDeathDissolvePresentation();
+}
+
+void ADFEnemyBase::StartDeathDissolvePresentation()
+{
+	if (!DeathDissolveTimeline)
+	{
+		return;
+	}
+	DeathDissolveMIDs.Reset();
+	if (DeathDissolveMode == EDFEnemyDeathDissolveMode::SwapDissolveMaterial)
+	{
+		ApplySwapDissolveMaterials();
+	}
+	else
+	{
+		ApplyScalarDissolveOnExistingMaterials();
+	}
+	if (DeathDissolveMIDs.IsEmpty())
+	{
+		DFDeathAnimation::LogEnemyDeath(
+			1, this,
+			TEXT("StartDeathDissolvePresentation: no dissolve MIDs (assign DissolveMaterialInstance or check mesh materials)"));
+		return;
+	}
+	DeathDissolveTimeline->SetTimelineLength(FMath::Max(0.05f, DissolveDuration));
+	DeathDissolveTimeline->SetPlayRate(1.f);
+	DeathDissolveTimeline->PlayFromStart();
+}
+
+void ADFEnemyBase::ApplySwapDissolveMaterials()
+{
+	auto AddDissolveMID = [this](UPrimitiveComponent* const Prim, UMaterialInterface* const Template, const int32 Slot)
+	{
+		if (!Prim || !Template)
+		{
+			return;
+		}
+		UMaterialInstanceDynamic* const MID = UMaterialInstanceDynamic::Create(Template, this);
+		if (!MID)
+		{
+			return;
+		}
+		Prim->SetMaterial(Slot, MID);
+		if (!DissolveParameterName.IsNone())
+		{
+			MID->SetScalarParameterValue(DissolveParameterName, 0.f);
+		}
+		DeathDissolveMIDs.Add(MID);
+	};
+
+	USkeletalMeshComponent* const SkelMesh = GetMesh();
+	if (SkelMesh && DissolveMaterialInstance)
+	{
+		if (bDissolveAllBodyMaterialSlots)
+		{
+			const int32 NumMats = SkelMesh->GetNumMaterials();
+			for (int32 Idx = 0; Idx < NumMats; ++Idx)
+			{
+				AddDissolveMID(SkelMesh, DissolveMaterialInstance, Idx);
+			}
+		}
+		else
+		{
+			AddDissolveMID(SkelMesh, DissolveMaterialInstance, DissolveBodyMaterialSlot);
+		}
+	}
+	if (WeaponDissolveMaterialInstance && DissolveWeaponMesh)
+	{
+		AddDissolveMID(DissolveWeaponMesh, WeaponDissolveMaterialInstance, 0);
+	}
+}
+
+void ADFEnemyBase::ApplyScalarDissolveOnExistingMaterials()
+{
+	USkeletalMeshComponent* const SkelMesh = GetMesh();
+	if (!SkelMesh)
+	{
+		return;
+	}
+	const int32 NumMats = SkelMesh->GetNumMaterials();
+	for (int32 Idx = 0; Idx < NumMats; ++Idx)
+	{
+		UMaterialInstanceDynamic* const MID = SkelMesh->CreateAndSetMaterialInstanceDynamic(Idx);
+		if (MID)
+		{
+			if (!DissolveParameterName.IsNone())
+			{
+				MID->SetScalarParameterValue(DissolveParameterName, 0.f);
+			}
+			DeathDissolveMIDs.Add(MID);
+		}
+	}
+}
+
+void ADFEnemyBase::OnDeathDissolveTimelineUpdate(const float Alpha)
+{
+	if (DissolveParameterName.IsNone())
+	{
+		return;
+	}
+	for (UMaterialInstanceDynamic* const MID : DeathDissolveMIDs)
+	{
+		if (MID)
+		{
+			MID->SetScalarParameterValue(DissolveParameterName, Alpha);
+		}
+	}
+}
+
+void ADFEnemyBase::OnDeathDissolveTimelineFinished()
+{
+	if (!DissolveParameterName.IsNone())
+	{
+		for (UMaterialInstanceDynamic* const MID : DeathDissolveMIDs)
+		{
+			if (MID)
+			{
+				MID->SetScalarParameterValue(DissolveParameterName, 1.f);
+			}
+		}
+	}
+}
+
+void ADFEnemyBase::OnFallbackDeathPresentationFinished()
+{
+	if (!HasAuthority() || bHasDied)
+	{
+		return;
+	}
+	Multicast_FinalizeDeathPresentation();
+	ApplyDeathGameplayState();
+	MarkDied();
+	ClearDeathDestroyBackup();
+	if (UCapsuleComponent* const Cap = GetCapsuleComponent())
+	{
+		Cap->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+	BeginPostDeathCleanup(-1.f);
+}
+
+void ADFEnemyBase::MarkDied()
 {
 	if (bHasDied)
 	{
 		return;
 	}
 	bHasDied = true;
-	ApplyDeathGameplayState();
+	bDeathFlowActive = false;
+}
+
+void ADFEnemyBase::HandleServerDeath(AActor* Killer)
+{
+	if (bHasDied || bDeathFlowActive)
+	{
+		DFDeathAnimation::LogEnemyDeath(2, this, TEXT("HandleServerDeath: ignored (already dead or in flow)"));
+		return;
+	}
+	bDeathFlowActive = true;
+
+	AActor* EffectiveKiller = Killer;
+	if (EffectiveKiller == this)
+	{
+		if (LastDamageAttacker.IsValid() && LastDamageAttacker.Get() != this)
+		{
+			EffectiveKiller = LastDamageAttacker.Get();
+		}
+		else
+		{
+			EffectiveKiller = nullptr;
+		}
+	}
+
+	SyncDeathToBlackboardAndAI();
+	if (UWorld* const W = GetWorld())
+	{
+		W->GetTimerManager().ClearTimer(DeathDestroyTimer);
+	}
+	DFDeathAnimation::LogEnemyDeath(
+		1, this,
+		FString::Printf(
+			TEXT("HandleServerDeath START | Killer=%s | DeathMontage=%s | HealthBarWidget=%s"),
+			*GetNameSafe(EffectiveKiller),
+			*GetNameSafe(DeathMontage),
+			HealthBarWidgetClass ? *HealthBarWidgetClass->GetName() : TEXT("NONE")));
+	TSubclassOf<UGameplayAbility> DeathClass = DeathAbilityClass;
+	if (!DeathClass)
+	{
+		DeathClass = UUDFAbility_Enemy_Death::StaticClass();
+	}
+	UE_LOG(
+		LogDungeonForged, Log, TEXT("[EnemyDeath] %s HP=0 | Montage=%s | DeathGA=%s"),
+		*GetName(), *GetNameSafe(DeathMontage), *GetNameSafe(DeathClass));
 	if (HasAuthority())
 	{
-		if (ADFPlayerState* const PState = ResolveKillerPlayerState(Killer))
+		if (ADFPlayerState* const PState = ResolveKillerPlayerState(EffectiveKiller))
 		{
 			if (CachedExperienceReward > 0.f)
 			{
@@ -620,101 +1145,95 @@ void ADFEnemyBase::HandleServerDeath(AActor* Killer)
 			}
 		}
 	}
-	OnEnemyDied.Broadcast(this, Killer, CachedExperienceReward);
-	SpawnDeathLoot();
-	MulticastOnDeath(Killer);
-	DisableEnemyActions();
-	if (UWorld* W = GetWorld())
+	OnEnemyDied.Broadcast(this, EffectiveKiller, CachedExperienceReward);
+	MulticastOnDeath(EffectiveKiller);
+
+	const bool bDeathAbilityActivated = TriggerDeathGameplayAbility();
+	if (!bDeathAbilityActivated)
 	{
-		const float DestroyDelay = DFDeathAnimation::GetDeathDestroyDelaySeconds(DeathMontage);
-		W->GetTimerManager().SetTimer(DeathDestroyTimer, this, &ADFEnemyBase::OnDestroyAfterDeath, DestroyDelay, false);
+		Multicast_PlayDeathCosmetic();
+		FallbackDeathPresentation();
+		SpawnDeathLoot();
 	}
+	// Always schedule backup; cleared when death pipeline completes normally.
+	ScheduleDeathDestroyBackup();
 }
 
-void ADFEnemyBase::ApplyDeathGameplayState()
+void ADFEnemyBase::CancelAbilitiesForDeath(UGameplayAbility* IgnoreAbility)
 {
 	if (AbilitySystemComponent)
 	{
-		AbilitySystemComponent->CancelAllAbilities();
-		if (FDFGameplayTags::State_Dead.IsValid())
+		AbilitySystemComponent->CancelAllAbilities(IgnoreAbility);
+	}
+}
+
+void ADFEnemyBase::ExecuteEnemyDeathPresentationCue()
+{
+	if (!AbilitySystemComponent || !FDFGameplayTags::GameplayCue_Enemy_Death.IsValid())
+	{
+		return;
+	}
+	FGameplayCueParameters CueParams;
+	CueParams.Instigator = this;
+	CueParams.EffectCauser = this;
+	AbilitySystemComponent->ExecuteGameplayCue(FDFGameplayTags::GameplayCue_Enemy_Death, CueParams);
+}
+
+void ADFEnemyBase::ApplyDeathGameplayState(UGameplayAbility* IgnoreAbility)
+{
+	if (!AbilitySystemComponent)
+	{
+		return;
+	}
+	CancelAbilitiesForDeath(IgnoreAbility);
+
+	TSubclassOf<UGameplayEffect> EffectClass = DeathGameplayEffectClass;
+	if (!EffectClass)
+	{
+		EffectClass = UGE_EnemyDeath::StaticClass();
+	}
+	if (EffectClass)
+	{
+		FGameplayEffectContextHandle Ctx = AbilitySystemComponent->MakeEffectContext();
+		Ctx.AddSourceObject(this);
+		const FGameplayEffectSpecHandle Spec = AbilitySystemComponent->MakeOutgoingSpec(EffectClass, 1.f, Ctx);
+		if (Spec.IsValid() && Spec.Data.IsValid())
 		{
-			AbilitySystemComponent->AddLooseGameplayTag(FDFGameplayTags::State_Dead, 1);
+			AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+			DFDeathAnimation::LogEnemyDeath(1, this, FString::Printf(TEXT("Applied death GE %s"), *GetNameSafe(EffectClass)));
+			return;
 		}
+		DFDeathAnimation::LogEnemyDeath(1, this, TEXT("ApplyDeathGameplayState: MakeOutgoingSpec failed, falling back to loose State.Dead"));
+	}
+	if (FDFGameplayTags::State_Dead.IsValid())
+	{
+		AbilitySystemComponent->AddLooseGameplayTag(FDFGameplayTags::State_Dead, 1);
 	}
 }
 
-void ADFEnemyBase::PlayDeathMontageCosmetic()
+void ADFEnemyBase::ApplyDeathCorpseMovementState()
 {
-	if (bDeathCosmeticPlayed || IsRunningDedicatedServer())
+	if (UCharacterMovementComponent* const Move = GetCharacterMovement())
 	{
-		return;
-	}
-	bDeathCosmeticPlayed = true;
-
-	USkeletalMeshComponent* const MeshComp = GetMesh();
-	if (!MeshComp || !DeathMontage)
-	{
-		FinalizeEnemyDeathPose();
-		return;
-	}
-
-	UAnimInstance* const Anim = MeshComp->GetAnimInstance();
-	if (!Anim)
-	{
-		FinalizeEnemyDeathPose();
-		return;
-	}
-
-	FOnMontageBlendingOutStarted BlendOut;
-	BlendOut.BindUObject(this, &ADFEnemyBase::OnDeathMontageBlendingOut);
-	Anim->Montage_SetBlendingOutDelegate(BlendOut, DeathMontage);
-
-	FOnMontageEnded OnEnded;
-	OnEnded.BindUObject(this, &ADFEnemyBase::OnDeathMontageEnded);
-	Anim->Montage_SetEndDelegate(OnEnded, DeathMontage);
-
-	const float Duration = DFDeathAnimation::PlayDeathMontage(MeshComp, DeathMontage);
-	if (Duration > KINDA_SMALL_NUMBER)
-	{
-		const float LockDelay = FMath::Max(0.01f, Duration - 0.03f);
-		if (UWorld* const W = GetWorld())
-		{
-			W->GetTimerManager().SetTimer(
-				DeathPoseLockTimer,
-				this,
-				&ADFEnemyBase::FinalizeEnemyDeathPose,
-				LockDelay,
-				false);
-		}
-	}
-	else
-	{
-		FinalizeEnemyDeathPose();
+		Move->StopMovementImmediately();
+		Move->DisableMovement();
+		Move->GravityScale = 0.f;
+		Move->Velocity = FVector::ZeroVector;
 	}
 }
 
-void ADFEnemyBase::FinalizeEnemyDeathPose()
+float ADFEnemyBase::ScheduleDestroyAfterDeath()
 {
-	if (UWorld* const W = GetWorld())
+	const float MontageLen = DeathMontage ? DeathMontage->GetPlayLength() : 0.f;
+	if (bDissolveOnDeath)
 	{
-		W->GetTimerManager().ClearTimer(DeathPoseLockTimer);
+		return MontageLen + DissolveDelayAfterMontageEnd + DissolveDuration + 5.f;
 	}
-	DFDeathAnimation::LockDeathPoseOnMesh(GetMesh(), DeathMontage);
-}
-
-void ADFEnemyBase::OnDeathMontageBlendingOut(UAnimMontage* /*Montage*/, bool /*bInterrupted*/)
-{
-	FinalizeEnemyDeathPose();
-}
-
-void ADFEnemyBase::OnDeathMontageEnded(UAnimMontage* /*Montage*/, bool /*bInterrupted*/)
-{
-	FinalizeEnemyDeathPose();
+	return MontageLen + FMath::Max(CorpseDestroyDelay, 1.f) + 5.f;
 }
 
 void ADFEnemyBase::MulticastOnDeath_Implementation(AActor* /*Killer*/)
 {
-	PlayDeathMontageCosmetic();
 	if (HealthBar)
 	{
 		HealthBar->SetVisibility(false);
@@ -727,10 +1246,15 @@ void ADFEnemyBase::SpawnDeathLoot_Implementation()
 	{
 		return;
 	}
+	if (bDeathLootSpawned)
+	{
+		return;
+	}
 	if (CachedLootTableRowNames.IsEmpty())
 	{
 		return;
 	}
+	bDeathLootSpawned = true;
 	if (UWorld* const W = GetWorld())
 	{
 		if (UDFLootGeneratorSubsystem* const LootSys = W->GetSubsystem<UDFLootGeneratorSubsystem>())
@@ -742,17 +1266,9 @@ void ADFEnemyBase::SpawnDeathLoot_Implementation()
 	}
 }
 
-void ADFEnemyBase::OnDestroyAfterDeath()
-{
-	Destroy();
-}
-
 void ADFEnemyBase::DisableEnemyActions()
 {
-	if (UCharacterMovementComponent* Move = GetCharacterMovement())
-	{
-		Move->DisableMovement();
-	}
+	ApplyDeathCorpseMovementState();
 	if (AAIController* const AI = Cast<AAIController>(GetController()))
 	{
 		AI->StopMovement();
@@ -769,8 +1285,30 @@ void ADFEnemyBase::DisableEnemyActions()
 			}
 		}
 	}
-	if (GetCapsuleComponent())
+}
+
+void ADFEnemyBase::OnDestroyAfterDeath()
+{
+	ClearDeathDestroyBackup();
+	if (UWorld* const W = GetWorld())
 	{
-		GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		W->GetTimerManager().ClearTimer(PostDeathCleanupTimer);
+		W->GetTimerManager().ClearTimer(FallbackDeathTimer);
 	}
+	if (DeathDissolveTimeline)
+	{
+		DeathDissolveTimeline->Stop();
+	}
+	if (!bHasDied)
+	{
+		ApplyDeathGameplayState();
+		MarkDied();
+	}
+	bDeathFlowActive = false;
+	DFDeathAnimation::LogEnemyDeath(1, this, TEXT("OnDestroyAfterDeath -> Destroy()"));
+	if (UCapsuleComponent* const Cap = GetCapsuleComponent())
+	{
+		Cap->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+	Destroy();
 }
