@@ -1,6 +1,7 @@
 // Source/DungeonForged/Private/GameModes/Run/ADFRunGameMode.cpp
 #include "GameModes/Run/ADFRunGameMode.h"
 #include "ADFDungeonManager.h"
+#include "DungeonForgedModule.h"
 #include "GameModes/Run/ADFRunGameState.h"
 #include "GameModes/Run/ADFRunHUD.h"
 #include "GameModes/Run/ADFRunPlayerController.h"
@@ -113,6 +114,38 @@ void ADFRunGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		}
 	}
 	Super::EndPlay(EndPlayReason);
+}
+
+UClass* ADFRunGameMode::GetDefaultPawnClassForController_Implementation(AController* const InController)
+{
+	if (UGameInstance* const GI = GetGameInstance())
+	{
+		if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
+		{
+			FName ClassRowName = RM->ResolveActiveClassRowName();
+			if (ClassRowName.IsNone() && !DefaultClassRowName.IsNone())
+			{
+				ClassRowName = DefaultClassRowName;
+			}
+			if (const FDFClassTableRow* const Row = RM->FindClassTableRow(ClassRowName))
+			{
+				if (!Row->CharacterClass.IsNull())
+				{
+					if (UClass* const Loaded = Row->CharacterClass.LoadSynchronous())
+					{
+						UE_LOG(LogDungeonForged, Log,
+							TEXT("ADFRunGameMode::GetDefaultPawnClassForController: resolved class row '%s' -> %s"),
+							*ClassRowName.ToString(), *Loaded->GetPathName());
+						return Loaded;
+					}
+					UE_LOG(LogDungeonForged, Warning,
+						TEXT("ADFRunGameMode::GetDefaultPawnClassForController: class row '%s' has CharacterClass set but LoadSynchronous failed."),
+						*ClassRowName.ToString());
+				}
+			}
+		}
+	}
+	return Super::GetDefaultPawnClassForController_Implementation(InController);
 }
 
 void ADFRunGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer)

@@ -213,6 +213,14 @@ public:
 	/** @c FindClassRow for DT_Classes; C++ (Blueprint cannot return table row pointer). */
 	const FDFClassTableRow* FindClassTableRow(FName ClassRowName) const;
 
+	/**
+	 * Best-effort class row name for the upcoming pawn spawn:
+	 * @c PendingClassForArrival → @c RunState.SelectedClass → @c UDFSaveGame::LastRunClass → @c NAME_None.
+	 * Used by game modes overriding @c GetDefaultPawnClassForController to pick the right pawn BP per class.
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Run|Travel")
+	FName ResolveActiveClassRowName() const;
+
 	/** C++: reference to the live in-memory run; valid until the run ends or StartNewRun. */
 	const FDFRunState& GetCurrentRunState() const { return RunState; }
 

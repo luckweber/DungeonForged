@@ -18,6 +18,8 @@
 #include "DFDataTableStructs.generated.h"
 
 class AActor;
+class ADFPlayerCharacter;
+class APawn;
 class UBehaviorTree;
 class UGameplayAbility;
 class UGameplayEffect;
@@ -363,6 +365,21 @@ struct DUNGEONFORGED_API FDFClassTableRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Visuals")
 	TObjectPtr<USkeletalMesh> CharacterMesh = nullptr;
+
+	/**
+	 * Run pawn Blueprint for this class (e.g. BP_JCHero_Character for Knight, BP_ElfCharacter for Warrior).
+	 * Resolved by ADFRunGameMode::GetDefaultPawnClassForController. If unset, falls back to
+	 * ADFRunGameMode::DefaultPlayerClass and only @ref CharacterMesh is swapped on the default pawn.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Pawn")
+	TSoftClassPtr<ADFPlayerCharacter> CharacterClass;
+
+	/**
+	 * Optional Nexus pawn Blueprint for this class. Resolved by ADFNexusGameMode::GetDefaultPawnClassForController.
+	 * If unset, falls back to ADFNexusGameMode::NexusPawnClass and only @ref CharacterMesh is swapped.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Pawn")
+	TSoftClassPtr<APawn> NexusCharacterClass;
 
 	/** Row names in DT_Abilities for starting grants. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Abilities")

@@ -31,6 +31,7 @@ public:
 
 	virtual void PostLogin(APlayerController* NewPlayer) override;
 	virtual AActor* FindPlayerStart_Implementation(AController* Player, const FString& IncomingName) override;
+	virtual UClass* GetDefaultPawnClassForController_Implementation(AController* InController) override;
 
 	/** Applies @a PendingUnlocks, updates NPC actors, saves, queues HUD. */
 	UFUNCTION(BlueprintCallable, Category = "Nexus|Meta")

@@ -174,6 +174,32 @@ const FDFClassTableRow* UDFRunManager::FindClassTableRow(const FName ClassRowNam
 	return FindClassRow(ClassRowName);
 }
 
+FName UDFRunManager::ResolveActiveClassRowName() const
+{
+	if (!PendingClassForArrival.IsNone())
+	{
+		return PendingClassForArrival;
+	}
+	if (!RunState.SelectedClass.IsNone())
+	{
+		return RunState.SelectedClass;
+	}
+	if (UGameInstance* const GI = GetGameInstance())
+	{
+		if (UDFSaveSlotManagerSubsystem* const Slots = GI->GetSubsystem<UDFSaveSlotManagerSubsystem>())
+		{
+			if (UDFSaveGame const* const Save = Slots->GetActiveSave())
+			{
+				if (!Save->LastRunClass.IsNone())
+				{
+					return Save->LastRunClass;
+				}
+			}
+		}
+	}
+	return NAME_None;
+}
+
 void UDFRunManager::StartNewRun(FName ClassName)
 {
 	UWorld* World = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr;

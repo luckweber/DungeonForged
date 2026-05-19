@@ -1,5 +1,7 @@
 // Source/DungeonForged/Private/GameModes/Nexus/ADFNexusGameMode.cpp
 #include "GameModes/Nexus/ADFNexusGameMode.h"
+#include "Data/DFDataTableStructs.h"
+#include "DungeonForgedModule.h"
 #include "GameFramework/PlayerStart.h"
 #include "GameFramework/PlayerController.h"
 #include "EngineUtils.h"
@@ -8,6 +10,8 @@
 #include "GameModes/Nexus/ADFNexusNPCBase.h"
 #include "GameModes/Nexus/ADFNexusCharacter.h"
 #include "GameModes/Nexus/ADFNexusPlayerController.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
 #include "Run/DFSaveGame.h"
 #include "Run/DFRunManager.h"
 #include "Kismet/GameplayStatics.h"
@@ -21,6 +25,38 @@ ADFNexusGameMode::ADFNexusGameMode()
 	HUDClass = ADFNexusHUD::StaticClass();
 	NexusPawnClass = ADFNexusCharacter::StaticClass();
 	DefaultPawnClass = NexusPawnClass;
+}
+
+UClass* ADFNexusGameMode::GetDefaultPawnClassForController_Implementation(AController* const InController)
+{
+	if (UGameInstance* const GI = GetGameInstance())
+	{
+		if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
+		{
+			const FName ClassRowName = RM->ResolveActiveClassRowName();
+			if (const FDFClassTableRow* const Row = RM->FindClassTableRow(ClassRowName))
+			{
+				if (!Row->NexusCharacterClass.IsNull())
+				{
+					if (UClass* const Loaded = Row->NexusCharacterClass.LoadSynchronous())
+					{
+						UE_LOG(LogDungeonForged, Log,
+							TEXT("ADFNexusGameMode::GetDefaultPawnClassForController: resolved class row '%s' -> %s"),
+							*ClassRowName.ToString(), *Loaded->GetPathName());
+						return Loaded;
+					}
+					UE_LOG(LogDungeonForged, Warning,
+						TEXT("ADFNexusGameMode::GetDefaultPawnClassForController: class row '%s' has NexusCharacterClass set but LoadSynchronous failed."),
+						*ClassRowName.ToString());
+				}
+			}
+		}
+	}
+	if (NexusPawnClass)
+	{
+		return NexusPawnClass;
+	}
+	return Super::GetDefaultPawnClassForController_Implementation(InController);
 }
 
 void ADFNexusGameMode::PostLogin(APlayerController* const NewPlayer)
@@ -51,6 +87,23 @@ void ADFNexusGameMode::PostLogin(APlayerController* const NewPlayer)
 	}
 	UGameInstance* const GI = GetGameInstance();
 	UDFRunManager* const RM = GI ? GI->GetSubsystem<UDFRunManager>() : nullptr;
+	if (RM)
+	{
+		const FName ClassRowName = RM->ResolveActiveClassRowName();
+		if (const FDFClassTableRow* const Row = RM->FindClassTableRow(ClassRowName))
+		{
+			if (Row->CharacterMesh)
+			{
+				if (ACharacter* const PawnChar = Cast<ACharacter>(NewPlayer->GetPawn()))
+				{
+					if (USkeletalMeshComponent* const Mesh = PawnChar->GetMesh())
+					{
+						Mesh->SetSkeletalMesh(Row->CharacterMesh);
+					}
+				}
+			}
+		}
+	}
 	const ERunNexusTravelReason R = RM ? RM->GetNexusArrivalReason() : ERunNexusTravelReason::FirstLaunch;
 	PlayNexusArrivalPresentation(R, NewPlayer);
 	if (RM)
