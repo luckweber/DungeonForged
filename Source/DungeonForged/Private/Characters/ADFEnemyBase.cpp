@@ -24,7 +24,10 @@
 #include "Progression/UDFLevelingComponent.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Combat/UDFHitReactionComponent.h"
+#include "Combat/UDFMeleeAimComponent.h"
+#include "Combat/UDFStaggerComponent.h"
 #include "GAS/Elemental/UDFElementalComponent.h"
+#include "MotionWarpingComponent.h"
 #include "Abilities/GameplayAbility.h"
 #include "AbilitySystemComponent.h"
 #include "AIController.h"
@@ -99,6 +102,9 @@ ADFEnemyBase::ADFEnemyBase()
 	AttributeSet = CreateDefaultSubobject<UDFAttributeSet>(TEXT("AttributeSet"));
 
 	HitReaction = CreateDefaultSubobject<UDFHitReactionComponent>(TEXT("HitReaction"));
+	MeleeAim = CreateDefaultSubobject<UDFMeleeAimComponent>(TEXT("MeleeAim"));
+	MotionWarping = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarping"));
+	Stagger = CreateDefaultSubobject<UDFStaggerComponent>(TEXT("Stagger"));
 
 	ElementalComponent = CreateDefaultSubobject<UDFElementalComponent>(TEXT("ElementalComponent"));
 

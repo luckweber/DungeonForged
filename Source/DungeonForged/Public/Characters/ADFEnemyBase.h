@@ -21,6 +21,9 @@ class UUserWidget;
 class UWidgetComponent;
 class UDFHitReactionComponent;
 class UDFElementalComponent;
+class UDFMeleeAimComponent;
+class UDFStaggerComponent;
+class UMotionWarpingComponent;
 class UBehaviorTree;
 class UGameplayAbility;
 class UGameplayEffect;
@@ -87,6 +90,18 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	TObjectPtr<UDFHitReactionComponent> HitReaction;
+
+	/** Resolves player target and snaps yaw on melee activation (so the swing isn't done with the back to the player). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	TObjectPtr<UDFMeleeAimComponent> MeleeAim;
+
+	/** Motion Warping: windup of attack montages consumes warp targets from `UANS_DFMeleeWarp`. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	TObjectPtr<UMotionWarpingComponent> MotionWarping;
+
+	/** Poise / sliding-window stagger system. Drives Sekiro-style break reactions on accumulated damage. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	TObjectPtr<UDFStaggerComponent> Stagger;
 
 	/** Data-driven `DT_EnemyElemental` row when `FDFEnemyTableRow::ElementalAffinityRowName` is set. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GAS|Elemental")

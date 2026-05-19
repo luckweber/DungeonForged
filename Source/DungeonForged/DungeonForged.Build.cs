@@ -49,6 +49,9 @@ public class DungeonForged : ModuleRules
 			"PCG",
 			"AnimGraphRuntime",
 
+			// Motion Warping (melee aim + windup root-motion steering)
+			"MotionWarping",
+
 			// FX
 			"Niagara",
 

@@ -144,7 +144,11 @@ void UDFComboComponent::OnPrimaryAttackReleased()
 	const float Held = W->GetTimeSeconds() - HeavyChargeStartTime;
 	HeavyChargeStartTime = -1.f;
 
-	if (Held >= HeavyChargeThreshold)
+	if (Held >= MaxHeavyChargeThreshold)
+	{
+		CommitMaxHeavyAttack();
+	}
+	else if (Held >= HeavyChargeThreshold)
 	{
 		CommitHeavyAttack();
 	}
@@ -281,7 +285,15 @@ void UDFComboComponent::NotifyHeavyAbilitySwingMontageStarted(UAnimMontage* Mont
 	AActor* const Owner = GetOwner();
 	if (Owner && Owner->HasAuthority() && MeleeTrace)
 	{
-		MeleeTrace->ConfigureHeavySwing(HeavyDamageMultiplier, HeavyKnockbackMultiplier, HeavyTraceRadiusBonus);
+		// Use the multipliers that match the *pending* tier — set by CommitHeavy / CommitMaxHeavy before this fires.
+		if (bMaxHeavyPending)
+		{
+			MeleeTrace->ConfigureHeavySwing(MaxHeavyDamageMultiplier, MaxHeavyKnockbackMultiplier, MaxHeavyTraceRadiusBonus);
+		}
+		else
+		{
+			MeleeTrace->ConfigureHeavySwing(HeavyDamageMultiplier, HeavyKnockbackMultiplier, HeavyTraceRadiusBonus);
+		}
 	}
 	bHeavySwingPending = true;
 	NotifyAbilitySwingMontageStarted(Montage);
@@ -320,7 +332,8 @@ void UDFComboComponent::StartCombo()
 
 void UDFComboComponent::PlayCurrentComboMontage()
 {
-	if (!ComboMontages.IsValidIndex(CurrentComboStep) || !ComboMontages[CurrentComboStep])
+	UAnimMontage* const M = ResolveDirectionalComboMontage(CurrentComboStep);
+	if (!M)
 	{
 		ResetCombo();
 		return;
@@ -331,7 +344,6 @@ void UDFComboComponent::PlayCurrentComboMontage()
 		ResetCombo();
 		return;
 	}
-	UAnimMontage* const M = ComboMontages[CurrentComboStep].Get();
 	if (AnimInst->Montage_Play(M) <= 0.f)
 	{
 		ResetCombo();
@@ -424,6 +436,7 @@ void UDFComboComponent::ResetCombo()
 	bComboWindowActive = false;
 	bPlayingComboMontage = false;
 	bHeavySwingPending = false;
+	bMaxHeavyPending = false;
 	HeavyChargeStartTime = -1.f;
 }
 
@@ -438,6 +451,56 @@ UAnimMontage* UDFComboComponent::ResolveHeavyAttackMontage() const
 		return ComboMontages[0].Get();
 	}
 	return nullptr;
+}
+
+UAnimMontage* UDFComboComponent::ResolveMaxHeavyAttackMontage() const
+{
+	if (MaxHeavyAttackMontage)
+	{
+		return MaxHeavyAttackMontage.Get();
+	}
+	return ResolveHeavyAttackMontage();
+}
+
+UAnimMontage* UDFComboComponent::ResolveActiveHeavyMontage() const
+{
+	if (bMaxHeavyPending)
+	{
+		return ResolveMaxHeavyAttackMontage();
+	}
+	return ResolveHeavyAttackMontage();
+}
+
+UAnimMontage* UDFComboComponent::ResolveDirectionalComboMontage(const int32 Step) const
+{
+	const AActor* const Owner = GetOwner();
+	if (!Owner)
+	{
+		return ComboMontages.IsValidIndex(Step) ? ComboMontages[Step].Get() : nullptr;
+	}
+	const FVector WorldVel = Owner->GetVelocity();
+	if (WorldVel.SizeSquared2D() < DirectionalInputThreshold * DirectionalInputThreshold)
+	{
+		// Neutral / forward-ish: use default array.
+		return ComboMontages.IsValidIndex(Step) ? ComboMontages[Step].Get() : nullptr;
+	}
+	const FVector LocalVel = Owner->GetActorTransform().InverseTransformVectorNoScale(WorldVel);
+	const float Threshold = DirectionalInputThreshold;
+	if (LocalVel.X < -Threshold)
+	{
+		if (BackwardComboMontages.IsValidIndex(Step) && BackwardComboMontages[Step])
+		{
+			return BackwardComboMontages[Step].Get();
+		}
+	}
+	else if (FMath::Abs(LocalVel.Y) > Threshold && FMath::Abs(LocalVel.Y) > LocalVel.X)
+	{
+		if (SideComboMontages.IsValidIndex(Step) && SideComboMontages[Step])
+		{
+			return SideComboMontages[Step].Get();
+		}
+	}
+	return ComboMontages.IsValidIndex(Step) ? ComboMontages[Step].Get() : nullptr;
 }
 
 bool UDFComboComponent::ConsumeHeavyStamina()
@@ -520,10 +583,20 @@ void UDFComboComponent::CommitHeavyAttack()
 	{
 		return;
 	}
+	bMaxHeavyPending = false;
 	PrimeMeleeSwingAbilityChain();
 
 	if (ShouldRouteHeavyAttackThroughGAS())
 	{
+		// Sync tier to server BEFORE the GA activation RPC so server-side GA reads the right tier.
+		// Both RPCs use the same reliable channel → ordering is guaranteed.
+		if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(GetOwner()))
+		{
+			if (!PC->HasAuthority())
+			{
+				PC->Server_NotifyHeavyAttackTier(false);
+			}
+		}
 		(void)TryActivateHeavyAttackGameplayAbility();
 		return;
 	}
@@ -545,6 +618,147 @@ void UDFComboComponent::CommitHeavyAttack()
 	{
 		ExecuteHeavyAttackPresentation();
 	}
+}
+
+void UDFComboComponent::CommitMaxHeavyAttack()
+{
+	if (!CanPerformMaxHeavyAttack())
+	{
+		// Fall back gracefully to normal heavy if max isn't available (no montage / no stamina).
+		CommitHeavyAttack();
+		return;
+	}
+	bMaxHeavyPending = true;
+	PrimeMeleeSwingAbilityChain();
+
+	if (ShouldRouteHeavyAttackThroughGAS())
+	{
+		// Same ability handles both tiers; reads bMaxHeavyPending via ResolveActiveHeavyMontage.
+		// Server RPC syncs the tier flag BEFORE the GA replicates (same reliable channel = ordered).
+		if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(GetOwner()))
+		{
+			if (!PC->HasAuthority())
+			{
+				PC->Server_NotifyHeavyAttackTier(true);
+			}
+		}
+		(void)TryActivateHeavyAttackGameplayAbility();
+		return;
+	}
+
+	ACharacter* const Character = Cast<ACharacter>(GetOwner());
+	const bool bAuthority = GetOwner() && GetOwner()->HasAuthority();
+	const bool bLocallyControlled = Character && Character->IsLocallyControlled();
+
+	if (bAuthority)
+	{
+		ExecuteMaxHeavyAttackAuthority();
+	}
+	else if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(GetOwner()))
+	{
+		PC->Server_CommitHeavyAttack(); // server resolves via bMaxHeavyPending (replicated through ability)
+	}
+
+	if (bLocallyControlled)
+	{
+		ExecuteMaxHeavyAttackPresentation();
+	}
+}
+
+bool UDFComboComponent::CanPerformMaxHeavyAttack() const
+{
+	if (!ResolveMaxHeavyAttackMontage())
+	{
+		return false;
+	}
+	const ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(GetOwner());
+	if (!PC)
+	{
+		return false;
+	}
+	if (UAbilitySystemComponent* const ASC = PC->GetAbilitySystemComponent())
+	{
+		if (FDFGameplayTags::State_Dead.IsValid() && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Dead))
+		{
+			return false;
+		}
+		if (MaxHeavyStaminaCost > 0.f)
+		{
+			const UDFAttributeSet* const Attrs = ASC->GetSet<UDFAttributeSet>();
+			if (!Attrs || Attrs->GetStamina() < MaxHeavyStaminaCost)
+			{
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+bool UDFComboComponent::ConsumeMaxHeavyStamina()
+{
+	AActor* const Owner = GetOwner();
+	if (!Owner || !Owner->HasAuthority() || MaxHeavyStaminaCost <= 0.f)
+	{
+		return true;
+	}
+	ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(Owner);
+	if (!PC)
+	{
+		return true;
+	}
+	UAbilitySystemComponent* const ASC = PC->GetAbilitySystemComponent();
+	if (!ASC)
+	{
+		return false;
+	}
+	const UDFAttributeSet* const Attrs = ASC->GetSet<UDFAttributeSet>();
+	if (!Attrs)
+	{
+		return false;
+	}
+	const float Current = Attrs->GetStamina();
+	if (Current < MaxHeavyStaminaCost)
+	{
+		return false;
+	}
+	const_cast<UDFAttributeSet*>(Attrs)->SetStamina(FMath::Max(0.f, Current - MaxHeavyStaminaCost));
+	return true;
+}
+
+void UDFComboComponent::ExecuteMaxHeavyAttackAuthority()
+{
+	if (!ConsumeMaxHeavyStamina())
+	{
+		return;
+	}
+	UAnimMontage* const Montage = ResolveMaxHeavyAttackMontage();
+	if (!Montage || !MeleeTrace)
+	{
+		return;
+	}
+	MeleeTrace->ConfigureHeavySwing(MaxHeavyDamageMultiplier, MaxHeavyKnockbackMultiplier, MaxHeavyTraceRadiusBonus);
+	MeleeTrace->ScheduleAuthorityTraceWindowsFromMontage(Montage, 1.f);
+}
+
+void UDFComboComponent::ExecuteMaxHeavyAttackPresentation()
+{
+	UAnimMontage* const Montage = ResolveMaxHeavyAttackMontage();
+	if (!Montage)
+	{
+		return;
+	}
+	UAnimInstance* const AnimInst = GetAnimInstance();
+	if (!AnimInst)
+	{
+		return;
+	}
+	if (AnimInst->Montage_Play(Montage) <= 0.f)
+	{
+		return;
+	}
+	TryBindEndDelegateFor(Montage);
+	bPlayingComboMontage = true;
+	bHeavySwingPending = true;
 }
 
 void UDFComboComponent::ExecuteHeavyAttackPresentation()

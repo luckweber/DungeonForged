@@ -154,6 +154,12 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag State_Dodging;
 	static FGameplayTag State_Attacking;
 	static FGameplayTag State_Casting;
+	/** Telegraph windup is active on an attacker (enemy). UI reads this to show "danger" indicators. */
+	static FGameplayTag State_Combat_Telegraph_Active;
+	/** Cancel window is open on the avatar — heavy attack / dodge can interrupt the current swing. */
+	static FGameplayTag State_Combat_CancelWindow_Open;
+	/** Parry window is open on a vulnerable attacker — strike now to trigger parry/stagger. */
+	static FGameplayTag State_Combat_ParryWindow_Open;
 	/** Stun / most CC: UTargetTagRequirementsGameplayEffectComponent should ignore targets with this tag. */
 	static FGameplayTag State_CCIgnore;
 	static FGameplayTag State_BossEnraged;
@@ -185,6 +191,19 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Event_Death_Loot;
 	static FGameplayTag Event_Ability_Montage_End;
 	static FGameplayTag Event_Hit_Received;
+	/** Enemy telegraph windup begins / ends — clients spawn ground warning at target. */
+	static FGameplayTag Event_Combat_Telegraph_Begin;
+	static FGameplayTag Event_Combat_Telegraph_End;
+	/** Cancel window opens / closes during a swing — input handler may chain heavy or dodge. */
+	static FGameplayTag Event_Combat_CancelWindow_Open;
+	static FGameplayTag Event_Combat_CancelWindow_Close;
+	/** Parry window opens / closes on a windup section — opportunistic strike. */
+	static FGameplayTag Event_Combat_ParryWindow_Open;
+	static FGameplayTag Event_Combat_ParryWindow_Close;
+	/** Player struck an enemy during its parry window — bonus damage + stagger. */
+	static FGameplayTag Event_Combat_Parry_Triggered;
+	/** Accumulated damage in the stagger window exceeded Poise — break/stagger reaction. */
+	static FGameplayTag Event_Combat_Stagger_Triggered;
 	static FGameplayTag Event_Ability_Kill;
 	static FGameplayTag Event_Passive_Rogue_BleedApplied;
 

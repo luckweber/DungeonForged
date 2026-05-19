@@ -7,6 +7,7 @@
 #include "Animation/AnimMontage.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Combat/UDFComboComponent.h"
+#include "Combat/UDFMeleeAimComponent.h"
 #include "Combat/UDFMeleeTraceComponent.h"
 #include "GameFramework/Actor.h"
 #include "GAS/DFGameplayTags.h"
@@ -70,12 +71,20 @@ void UDFAbility_Warrior_MeleeSwing::ActivateAbility(const FGameplayAbilitySpecHa
 	if (ADFPlayerCharacter* PC = Cast<ADFPlayerCharacter>(Avatar))
 	{
 		Combo = PC->Combo;
+		// AAA aim: snap-rotate to face the resolved target (lock-on > soft cone) and commit it so
+		// UANS_DFMeleeWarp notify states warp to the same actor for the duration of the swing.
+		if (UDFMeleeAimComponent* const Aim = PC->MeleeAim)
+		{
+			Aim->AcquireAndCommitTarget();
+		}
 	}
-	if (Combo && Combo->ComboMontages.IsValidIndex(Combo->CurrentComboStep) && Combo->ComboMontages[Combo->CurrentComboStep])
+	if (Combo)
 	{
-		MontToPlay = Combo->ComboMontages[Combo->CurrentComboStep].Get();
+		// Directional resolver picks Backward/Side override if the owner's local velocity matches,
+		// otherwise falls back to ComboMontages[step].
+		MontToPlay = Combo->ResolveDirectionalComboMontage(Combo->CurrentComboStep);
 	}
-	else
+	if (!MontToPlay)
 	{
 		MontToPlay = AbilityMontage.Get();
 	}
@@ -117,6 +126,10 @@ void UDFAbility_Warrior_MeleeSwing::OnMontageEnd()
 		if (UDFComboComponent* const Combo = PC->Combo)
 		{
 			Combo->NotifyAbilitySwingMontagePlaybackEnded();
+		}
+		if (UDFMeleeAimComponent* const Aim = PC->MeleeAim)
+		{
+			Aim->ReleaseAttackTarget();
 		}
 	}
 	EndAbility(GetCurrentAbilitySpecHandle(), GetCurrentActorInfo(), GetCurrentActivationInfo(), true, false);

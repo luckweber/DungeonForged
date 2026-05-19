@@ -83,6 +83,26 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Combat|GAS")
 	float FinishingSetByCallerMagnitude = 20.f;
 
+	/**
+	 * Applied to the target when it is struck while carrying `State.Combat.ParryWindow.Open`
+	 * (set by `UANS_DFParryWindow`). Author as a stun GE with a SetByCaller bonus-damage tag.
+	 * Normal damage is still applied — parry is *additive*.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Combat|Parry")
+	TSubclassOf<UGameplayEffect> ParryReactionGameplayEffect;
+
+	/** SetByCaller key on the parry GE (typically `Data.Damage` for bonus damage on the reaction). */
+	UPROPERTY(EditAnywhere, Category = "Combat|Parry", meta = (Categories = "Data"))
+	FGameplayTag ParrySetByCallerTag;
+
+	/** Value sent for `ParrySetByCallerTag`. */
+	UPROPERTY(EditAnywhere, Category = "Combat|Parry", meta = (ClampMin = "0.0"))
+	float ParrySetByCallerMagnitude = 30.f;
+
+	/** Damage multiplier applied to the *normal* swing spec when parry triggers (1.5x default = chunky AAA feel). */
+	UPROPERTY(EditAnywhere, Category = "Combat|Parry", meta = (ClampMin = "1.0"))
+	float ParryDamageMultiplier = 1.5f;
+
 	UPROPERTY(BlueprintReadOnly, Category = "Combat|Trace")
 	bool bTracing = false;
 
