@@ -229,6 +229,10 @@ struct DUNGEONFORGED_API FDFItemTableRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat")
 	TObjectPtr<UAnimMontage> WeaponHeavyAttackMontage;
 
+	/** Played when the player held primary attack past @c UDFComboComponent::MaxHeavyChargeThreshold (the biggest swing this weapon owns). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat")
+	TObjectPtr<UAnimMontage> WeaponMaxHeavyAttackMontage;
+
 	/** Overrides UDFMeleeTraceComponent::BaseDamage while equipped; leave 0 to use character defaults. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat", meta = (ClampMin = "0.0"))
 	float WeaponMeleeBaseDamage = 0.f;
@@ -473,6 +477,17 @@ struct DUNGEONFORGED_API FDFClassTableRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat")
 	TObjectPtr<UAnimMontage> ArmedHeavyAttackMontageFallback;
+
+	/** Max-tier heavy fallback when the weapon row has no @c WeaponMaxHeavyAttackMontage. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat")
+	TObjectPtr<UAnimMontage> ArmedMaxHeavyAttackMontageFallback;
+
+	/** Optional per-step Backward / Side directional combo overrides (used when owner is moving in that direction). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat|Directional")
+	TArray<TObjectPtr<UAnimMontage>> ArmedBackwardMeleeComboMontagesFallback;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat|Directional")
+	TArray<TObjectPtr<UAnimMontage>> ArmedSideMeleeComboMontagesFallback;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|GAS")
 	TMap<FGameplayAttribute, float> BaseAttributeValues;

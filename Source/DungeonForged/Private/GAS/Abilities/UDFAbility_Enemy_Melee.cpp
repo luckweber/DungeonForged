@@ -4,6 +4,7 @@
 #include "Characters/ADFEnemyBase.h"
 #include "Combat/UDFCombatDirectorSubsystem.h"
 #include "Combat/UDFHitReactionComponent.h"
+#include "Combat/UDFMeleeAimComponent.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
@@ -87,6 +88,13 @@ void UDFAbility_Enemy_Melee::ActivateAbility(
 				}
 				bHoldsAttackToken = true;
 			}
+		}
+
+		// AAA aim: snap-rotate to face the target and commit it as ManualTarget so the montage's
+		// UANS_DFMeleeWarp notify states warp to the same actor. Fixes "attacks with back to player".
+		if (UDFMeleeAimComponent* const Aim = Enemy->MeleeAim)
+		{
+			Aim->AcquireAndCommitTarget();
 		}
 	}
 	ActiveParallelTasks = 0;
@@ -203,9 +211,13 @@ void UDFAbility_Enemy_Melee::EndAbility(
 	const bool bReplicateEndAbility,
 	const bool bWasCancelled)
 {
-	if (bHoldsAttackToken)
+	if (ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(GetAvatarActorFromActorInfo()))
 	{
-		if (ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(GetAvatarActorFromActorInfo()))
+		if (UDFMeleeAimComponent* const Aim = Enemy->MeleeAim)
+		{
+			Aim->ReleaseAttackTarget();
+		}
+		if (bHoldsAttackToken)
 		{
 			if (UWorld* const World = GetWorld())
 			{
@@ -215,8 +227,8 @@ void UDFAbility_Enemy_Melee::EndAbility(
 				}
 			}
 		}
-		bHoldsAttackToken = false;
 	}
+	bHoldsAttackToken = false;
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
 

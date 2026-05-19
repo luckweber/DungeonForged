@@ -24,6 +24,8 @@ class UDFComboPointsComponent;
 class UDFHitReactionComponent;
 class UDFInteractionComponent;
 class UDFMeleeTraceComponent;
+class UDFMeleeAimComponent;
+class UMotionWarpingComponent;
 class UInputAction;
 class UInputMappingContext;
 class UAbilitySystemComponent;
@@ -74,6 +76,14 @@ public:
 	/** Melee: weapon sweep, GAS application. Wires to combo + anim notifies. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	TObjectPtr<UDFMeleeTraceComponent> MeleeTrace;
+
+	/** Resolves the melee target (lock-on > manual > soft cone) and snaps yaw on activation. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	TObjectPtr<UDFMeleeAimComponent> MeleeAim;
+
+	/** Motion Warping: AnimGraph Motion Warping node consumes warp targets set by `UANS_DFMeleeWarp`. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	TObjectPtr<UMotionWarpingComponent> MotionWarping;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	TObjectPtr<UDFComboComponent> Combo;
@@ -271,6 +281,14 @@ public:
 
 	UFUNCTION(Server, Reliable, Category = "DF|Combat|Heavy")
 	void Server_CommitHeavyAttack();
+
+	/**
+	 * Syncs the Max-heavy tier flag on the server's `UDFComboComponent` BEFORE the LocalPredicted GA replicates.
+	 * Reliable RPC ordering on the same channel guarantees this arrives before `ServerTryActivateAbility`,
+	 * so the server's GA reads the correct tier when resolving its montage / multipliers.
+	 */
+	UFUNCTION(Server, Reliable, Category = "DF|Combat|Heavy")
+	void Server_NotifyHeavyAttackTier(bool bMaxTier);
 
 	/** Called by @ref ADFRunPlayerController (run input is on the PC, not on hero BPs). */
 	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")

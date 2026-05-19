@@ -30,7 +30,41 @@ void UDFAbility_Warrior_HeavyAttack::PostInitProperties()
 		BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Dead);
 		BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Stunned);
 		ActivationOwnedTags.AddTag(FDFGameplayTags::State_Attacking);
+		// Heavy cancels light swing when it activates — works in tandem with CanActivateAbility's
+		// cancel-window gate to enforce "only mid-swing cancel during a tagged window".
+		CancelAbilitiesWithTag.AddTag(FDFGameplayTags::Ability_Warrior_MeleeSwing);
 	}
+}
+
+bool UDFAbility_Warrior_HeavyAttack::CanActivateAbility(const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayTagContainer* SourceTags,
+	const FGameplayTagContainer* TargetTags,
+	FGameplayTagContainer* OptionalRelevantTags) const
+{
+	if (!Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags))
+	{
+		return false;
+	}
+	if (!ActorInfo)
+	{
+		return false;
+	}
+	const UAbilitySystemComponent* const ASC = ActorInfo->AbilitySystemComponent.Get();
+	if (!ASC)
+	{
+		return true;
+	}
+	// Cancel-window gate: during an active swing, only fire if CancelWindow.Open is set.
+	const bool bAttacking = FDFGameplayTags::State_Attacking.IsValid()
+		&& ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Attacking);
+	if (!bAttacking)
+	{
+		return true; // Fresh activation, no gate needed.
+	}
+	const bool bCancelWindowOpen = FDFGameplayTags::State_Combat_CancelWindow_Open.IsValid()
+		&& ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Combat_CancelWindow_Open);
+	return bCancelWindowOpen;
 }
 
 void UDFAbility_Warrior_HeavyAttack::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo,
@@ -45,11 +79,11 @@ void UDFAbility_Warrior_HeavyAttack::ActivateAbility(const FGameplayAbilitySpecH
 
 	ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(ActorInfo->AvatarActor.Get());
 	UDFComboComponent* const Combo = PC ? PC->Combo : nullptr;
+	// Pick montage + cost BEFORE CommitAbility so resource gate checks the right tier.
 	if (Combo)
 	{
-		AbilityCost_Stamina = Combo->HeavyStaminaCost;
+		AbilityCost_Stamina = Combo->IsMaxHeavyPending() ? Combo->MaxHeavyStaminaCost : Combo->HeavyStaminaCost;
 	}
-
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo, nullptr))
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
@@ -67,7 +101,8 @@ void UDFAbility_Warrior_HeavyAttack::ActivateAbility(const FGameplayAbilitySpecH
 	UAnimMontage* MontToPlay = nullptr;
 	if (Combo)
 	{
-		MontToPlay = Combo->ResolveHeavyAttackMontage();
+		// Picks max-heavy or normal-heavy montage based on bMaxHeavyPending set by Commit*HeavyAttack.
+		MontToPlay = Combo->ResolveActiveHeavyMontage();
 	}
 	if (!MontToPlay)
 	{

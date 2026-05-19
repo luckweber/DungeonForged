@@ -1,7 +1,9 @@
 # 09 — Status de implementação (C++)
 
-> **Atualizado:** 2026-05-18  
+> **Atualizado:** 2026-05-19
 > Complementa o [índice](00_Overview.md). Marca o que já está no código vs. o que ainda depende de BP/assets.
+>
+> **Doc relacionado:** [10_AAA_AimWarpCombat.md](10_AAA_AimWarpCombat.md) — setup BP completo das adições recentes (aim, warp, telegraph, parry, stagger, tiered heavy, directional combos).
 
 ---
 
@@ -25,6 +27,14 @@
 | 3 | Hit stop por banda no melee | ✅ | `UDFMeleeTraceComponent::ApplyDamageToTarget` → `UDFHitStopSubsystem` + shake leve |
 | 4 | Dodge i-frames 0.35 + CD 0.7 | ✅ | `UDFCharacterMovementComponent` |
 | 5 | Heavy attack (charge) | ✅ | `UDFComboComponent` hold ≥0.55s; `UDFMeleeTraceComponent::ConfigureHeavySwing` |
+| 5b | **Tiered heavy** (Heavy + Max Heavy) | ✅ | `UDFComboComponent::MaxHeavyChargeThreshold=1.4s`, `MaxHeavyAttackMontage`, server-RPC sync de tier; per-weapon via `WeaponMaxHeavyAttackMontage`, per-class via `ArmedMaxHeavyAttackMontageFallback` |
+| 5c | **Directional combos** | ✅ | `UDFComboComponent::BackwardComboMontages` + `SideComboMontages`; resolve por `owner.Velocity.local` em `ResolveDirectionalComboMontage` |
+| 5d | **AAA Aim + Motion Warping** | ✅ | `UDFMeleeAimComponent` (lock-on > BB > soft cone); `UMotionWarpingComponent` em player+enemy; `UANS_DFMeleeWarp` notify state |
+| 5e | **Enemy telegraph windup** | ✅ | `UANS_DFEnemyTelegraph` — Niagara no chão sob o alvo + weapon charge + sound + tag State.Combat.Telegraph.Active |
+| 5f | **Cancel window** | ✅ | `UANS_DFCancelWindow` adiciona State.Combat.CancelWindow.Open; `UDFAbility_Warrior_HeavyAttack::CanActivateAbility` gates por essa tag |
+| 5g | **Parry system** | ✅ | `UANS_DFParryWindow` no enemy; `UDFMeleeTraceComponent::ApplyDamageToTarget` detecta tag e aplica `ParryReactionGameplayEffect` + multiplier |
+| 5h | **Stagger / Poise** | ✅ | `UDFStaggerComponent` sliding-window de damage no Health attribute; `Event.Combat.Stagger.Triggered` |
+| 5i | **Fix enemy "atacar de costas"** | ✅ | `UDFAbility_Enemy_Melee::ActivateAbility` chama `AcquireAndCommitTarget` (snap yaw + warp target) |
 | 6 | Curva eventos 25/40/60/0 | ✅ | `UDFRandomEventSubsystem::EventChancePerFloorCurve` + `GetEventChanceForFloor` |
 | 7 | Indicador dano direcional | ✅ | `UDFDamageDirectionWidget` + `UDFInGameHUDWidget::OnPlayerDamageTaken` |
 | 8 | HUD adaptativo | ✅ | `UDFInGameHUDWidget` fade via `State.InCombat` |

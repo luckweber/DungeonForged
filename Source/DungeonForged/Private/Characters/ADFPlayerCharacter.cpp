@@ -19,7 +19,9 @@
 #include "Combat/UDFComboComponent.h"
 #include "Combat/UDFComboPointsComponent.h"
 #include "Combat/UDFHitReactionComponent.h"
+#include "Combat/UDFMeleeAimComponent.h"
 #include "Combat/UDFMeleeTraceComponent.h"
+#include "MotionWarpingComponent.h"
 #include "Interaction/UDFInteractionComponent.h"
 #include "Dungeon/Traps/UDFTrapDetectionComponent.h"
 #include "Audio/UDFAudioComponent.h"
@@ -78,6 +80,8 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 	LockOnComponent = CreateDefaultSubobject<UDFLockOnComponent>(TEXT("LockOnComponent"));
 
 	MeleeTrace = CreateDefaultSubobject<UDFMeleeTraceComponent>(TEXT("MeleeTrace"));
+	MeleeAim = CreateDefaultSubobject<UDFMeleeAimComponent>(TEXT("MeleeAim"));
+	MotionWarping = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarping"));
 	Combo = CreateDefaultSubobject<UDFComboComponent>(TEXT("Combo"));
 	ComboPoints = CreateDefaultSubobject<UDFComboPointsComponent>(TEXT("ComboPoints"));
 	HitReaction = CreateDefaultSubobject<UDFHitReactionComponent>(TEXT("HitReaction"));
@@ -283,6 +287,28 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 		{
 			Combo->HeavyAttackMontage = nullptr;
 		}
+
+		// Max heavy tier (highest charge threshold). Falls back: weapon → class → normal heavy.
+		if (WRow.WeaponMaxHeavyAttackMontage)
+		{
+			Combo->MaxHeavyAttackMontage = WRow.WeaponMaxHeavyAttackMontage;
+		}
+		else if (ClassRow && ClassRow->ArmedMaxHeavyAttackMontageFallback)
+		{
+			Combo->MaxHeavyAttackMontage = ClassRow->ArmedMaxHeavyAttackMontageFallback;
+		}
+		else
+		{
+			Combo->MaxHeavyAttackMontage = nullptr;
+		}
+
+		// Directional combo overrides — class-driven only (no per-weapon directional for now).
+		Combo->BackwardComboMontages = ClassRow
+			? ClassRow->ArmedBackwardMeleeComboMontagesFallback
+			: TArray<TObjectPtr<UAnimMontage>>();
+		Combo->SideComboMontages = ClassRow
+			? ClassRow->ArmedSideMeleeComboMontagesFallback
+			: TArray<TObjectPtr<UAnimMontage>>();
 	};
 
 	if (!Equipment || Equipment->IsSlotEmpty(EEquipmentSlot::Weapon))
@@ -303,6 +329,14 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 		}
 
 		Combo->HeavyAttackMontage = nullptr;
+		Combo->MaxHeavyAttackMontage = nullptr;
+		// Directional fallbacks may still exist for unarmed combos in class data.
+		Combo->BackwardComboMontages = ClassRow
+			? ClassRow->ArmedBackwardMeleeComboMontagesFallback
+			: TArray<TObjectPtr<UAnimMontage>>();
+		Combo->SideComboMontages = ClassRow
+			? ClassRow->ArmedSideMeleeComboMontagesFallback
+			: TArray<TObjectPtr<UAnimMontage>>();
 
 		return;
 	}
@@ -809,6 +843,14 @@ void ADFPlayerCharacter::Server_CommitHeavyAttack_Implementation()
 	if (Combo)
 	{
 		Combo->ServerCommitHeavyAttack();
+	}
+}
+
+void ADFPlayerCharacter::Server_NotifyHeavyAttackTier_Implementation(const bool bMaxTier)
+{
+	if (Combo)
+	{
+		Combo->SetMaxHeavyPending(bMaxTier);
 	}
 }
 

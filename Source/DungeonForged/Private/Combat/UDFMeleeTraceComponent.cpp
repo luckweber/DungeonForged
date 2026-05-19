@@ -1287,8 +1287,48 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 		return;
 	}
 
-	const float DmgMagnitude = DamageTag.IsValid() ? SpecHandle.Data->GetSetByCallerMagnitude(DamageTag, false, 0.f) : 0.f;
+	float DmgMagnitude = DamageTag.IsValid() ? SpecHandle.Data->GetSetByCallerMagnitude(DamageTag, false, 0.f) : 0.f;
 	const float KbMagnitude = KnockbackTag.IsValid() ? SpecHandle.Data->GetSetByCallerMagnitude(KnockbackTag, false, 0.f) : 0.f;
+
+	// Parry detection: target is in a parry window, apply reaction GE + boost normal damage.
+	const bool bParryTriggered = FDFGameplayTags::State_Combat_ParryWindow_Open.IsValid()
+		&& TargetASC->HasMatchingGameplayTag(FDFGameplayTags::State_Combat_ParryWindow_Open);
+	if (bParryTriggered)
+	{
+		if (DamageTag.IsValid() && DmgMagnitude > KINDA_SMALL_NUMBER && ParryDamageMultiplier > 1.f)
+		{
+			DmgMagnitude *= ParryDamageMultiplier;
+			SpecHandle.Data->SetSetByCallerMagnitude(DamageTag, DmgMagnitude);
+		}
+		if (ParryReactionGameplayEffect)
+		{
+			FGameplayEffectContextHandle PCtx = SourceASC->MakeEffectContext();
+			PCtx.AddInstigator(Owner, Owner);
+			PCtx.AddSourceObject(this);
+			const FGameplayEffectSpecHandle ParrySpec = SourceASC->MakeOutgoingSpec(
+				ParryReactionGameplayEffect, 1.f, PCtx);
+			if (ParrySpec.IsValid() && ParrySpec.Data)
+			{
+				if (ParrySetByCallerTag.IsValid() && ParrySetByCallerMagnitude > KINDA_SMALL_NUMBER)
+				{
+					ParrySpec.Data->SetSetByCallerMagnitude(ParrySetByCallerTag, ParrySetByCallerMagnitude);
+				}
+				SourceASC->ApplyGameplayEffectSpecToTarget(*ParrySpec.Data.Get(), TargetASC);
+			}
+		}
+		if (FDFGameplayTags::Event_Combat_Parry_Triggered.IsValid())
+		{
+			FGameplayEventData Payload;
+			Payload.EventTag = FDFGameplayTags::Event_Combat_Parry_Triggered;
+			Payload.Instigator = Owner;
+			Payload.Target = Target;
+			Payload.EventMagnitude = DmgMagnitude;
+			UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(
+				Owner, FDFGameplayTags::Event_Combat_Parry_Triggered, Payload);
+			UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(
+				Target, FDFGameplayTags::Event_Combat_Parry_Triggered, Payload);
+		}
+	}
 
 	const float Health = TargetASC->GetNumericAttribute(UDFAttributeSet::GetHealthAttribute());
 	const float MaxH = TargetASC->GetNumericAttribute(UDFAttributeSet::GetMaxHealthAttribute());
