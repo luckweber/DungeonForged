@@ -36,6 +36,8 @@ Sempre que possível, mantém:
 | 06 | [Audio Mix](06_AudioMix.md) | Music intensity, elite trigger, layering, SFX banding | 🎨 MÉDIA |
 | 07 | [UI / UX](07_UI_UX.md) | HUD adaptativo, boss intro, defeat polish, indicadores | 🎨 MÉDIA |
 | 08 | [Accessibility](08_Accessibility.md) | Sliders, colorblind, hold/toggle, motion sickness | ♿ BAIXA |
+| 09 | [Ability Hotbar & Input](09_AbilityHotbar.md) | 12 slots WoW-style, cooldown polish, drag-drop, tooltips, GCD | 🎯 ALTA |
+| 10 | [Settings & Options](10_SettingsAndOptions.md) | Graphics (resolução/Vsync/quality), i18n, rebind, persistência | 🎯 ALTA |
 
 ---
 
@@ -57,8 +59,13 @@ Priorizadas por `(impacto subjetivo / horas de trabalho)`. Cada uma tem um doc d
 | 10 | **3 sliders de acessibilidade** (camera shake %, hit stop %, damage numbers on/off) | 2h | MÉDIO | [08](08_Accessibility.md) |
 | 11 | **Boss vulnerability window** em phase transition (`State_BossVulnerable` por 2s, +50% dmg taken) | 2h | MÉDIO | [05](05_EnemiesAndBosses.md#vulnerability-windows) |
 | 12 | **Combat text** crit com escala 1.4× + stroke amarelo + horizontal shake | 1h | BAIXO | [02](02_Juice.md#combat-text) |
+| 13 | **Graphics tab** (resolução + Vsync + quality preset + FOV) | 6h | ALTO | [10](10_SettingsAndOptions.md#graphics) |
+| 14 | **Hotbar input labels** auto pull do remapping subsystem (dinâmico) | 2h | MÉDIO | [09](09_AbilityHotbar.md#input-labels) |
+| 15 | **Ability tooltip** (hover 0.4s, desc + custo + CD + range) | 3h | MÉDIO | [09](09_AbilityHotbar.md#tooltip) |
+| 16 | **GCD overlay** 0.5s pós-cast em todos os slots | 2h | MÉDIO | [09](09_AbilityHotbar.md#gcd) |
+| 17 | **First-run setup** (idioma + accessibility antes do main menu) | 2h | MÉDIO | [10](10_SettingsAndOptions.md#open-from-anywhere) |
 
-> **Sequência recomendada:** 1 → 2 → 4 → 5 → 3 → resto. Os 5 primeiros mudam o feel da run inteira em uma tarde.
+> **Sequência recomendada:** 1 → 2 → 4 → 5 → 3 → 13 → 14 → resto. Os 5 primeiros mudam o feel da run inteira em uma tarde; 13 destrava o jogo em monitores diferentes.
 
 ---
 
@@ -143,6 +150,9 @@ Quando os 12 itens da tabela estiverem `[x]`:
 - [ ] HUD fade out fora de combate, in dentro.
 - [ ] 3 sliders de acessibilidade básicos no menu.
 - [ ] Defeat screen exibe causa, best floor highlighted.
+- [ ] Graphics tab funcional (resolução, vsync, presets, FOV).
+- [ ] Hotbar tem 12 slots, input labels dinâmicos, tooltips, GCD.
+- [ ] Settings persistem entre sessões (todos os campos).
 
 Cada doc tem checklist mais granular.
 
