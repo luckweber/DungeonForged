@@ -425,10 +425,12 @@ void UDFAttributeSet::OnRep_CharacterLevel(const FGameplayAttributeData& OldValu
 void UDFAttributeSet::OnRep_Health(const FGameplayAttributeData& OldValue)
 {
 	GAMEPLAYATTRIBUTE_REPNOTIFY(UDFAttributeSet, Health, OldValue);
+	OnHealthChanged.Broadcast(GetHealth(), GetMaxHealth());
 }
 void UDFAttributeSet::OnRep_MaxHealth(const FGameplayAttributeData& OldValue)
 {
 	GAMEPLAYATTRIBUTE_REPNOTIFY(UDFAttributeSet, MaxHealth, OldValue);
+	OnHealthChanged.Broadcast(GetHealth(), GetMaxHealth());
 }
 void UDFAttributeSet::OnRep_Mana(const FGameplayAttributeData& OldValue)
 {

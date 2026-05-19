@@ -121,12 +121,36 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "UI")
 	TObjectPtr<UWidgetComponent> HealthBar;
 
+	/** Offset from mesh (or socket). Tune here or move the HealthBar component in the BP viewport. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI")
+	FVector HealthBarRelativeOffset = FVector(0.f, 0.f, 120.f);
+
+	/** If set, pins the bar to this mesh socket (overrides relative offset). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI")
+	FName HealthBarAttachSocketName = NAME_None;
+
+	/** When false, keeps HealthBar on the root (capsule) so BP transform edits are not re-parented to mesh. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI")
+	bool bAttachHealthBarToMesh = true;
+
 	/** 3x debuff row above the health bar; optional. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "UI|Status")
 	TObjectPtr<UWidgetComponent> DebuffStatusBar;
 
+	/** Floating bar above the enemy; use @c UDFEnemyHealthBarWidget (WBP parent + BindWidget @c EnemyHealthBar). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI")
 	TSubclassOf<UUserWidget> HealthBarWidgetClass;
+
+	/** From @c DT_Enemies::EnemyName (replicated). */
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_EnemyDisplayName, Category = "UI")
+	FText EnemyDisplayName;
+
+	UFUNCTION(BlueprintPure, Category = "UI")
+	FText GetEnemyDisplayName() const { return EnemyDisplayName; }
+
+	/** Re-binds floating @c UDFEnemyHealthBarWidget (after DT init or name replicate). */
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void RefreshEnemyHealthBarWidget();
 
 	/** Binds to UDFEnemyDebuffStatusBarWidget. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI|Status")
@@ -293,6 +317,9 @@ public:
 	void RegisterDamageFromContext(const FGameplayEffectContextHandle& Ctx);
 
 protected:
+	/** Parents HealthBar to mesh (or socket); does not overwrite a BP-authored relative transform. */
+	void ApplyHealthBarAttachment();
+
 	void InitAbilityAndBindHealth();
 	void UnbindAttributeDelegates();
 	void OnHealthOrMaxChanged(float Current, float Max);
@@ -305,6 +332,9 @@ protected:
 
 	UFUNCTION()
 	void OnRep_bHasDied();
+
+	UFUNCTION()
+	void OnRep_EnemyDisplayName();
 
 	/** Applies @a ReplicatedDataTableMaxWalkSpeed to movement (all roles; clients get value via replication from server `InitializeFromDataTable`). */
 	UFUNCTION()

@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/GameModes/Run/ADFRunGameState.cpp
 #include "GameModes/Run/ADFRunGameState.h"
+#include "Boss/ADFBossBase.h"
 #include "Run/DFRunManager.h"
 #include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
@@ -32,6 +33,7 @@ void ADFRunGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME(ADFRunGameState, TotalKills);
 	DOREPLIFETIME(ADFRunGameState, TotalGoldCollected);
 	DOREPLIFETIME(ADFRunGameState, CurrentPhase);
+	DOREPLIFETIME(ADFRunGameState, ActiveBoss);
 }
 
 void ADFRunGameState::OnRep_CurrentFloor() {}
@@ -50,6 +52,23 @@ void ADFRunGameState::OnRep_CurrentPhase()
 	ERunPhase const Old = LastPhaseNotified;
 	LastPhaseNotified = CurrentPhase;
 	OnPhaseChanged.Broadcast(CurrentPhase, Old);
+}
+
+void ADFRunGameState::OnRep_ActiveBoss()
+{
+	OnActiveBossChanged.Broadcast(ActiveBoss);
+	ERunPhase const Old = LastPhaseNotified;
+	OnPhaseChanged.Broadcast(CurrentPhase, Old);
+}
+
+void ADFRunGameState::SetActiveBoss(ADFBossBase* const Boss)
+{
+	if (GetLocalRole() != ROLE_Authority)
+	{
+		return;
+	}
+	ActiveBoss = Boss;
+	OnActiveBossChanged.Broadcast(ActiveBoss);
 }
 
 void ADFRunGameState::AuthorityIncrementKills(int32 const Delta)

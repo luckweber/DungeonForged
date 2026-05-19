@@ -24,8 +24,13 @@ public:
 	void HideBossBar();
 
 protected:
+	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
 
+	void StartRebindTimer();
+	void StopRebindTimer();
+	void OnRebindTimerTick();
+	void TryBindBossAttributes();
 	void OnHealthAttrChanged(const FOnAttributeChangeData& Data);
 	void OnMaxHealthAttrChanged(const FOnAttributeChangeData& Data);
 	void OnPhaseChanged(int32 OldPhase, int32 NewPhase, AActor* Boss);
@@ -46,4 +51,7 @@ protected:
 	TObjectPtr<UImage> EnrageIcon = nullptr;
 
 	TWeakObjectPtr<ADFBossBase> TrackedBoss;
+	bool bBossAttributesBound = false;
+	FTimerHandle RebindTimerHandle;
+	static constexpr float RebindIntervalSec = 0.25f;
 };

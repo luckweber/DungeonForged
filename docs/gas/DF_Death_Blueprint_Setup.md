@@ -81,7 +81,7 @@ Sem isto, o AI continua em `Chase` com HP 0.
 
 | Propriedade | O que fazer |
 |-------------|-------------|
-| **Health Bar Widget Class** | Widget da barra de HP (ex. `WBP_EnemyHealthBar`). Se vazio, não há barra 3D. |
+| **Health Bar Widget Class** | WBP com parent `UDFEnemyHealthBarWidget` (ex. `WBP_EnemyHealthBar`). BindWidget: `EnemyHealthBar` (ProgressBar); opcional: `EnemyNameText`, `HealthValueText`. Se vazio, não há barra 3D. Boss usa `UDFBossHealthBarWidget` no Run HUD. |
 
 ### 1.3 Data Table (`DT_Enemies`)
 

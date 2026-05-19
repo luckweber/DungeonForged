@@ -65,6 +65,7 @@ void ADFBossBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifet
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(ADFBossBase, CurrentPhase);
 	DOREPLIFETIME(ADFBossBase, bIsEnraged);
+	DOREPLIFETIME(ADFBossBase, BossDisplayName);
 }
 
 void ADFBossBase::NotifyHealthChangedFromAttributes(const float Current, const float Max)

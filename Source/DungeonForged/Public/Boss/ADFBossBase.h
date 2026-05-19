@@ -104,8 +104,8 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "DF|Boss")
 	FOnDFBossEnraged OnBossEnraged;
 
-	/** Cinematic; defaults to WBP. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Boss|UI")
+	/** HUD boss bar label; authority sets from DT @c EnemyName in @ref InitializeFromDataTable. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Replicated, Category = "DF|Boss|UI")
 	FText BossDisplayName;
 
 	UFUNCTION(BlueprintCallable, Category = "DF|Boss|UI")

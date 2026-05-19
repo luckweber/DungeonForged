@@ -1,6 +1,8 @@
 // Source/DungeonForged/Private/Characters/ADFEnemyBase.cpp
 
 #include "Characters/ADFEnemyBase.h"
+#include "Boss/ADFBossBase.h"
+#include "UI/UDFEnemyHealthBarWidget.h"
 #include "Combat/UDFCombatDirectorSubsystem.h"
 #include "Animation/DFDeathAnimation.h"
 #include "DungeonForgedModule.h"
@@ -102,7 +104,15 @@ ADFEnemyBase::ADFEnemyBase()
 
 	HealthBar = CreateDefaultSubobject<UWidgetComponent>(TEXT("HealthBar"));
 	// USceneComponent default subobjects must be attached in the constructor or CDO / Blueprint reinstancing can crash.
-	HealthBar->SetupAttachment(GetRootComponent());
+	if (USkeletalMeshComponent* const SkelMesh = GetMesh())
+	{
+		HealthBar->SetupAttachment(SkelMesh);
+	}
+	else
+	{
+		HealthBar->SetupAttachment(GetRootComponent());
+	}
+	HealthBar->SetRelativeLocation(HealthBarRelativeOffset);
 	HealthBar->SetWidgetSpace(EWidgetSpace::Screen);
 	HealthBar->SetDrawAtDesiredSize(true);
 
@@ -121,13 +131,35 @@ ADFEnemyBase::ADFEnemyBase()
 void ADFEnemyBase::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
-	// Re-attach to skeletal mesh when available (BP may have swapped the mesh; ctor only used capsule root).
-	if (HealthBar && GetMesh())
+	ApplyHealthBarAttachment();
+}
+
+void ADFEnemyBase::ApplyHealthBarAttachment()
+{
+	if (!HealthBar)
+	{
+		return;
+	}
+	if (!bAttachHealthBarToMesh)
+	{
+		return;
+	}
+	USkeletalMeshComponent* const InMesh = GetMesh();
+	if (!InMesh)
+	{
+		return;
+	}
+	if (!HealthBarAttachSocketName.IsNone() && InMesh->DoesSocketExist(HealthBarAttachSocketName))
 	{
 		HealthBar->AttachToComponent(
-			GetMesh(), FAttachmentTransformRules::KeepRelativeTransform);
-		HealthBar->SetRelativeLocation(FVector(0.f, 0.f, 100.f));
+			InMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, HealthBarAttachSocketName);
+		return;
 	}
+	if (HealthBar->GetAttachParent() == InMesh)
+	{
+		return;
+	}
+	HealthBar->AttachToComponent(InMesh, FAttachmentTransformRules::KeepRelativeTransform);
 }
 
 UAbilitySystemComponent* ADFEnemyBase::GetAbilitySystemComponent() const
@@ -140,6 +172,7 @@ void ADFEnemyBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(ADFEnemyBase, bHasDied);
 	DOREPLIFETIME(ADFEnemyBase, ReplicatedDataTableMaxWalkSpeed);
+	DOREPLIFETIME(ADFEnemyBase, EnemyDisplayName);
 }
 
 void ADFEnemyBase::OnRep_bHasDied()
@@ -148,6 +181,52 @@ void ADFEnemyBase::OnRep_bHasDied()
 	{
 		HealthBar->SetVisibility(false);
 	}
+}
+
+void ADFEnemyBase::OnRep_EnemyDisplayName()
+{
+	RefreshEnemyHealthBarWidget();
+}
+
+void ADFEnemyBase::RefreshEnemyHealthBarWidget()
+{
+	if (!HealthBar)
+	{
+		return;
+	}
+
+	// Accept class from C++ defaults *or* Widget Component "Widget Class" set only on the BP component.
+	TSubclassOf<UUserWidget> WidgetClass = HealthBarWidgetClass;
+	if (!WidgetClass)
+	{
+		WidgetClass = HealthBar->GetWidgetClass();
+	}
+	if (!WidgetClass)
+	{
+		return;
+	}
+
+	if (HealthBar->GetWidgetClass() != WidgetClass)
+	{
+		HealthBar->SetWidgetClass(WidgetClass);
+	}
+
+	if (!HealthBar->GetUserWidgetObject())
+	{
+		HealthBar->InitWidget();
+	}
+
+	UUserWidget* const WidgetObject = HealthBar->GetUserWidgetObject();
+	if (UDFEnemyHealthBarWidget* const HBar = Cast<UDFEnemyHealthBarWidget>(WidgetObject))
+	{
+		HBar->SetupObservedEnemy(this, EnemyDisplayName);
+		return;
+	}
+	UE_LOG(
+		LogDFEnemy, Warning,
+		TEXT("%s: health bar widget '%s' must inherit UDFEnemyHealthBarWidget (ProgressBar: EnemyHealthBar). Set Health Bar Widget Class on the enemy BP or Widget Class on the HealthBar component."),
+		*GetName(),
+		*GetNameSafe(WidgetClass));
 }
 
 void ADFEnemyBase::OnRep_ReplicatedDataTableMaxWalkSpeed()
@@ -275,16 +354,12 @@ void ADFEnemyBase::BeginPlay()
 
 	InitAbilityAndBindHealth();
 
-	if (HealthBar && HealthBarWidgetClass)
-	{
-		HealthBar->SetWidgetClass(HealthBarWidgetClass);
-		HealthBar->InitWidget();
-	}
-	else if (HealthBar && !HealthBarWidgetClass)
+	RefreshEnemyHealthBarWidget();
+	if (HealthBar && !HealthBarWidgetClass)
 	{
 		UE_LOG(
 			LogDFEnemy, Verbose,
-			TEXT("%s: HealthBarWidgetClass not set — no floating HP bar (boss uses HUD UDFBossHealthBarWidget)."),
+			TEXT("%s: HealthBarWidgetClass not set — assign UDFEnemyHealthBarWidget (boss HUD uses UDFBossHealthBarWidget)."),
 			*GetName());
 	}
 	if (DebuffStatusBar && DebuffStatusBarWidgetClass)
@@ -436,6 +511,18 @@ void ADFEnemyBase::InitializeFromDataTable(UDataTable* EnemyTable, FName RowName
 	CachedLootTableRowNames = Row->LootTableRows;
 	CachedAIBehaviorTree = Row->AIBehaviorTree;
 
+	if (!Row->EnemyName.IsEmpty())
+	{
+		EnemyDisplayName = Row->EnemyName;
+	}
+	if (ADFBossBase* const Boss = Cast<ADFBossBase>(this))
+	{
+		if (!Row->EnemyName.IsEmpty())
+		{
+			Boss->BossDisplayName = Row->EnemyName;
+		}
+	}
+
 	AbilitySystemComponent->InitAbilityActorInfo(this, this);
 	ApplyBaseStatsFromRow(*Row);
 	ApplyMovementConfigFromRow(*Row);
@@ -469,6 +556,7 @@ void ADFEnemyBase::InitializeFromDataTable(UDataTable* EnemyTable, FName RowName
 	if (HasActorBegunPlay())
 	{
 		InitAbilityAndBindHealth();
+		RefreshEnemyHealthBarWidget();
 	}
 
 	// Base stats applied — safe to react to Health <= 0.

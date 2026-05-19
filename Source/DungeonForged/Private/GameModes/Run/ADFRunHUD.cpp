@@ -1,6 +1,9 @@
 // Source/DungeonForged/Private/GameModes/Run/ADFRunHUD.cpp
 #include "GameModes/Run/ADFRunHUD.h"
+#include "Boss/ADFBossBase.h"
+#include "DungeonForgedModule.h"
 #include "GameModes/Run/ADFRunGameState.h"
+#include "UI/UDFBossHealthBarWidget.h"
 #include "Engine/Engine.h"
 #include "GameFramework/PlayerController.h"
 #include "Blueprint/UserWidget.h"
@@ -29,6 +32,8 @@ void ADFRunHUD::BeginPlay()
 			if (ADFRunGameState* const RGS = W->GetGameState<ADFRunGameState>())
 			{
 				RGS->OnPhaseChanged.AddDynamic(this, &ADFRunHUD::OnRunPhaseChanged);
+				RGS->OnActiveBossChanged.AddDynamic(this, &ADFRunHUD::OnActiveBossChanged);
+				SyncBossBarFromGameState();
 			}
 		}
 	}
@@ -41,6 +46,7 @@ void ADFRunHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		if (ADFRunGameState* const RGS = W->GetGameState<ADFRunGameState>())
 		{
 			RGS->OnPhaseChanged.RemoveAll(this);
+			RGS->OnActiveBossChanged.RemoveAll(this);
 		}
 	}
 	Super::EndPlay(EndPlayReason);
@@ -54,27 +60,35 @@ void ADFRunHUD::CreateRunWidgets()
 		return;
 	}
 	auto AddIf = [PC, this](TSubclassOf<UUserWidget> Cls, int32 const Z) -> UUserWidget*
+	{
+		if (!Cls)
 		{
-			if (!Cls)
-			{
-				return nullptr;
-			}
-			if (UUserWidget* const Wg = CreateWidget<UUserWidget>(PC, Cls))
-			{
-				Wg->AddToViewport(Z);
-				return Wg;
-			}
 			return nullptr;
-		};
+		}
+		if (UUserWidget* const Wg = CreateWidget<UUserWidget>(PC, Cls))
+		{
+			Wg->AddToViewport(Z);
+			return Wg;
+		}
+		return nullptr;
+	};
 
 	WBP_HUD = AddIf(WBP_HUDClass, Z_HUD);
 	WBP_Minimap = AddIf(WBP_MinimapClass, Z_Minimap);
 	WBP_StatusEffectBar = AddIf(WBP_StatusEffectBarClass, Z_Status);
-	WBP_BossHealthBar = AddIf(WBP_BossHealthBarClass, Z_Boss);
+	if (UUserWidget* const BossWg = AddIf(WBP_BossHealthBarClass, Z_Boss))
+	{
+		WBP_BossHealthBar = Cast<UDFBossHealthBarWidget>(BossWg);
+		if (!WBP_BossHealthBar)
+		{
+			DF_LOG(Warning,
+				"ADFRunHUD: WBP_BossHealthBarClass must inherit UDFBossHealthBarWidget (BindWidget: BossHealthBar, BossNameText).");
+		}
+	}
 	WBP_LockOnIndicator = AddIf(WBP_LockOnIndicatorClass, Z_LockOn);
 	WBP_FloorCounter = AddIf(WBP_FloorCounterClass, Z_Floor);
 	WBP_KillCounter = AddIf(WBP_KillCounterClass, Z_Kill);
-	ShowBossHUD(false);
+	ClearBossHealthBar();
 }
 
 void ADFRunHUD::SetCombatWidgetsVisible(const bool bVisible)
@@ -86,7 +100,6 @@ void ADFRunHUD::SetCombatWidgetsVisible(const bool bVisible)
 	if (WBP_LockOnIndicator) WBP_LockOnIndicator->SetVisibility(V);
 	if (WBP_FloorCounter) WBP_FloorCounter->SetVisibility(V);
 	if (WBP_KillCounter) WBP_KillCounter->SetVisibility(V);
-	// Boss bar: hidden in non-boss (handled separately).
 }
 
 void ADFRunHUD::ShowBossHUD(const bool bShow)
@@ -94,26 +107,72 @@ void ADFRunHUD::ShowBossHUD(const bool bShow)
 	if (WBP_BossHealthBar)
 	{
 		WBP_BossHealthBar->SetVisibility(
-			bShow ? ESlateVisibility::Visible : ESlateVisibility::Hidden);
+			bShow ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	}
+}
+
+void ADFRunHUD::PresentBossHealthBar(ADFBossBase* const Boss)
+{
+	if (!Boss || !WBP_BossHealthBar)
+	{
+		return;
+	}
+	WBP_BossHealthBar->ShowForBoss(Boss, Boss->GetBossDisplayName());
+	ShowBossHUD(true);
+}
+
+void ADFRunHUD::ClearBossHealthBar()
+{
+	if (WBP_BossHealthBar)
+	{
+		WBP_BossHealthBar->HideBossBar();
+	}
+	ShowBossHUD(false);
+}
+
+void ADFRunHUD::SyncBossBarFromGameState()
+{
+	if (UWorld* const W = GetWorld())
+	{
+		if (const ADFRunGameState* const RGS = W->GetGameState<ADFRunGameState>())
+		{
+			if (RGS->CurrentPhase == ERunPhase::BossEncounter && RGS->ActiveBoss)
+			{
+				PresentBossHealthBar(RGS->ActiveBoss);
+				return;
+			}
+		}
+	}
+	ClearBossHealthBar();
+}
+
+void ADFRunHUD::OnActiveBossChanged(ADFBossBase* /*Boss*/)
+{
+	SyncBossBarFromGameState();
 }
 
 void ADFRunHUD::OnRunPhaseChanged(ERunPhase NewPhase, ERunPhase /*OldPhase*/)
 {
 	switch (NewPhase)
 	{
-	case ERunPhase::BetweenFloors: SetCombatWidgetsVisible(false);
+	case ERunPhase::BetweenFloors:
+		SetCombatWidgetsVisible(false);
+		ClearBossHealthBar();
 		return;
-	case ERunPhase::BossEncounter: SetCombatWidgetsVisible(true);
-		ShowBossHUD(true);
+	case ERunPhase::BossEncounter:
+		SetCombatWidgetsVisible(true);
+		SyncBossBarFromGameState();
 		return;
 	case ERunPhase::InCombat:
 		SetCombatWidgetsVisible(true);
-		ShowBossHUD(false);
+		ClearBossHealthBar();
 		return;
 	case ERunPhase::Victory:
-	case ERunPhase::Defeat: SetCombatWidgetsVisible(false);
+	case ERunPhase::Defeat:
+		SetCombatWidgetsVisible(false);
+		ClearBossHealthBar();
 		return;
-	default: return;
+	default:
+		return;
 	}
 }

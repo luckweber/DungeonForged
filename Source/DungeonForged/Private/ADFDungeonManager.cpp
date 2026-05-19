@@ -1,6 +1,9 @@
 // Source/DungeonForged/Private/ADFDungeonManager.cpp
 
 #include "ADFDungeonManager.h"
+#include "Boss/ADFBossBase.h"
+#include "GameModes/Run/ADFRunGameState.h"
+#include "GameModes/Run/DFRunTypes.h"
 #include "UI/Minimap/ADFMinimapRoom.h"
 #include "Characters/ADFPlayerState.h"
 #include "Characters/ADFEnemyBase.h"
@@ -526,6 +529,14 @@ void UDFDungeonManager::SpawnEnemies(const FDFDungeonFloorRow& FloorData)
 					if (ADFEnemyBase* const Char = Cast<ADFEnemyBase>(Spawned))
 					{
 						Char->InitializeFromDataTable(EnemyDataTable, FloorData.BossEnemyRow);
+					}
+					if (ADFBossBase* const Boss = Cast<ADFBossBase>(Spawned))
+					{
+						if (ADFRunGameState* const GS = World->GetGameState<ADFRunGameState>())
+						{
+							GS->SetActiveBoss(Boss);
+							GS->SetPhase(ERunPhase::BossEncounter);
+						}
 					}
 				}
 			}

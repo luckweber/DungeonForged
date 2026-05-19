@@ -2,6 +2,8 @@
 #include "Boss/ADFBossTriggerVolume.h"
 #include "Boss/ADFBossBase.h"
 #include "GAS/DFGameplayTags.h"
+#include "GameModes/Run/ADFRunGameState.h"
+#include "GameModes/Run/ADFRunHUD.h"
 #include "UI/UDFBossHealthBarWidget.h"
 #include "AIController.h"
 #include "AbilitySystemBlueprintLibrary.h"
@@ -58,6 +60,15 @@ void ADFBossTriggerVolume::OnBoxBeginOverlap(
 	bTriggered = true;
 	Box->SetGenerateOverlapEvents(false);
 
+	if (UWorld* const W = GetWorld())
+	{
+		if (ADFRunGameState* const GS = W->GetGameState<ADFRunGameState>())
+		{
+			GS->SetActiveBoss(TargetBoss);
+			GS->SetPhase(ERunPhase::BossEncounter);
+		}
+	}
+
 	for (AActor* const A : DoorLockTargets)
 	{
 		if (!A)
@@ -112,12 +123,19 @@ void ADFBossTriggerVolume::Multicast_BeginIntroCinematic_Implementation()
 				}
 			}
 		}
-		if (BossBarWidgetClass && IsValid(TargetBoss))
+		if (IsValid(TargetBoss))
 		{
-			if (UDFBossHealthBarWidget* const Wdg = CreateWidget<UDFBossHealthBarWidget>(PC, BossBarWidgetClass))
+			if (ADFRunHUD* const HUD = Cast<ADFRunHUD>(PC->GetHUD()))
 			{
-				Wdg->ShowForBoss(TargetBoss, TargetBoss->GetBossDisplayName());
-				Wdg->AddToViewport(100);
+				HUD->PresentBossHealthBar(TargetBoss);
+			}
+			else if (BossBarWidgetClass)
+			{
+				if (UDFBossHealthBarWidget* const Wdg = CreateWidget<UDFBossHealthBarWidget>(PC, BossBarWidgetClass))
+				{
+					Wdg->ShowForBoss(TargetBoss, TargetBoss->GetBossDisplayName());
+					Wdg->AddToViewport(100);
+				}
 			}
 		}
 	}
