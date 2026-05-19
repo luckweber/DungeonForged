@@ -47,6 +47,10 @@ public:
 	UPROPERTY()
 	TObjectPtr<UDataTable> ClassTable = nullptr;
 
+	/** From @c UDFClassSelectionDeveloperSettings::ClassUnlockDataTable when set. */
+	UPROPERTY()
+	TObjectPtr<UDataTable> ClassUnlockTable = nullptr;
+
 	UPROPERTY()
 	TObjectPtr<UDFSaveGame> SaveRef = nullptr;
 
@@ -205,6 +209,9 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "DF|ClassSelection|Data")
 	UDataTable* GetClassTable() const;
 
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "DF|ClassSelection|Data")
+	UDataTable* GetClassUnlockTable() const;
+
 	UDFClassPreviewRotatorComponent* GetRotator() const { return Rotator; }
 
 	/** Normalized 0-1 for stat bars: Strength, Int, Agility, Defense (avg armor+MR), MaxHealth. */
@@ -230,6 +237,7 @@ protected:
 	void PositionPreviewForDirectWorldView(APlayerController* PC);
 	void EnsureSaveLoaded();
 	void EnsureClassTable();
+	void EnsureClassUnlockTable();
 	/** Resolve @c ClassSelectionWidgetClass via SoftPath se ainda nao houver classe atribuida. */
 	void EnsureWidgetClassResolved();
 	void PlayClassIdleAnimation(const FDFClassTableRow& Row) const;

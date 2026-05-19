@@ -35,8 +35,60 @@
 #include "World/DFWorldTypes.h"
 #include "Blueprint/UserWidget.h"
 
-static bool DfIsUnlockedByRules(FName ClassName, const UDFSaveGame* Save);
-static FText DfGetUnlockText(FName ClassName, const UDFSaveGame* Save);
+static bool DfIsUnlockedByRules(FName ClassName, const UDFSaveGame* Save, const UDataTable* UnlockTable);
+static FText DfGetUnlockText(FName ClassName, const UDFSaveGame* Save, const UDataTable* UnlockTable);
+
+static void DfResetSkeletalMeshMaterials(USkeletalMeshComponent* const MeshComp)
+{
+	if (!MeshComp)
+	{
+		return;
+	}
+	// Limpa MIDs/overrides da classe anterior; defaults voltam do asset após SetSkeletalMesh.
+	MeshComp->EmptyOverrideMaterials();
+}
+
+static void DfApplyPreviewTintToMesh(USkeletalMeshComponent* const MeshComp, const FLinearColor& Tint)
+{
+	if (!MeshComp || Tint.Equals(FLinearColor::White, KINDA_SMALL_NUMBER))
+	{
+		return;
+	}
+	const int32 NumMaterials = MeshComp->GetNumMaterials();
+	for (int32 Idx = 0; Idx < NumMaterials; ++Idx)
+	{
+		UMaterialInterface* const BaseMat = MeshComp->GetMaterial(Idx);
+		if (UMaterialInstanceDynamic* const MID = MeshComp->CreateDynamicMaterialInstance(Idx, BaseMat))
+		{
+			MID->SetVectorParameterValue(FName("TintColor"), FVector(Tint));
+		}
+	}
+}
+
+static void DfClearHeroModularMeshesForClassPreview(ADFPlayerCharacter* const Hero)
+{
+	if (!Hero)
+	{
+		return;
+	}
+	auto ClearPart = [](USkeletalMeshComponent* const Part)
+	{
+		if (!Part)
+		{
+			return;
+		}
+		Part->SetSkeletalMesh(nullptr);
+		Part->SetHiddenInGame(true);
+		Part->EmptyOverrideMaterials();
+	};
+	ClearPart(Hero->Mesh_Helmet);
+	ClearPart(Hero->Mesh_Chest);
+	ClearPart(Hero->Mesh_Legs);
+	ClearPart(Hero->Mesh_Boots);
+	ClearPart(Hero->Mesh_Gloves);
+	ClearPart(Hero->Mesh_Weapon);
+	ClearPart(Hero->Mesh_OffHand);
+}
 
 static const TCHAR* DfPreviewDisplayModeLabel(const EDFClassPreviewDisplayMode M)
 {
@@ -282,6 +334,10 @@ void UDFClassSelectionSubsystem::Initialize(FSubsystemCollectionBase& Collection
 		{
 			ClassTable = Dev->ClassDataTable.LoadSynchronous();
 		}
+		if (!Dev->ClassUnlockDataTable.IsNull())
+		{
+			ClassUnlockTable = Dev->ClassUnlockDataTable.LoadSynchronous();
+		}
 		bPreviewUseFillLight = Dev->bPreviewUseFillLight;
 		PreviewDisplayMode = Dev->PreviewDisplayMode;
 	}
@@ -333,6 +389,7 @@ void UDFClassSelectionSubsystem::Deinitialize()
 	DestroyPreviewPawn();
 	SaveRef = nullptr;
 	ClassTable = nullptr;
+	ClassUnlockTable = nullptr;
 	ActiveRenderTarget = nullptr;
 	ClassSelectionWidgetInstance = nullptr;
 	MainMenuClassDestination = EDFMainMenuClassPickDestination::None;
@@ -364,6 +421,28 @@ void UDFClassSelectionSubsystem::EnsureClassTable()
 	{
 		ClassTable = RM->ClassDataTable;
 	}
+}
+
+void UDFClassSelectionSubsystem::EnsureClassUnlockTable()
+{
+	if (ClassUnlockTable)
+	{
+		return;
+	}
+	if (const UDFClassSelectionDeveloperSettings* const Dev = GetDefault<UDFClassSelectionDeveloperSettings>())
+	{
+		if (!Dev->ClassUnlockDataTable.IsNull())
+		{
+			ClassUnlockTable = Dev->ClassUnlockDataTable.LoadSynchronous();
+		}
+	}
+}
+
+UDataTable* UDFClassSelectionSubsystem::GetClassUnlockTable() const
+{
+	UDFClassSelectionSubsystem* const S = const_cast<UDFClassSelectionSubsystem*>(this);
+	S->EnsureClassUnlockTable();
+	return S->ClassUnlockTable;
 }
 
 void UDFClassSelectionSubsystem::EnsureWidgetClassResolved()
@@ -417,12 +496,12 @@ const FDFClassTableRow* UDFClassSelectionSubsystem::GetClassData(const FName Cla
 
 bool UDFClassSelectionSubsystem::IsClassUnlocked(const FName ClassName) const
 {
-	return DfIsUnlockedByRules(ClassName, SaveRef);
+	return DfIsUnlockedByRules(ClassName, SaveRef, GetClassUnlockTable());
 }
 
 FText UDFClassSelectionSubsystem::GetUnlockConditionText(const FName ClassName) const
 {
-	return DfGetUnlockText(ClassName, SaveRef);
+	return DfGetUnlockText(ClassName, SaveRef, GetClassUnlockTable());
 }
 
 void UDFClassSelectionSubsystem::GetStatBarScalesForClass(
@@ -924,20 +1003,33 @@ void UDFClassSelectionSubsystem::UpdatePreviewForClass(const FName ClassName)
 			"para malha compatível com o skeleton de PreviewPawnClass.",
 			*ClassName.ToString());
 	}
+
+	if (ADFPlayerCharacter* const Hero = Cast<ADFPlayerCharacter>(SpawnedPreviewPawn))
+	{
+		DfClearHeroModularMeshesForClassPreview(Hero);
+	}
+
 	if (USkeletalMeshComponent* const Mesh = SpawnedPreviewPawn->GetMesh())
 	{
 		if (Row->CharacterMesh)
 		{
 			Mesh->SetSkeletalMesh(Row->CharacterMesh);
 		}
-		ApplyClassTintToPreview(Row->PreviewCosmeticTint);
-		if (ADFPlayerCharacter* const Hero = Cast<ADFPlayerCharacter>(SpawnedPreviewPawn))
-		{
-			Hero->RefreshWeaponAndOffHandSocketAttachments();
-		}
+		DfResetSkeletalMeshMaterials(Mesh);
+		DfApplyPreviewTintToMesh(Mesh, Row->PreviewCosmeticTint);
 	}
+
 	PlayClassIdleAnimation(*Row);
 	SpawnClassChangeVfx(*Row);
+
+	if (UWorld* const W = GetWorld())
+	{
+		const FDFClassTableRow RowCopy = *Row;
+		W->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, [this, RowCopy]()
+		{
+			PlayClassIdleAnimation(RowCopy);
+		}));
+	}
 }
 
 void UDFClassSelectionSubsystem::ApplyClassTintToPreview(const FLinearColor& Tint) const
@@ -948,12 +1040,7 @@ void UDFClassSelectionSubsystem::ApplyClassTintToPreview(const FLinearColor& Tin
 	}
 	if (USkeletalMeshComponent* const Mesh = SpawnedPreviewPawn->GetMesh())
 	{
-		UMaterialInterface* const M0 = Mesh->GetMaterial(0);
-		UMaterialInstanceDynamic* const MID = Mesh->CreateDynamicMaterialInstance(0, M0);
-		if (MID)
-		{
-			MID->SetVectorParameterValue(FName("TintColor"), FVector(Tint));
-		}
+		DfApplyPreviewTintToMesh(Mesh, Tint);
 	}
 }
 
@@ -963,18 +1050,22 @@ void UDFClassSelectionSubsystem::PlayClassIdleAnimation(const FDFClassTableRow& 
 	{
 		return;
 	}
-	UAnimSequence* Idle = Row.ClassPreviewIdle.IsNull() ? nullptr : Row.ClassPreviewIdle.LoadSynchronous();
-	if (USkeletalMeshComponent* const Mesh = SpawnedPreviewPawn->GetMesh())
+	USkeletalMeshComponent* const Mesh = SpawnedPreviewPawn->GetMesh();
+	if (!Mesh)
 	{
-		if (UAnimInstance* const AI = Mesh->GetAnimInstance())
-		{
-			AI->StopAllMontages(0.15f);
-			if (Idle)
-			{
-				AI->PlaySlotAnimationAsDynamicMontage(Idle, FName("DefaultSlot"), 0.2f, 0.2f, 1.f, 0);
-			}
-		}
+		return;
 	}
+
+	UAnimSequence* const Idle = Row.ClassPreviewIdle.IsNull() ? nullptr : Row.ClassPreviewIdle.LoadSynchronous();
+	if (Idle)
+	{
+		Mesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+		Mesh->PlayAnimation(Idle, true);
+		return;
+	}
+
+	Mesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+	Mesh->InitAnim(false);
 }
 
 void UDFClassSelectionSubsystem::SpawnClassChangeVfx(const FDFClassTableRow& Row) const
@@ -1052,16 +1143,74 @@ static bool DfNameIsAny(
 	return false;
 }
 
-static bool DfIsUnlockedByRules(const FName ClassName, const UDFSaveGame* const Save)
+static const FDFClassUnlockTableRow* DfFindClassUnlockRow(const UDataTable* const UnlockTable, const FName ClassName)
 {
-	if (!ClassName.IsNone() && Save)
+	if (!UnlockTable || ClassName.IsNone())
 	{
-		if (Save->UnlockedClasses.Contains(ClassName))
+		return nullptr;
+	}
+	for (const TPair<FName, uint8*>& Pair : UnlockTable->GetRowMap())
+	{
+		const FDFClassUnlockTableRow* const Row = reinterpret_cast<const FDFClassUnlockTableRow*>(Pair.Value);
+		if (!Row)
 		{
-			return true;
+			continue;
+		}
+		if (Pair.Key == ClassName || Row->AdditionalClassRowNames.Contains(ClassName))
+		{
+			return Row;
 		}
 	}
-	// Guerreiro / Mago: always
+	return nullptr;
+}
+
+static bool DfEvaluateUnlockRule(const FDFClassUnlockTableRow& Rule, const UDFSaveGame* const Save)
+{
+	switch (Rule.UnlockRule)
+	{
+	case EDFClassUnlockRule::AlwaysUnlocked:
+		return true;
+	case EDFClassUnlockRule::MinimumTotalRuns:
+		return Save && Save->TotalRuns >= Rule.RequiredValue;
+	case EDFClassUnlockRule::MinimumTotalWins:
+		return Save && Save->TotalWins >= Rule.RequiredValue;
+	case EDFClassUnlockRule::MinimumMetaLevel:
+		return Save && Save->MetaLevel >= Rule.RequiredValue;
+	case EDFClassUnlockRule::SaveUnlockListOnly:
+	default:
+		return false;
+	}
+}
+
+static FText DfDefaultUnlockHintForRule(const FDFClassUnlockTableRow& Rule)
+{
+	if (!Rule.UnlockHint.IsEmpty())
+	{
+		return Rule.UnlockHint;
+	}
+	switch (Rule.UnlockRule)
+	{
+	case EDFClassUnlockRule::MinimumTotalRuns:
+		return FText::Format(
+			NSLOCTEXT("DF", "UnlockRunsFmt", "Conclua {0} run(s) (qualquer desfecho)."),
+			FText::AsNumber(FMath::Max(1, Rule.RequiredValue)));
+	case EDFClassUnlockRule::MinimumTotalWins:
+		return FText::Format(
+			NSLOCTEXT("DF", "UnlockWinsFmt", "Ven\u00e7a {0} run(s) (qualquer classe)."),
+			FText::AsNumber(FMath::Max(1, Rule.RequiredValue)));
+	case EDFClassUnlockRule::MinimumMetaLevel:
+		return FText::Format(
+			NSLOCTEXT("DF", "UnlockMetaFmt", "Atinga Meta n\u00edvel {0} no Nexus."),
+			FText::AsNumber(FMath::Max(1, Rule.RequiredValue)));
+	case EDFClassUnlockRule::SaveUnlockListOnly:
+		return NSLOCTEXT("DF", "UnlockGeneric", "Cumpra o requisito de desbloqueio no Nexus.");
+	default:
+		return FText::GetEmpty();
+	}
+}
+
+static bool DfIsUnlockedByLegacyRules(const FName ClassName, const UDFSaveGame* const Save)
+{
 	if (DfNameIsAny(ClassName, TEXT("Guerreiro"), TEXT("Warrior"), TEXT("Mago"), TEXT("Mage")))
 	{
 		return true;
@@ -1070,17 +1219,14 @@ static bool DfIsUnlockedByRules(const FName ClassName, const UDFSaveGame* const 
 	{
 		return DfNameIsAny(ClassName, TEXT("Guerreiro"), TEXT("Mago"), TEXT("Warrior"), TEXT("Mage"));
 	}
-	// Assassino: 2+ runs
 	if (DfNameIsAny(ClassName, TEXT("Assassino"), TEXT("Rogue"), TEXT("Assassin")))
 	{
 		return Save->TotalRuns >= 2;
 	}
-	// Paladino: 1+ win
 	if (DfNameIsAny(ClassName, TEXT("Paladino"), TEXT("Paladin")))
 	{
 		return Save->TotalWins >= 1;
 	}
-	// Necromante: Meta >= 5
 	if (DfNameIsAny(ClassName, TEXT("Necromante"), TEXT("Necromancer")))
 	{
 		return Save->MetaLevel >= 5;
@@ -1088,9 +1234,9 @@ static bool DfIsUnlockedByRules(const FName ClassName, const UDFSaveGame* const 
 	return false;
 }
 
-static FText DfGetUnlockText(const FName ClassName, const UDFSaveGame* const Save)
+static FText DfGetUnlockTextLegacy(const FName ClassName, const UDFSaveGame* const Save)
 {
-	if (DfIsUnlockedByRules(ClassName, Save))
+	if (DfIsUnlockedByLegacyRules(ClassName, Save))
 	{
 		return FText::GetEmpty();
 	}
@@ -1100,15 +1246,54 @@ static FText DfGetUnlockText(const FName ClassName, const UDFSaveGame* const Sav
 	}
 	if (DfNameIsAny(ClassName, TEXT("Paladino"), TEXT("Paladin")))
 	{
-		return NSLOCTEXT("DF", "UnlockOneWin", "Vença 1 run (qualquer classe).");
+		return NSLOCTEXT("DF", "UnlockOneWin", "Ven\u00e7a 1 run (qualquer classe).");
 	}
 	if (DfNameIsAny(ClassName, TEXT("Necromante"), TEXT("Necromancer")))
 	{
 		return NSLOCTEXT("DF", "UnlockMeta5", "Atinga Meta n\u00edvel 5 no Nexus.");
 	}
-	if (Save && Save->UnlockedClasses.Contains(ClassName) == false)
+	if (Save && !Save->UnlockedClasses.Contains(ClassName))
 	{
 		return NSLOCTEXT("DF", "UnlockGeneric", "Cumpra o requisito de desbloqueio no Nexus.");
 	}
 	return FText::GetEmpty();
+}
+
+static bool DfIsUnlockedByRules(const FName ClassName, const UDFSaveGame* const Save, const UDataTable* const UnlockTable)
+{
+	if (!ClassName.IsNone() && Save && Save->UnlockedClasses.Contains(ClassName))
+	{
+		return true;
+	}
+
+	if (UnlockTable)
+	{
+		if (const FDFClassUnlockTableRow* const Rule = DfFindClassUnlockRow(UnlockTable, ClassName))
+		{
+			return DfEvaluateUnlockRule(*Rule, Save);
+		}
+		// Row ausente: mantém regras legadas até a tabela estar completa.
+		return DfIsUnlockedByLegacyRules(ClassName, Save);
+	}
+
+	return DfIsUnlockedByLegacyRules(ClassName, Save);
+}
+
+static FText DfGetUnlockText(const FName ClassName, const UDFSaveGame* const Save, const UDataTable* const UnlockTable)
+{
+	if (DfIsUnlockedByRules(ClassName, Save, UnlockTable))
+	{
+		return FText::GetEmpty();
+	}
+
+	if (UnlockTable)
+	{
+		if (const FDFClassUnlockTableRow* const Rule = DfFindClassUnlockRow(UnlockTable, ClassName))
+		{
+			return DfDefaultUnlockHintForRule(*Rule);
+		}
+		return DfGetUnlockTextLegacy(ClassName, Save);
+	}
+
+	return DfGetUnlockTextLegacy(ClassName, Save);
 }

@@ -24,6 +24,14 @@ public:
 	UPROPERTY(EditAnywhere, Config, Category = "Data", meta = (RowType = "/Script/DungeonForged.FDFClassTableRow"))
 	TSoftObjectPtr<UDataTable> ClassDataTable;
 
+	/**
+	 * Regras de desbloqueio da seleção de classe (@c FDFClassUnlockTableRow).
+	 * Row name deve coincidir com a row em @c ClassDataTable / @c DT_Class (ex.: Knight, Warrior).
+	 * Se vazio, usa fallback legado em C++ (Warrior/Mage livres, Rogue/Paladin/Necromancer por progresso).
+	 */
+	UPROPERTY(EditAnywhere, Config, Category = "Data", meta = (RowType = "/Script/DungeonForged.FDFClassUnlockTableRow"))
+	TSoftObjectPtr<UDataTable> ClassUnlockDataTable;
+
 	/** Se definido, substitui @c [/Script/DungeonForged.DFClassSelectionSubsystem] PreviewPawnClass. */
 	UPROPERTY(EditAnywhere, Config, Category = "Preview")
 	TSubclassOf<ACharacter> PreviewPawnClass;

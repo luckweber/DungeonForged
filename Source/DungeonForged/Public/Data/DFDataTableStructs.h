@@ -73,6 +73,40 @@ enum class EDFEnemyArchetype : uint8
 	Bomber UMETA(DisplayName = "Bomber"),
 };
 
+/** Row in @c DT_ClassUnlock (see @c UDFClassSelectionDeveloperSettings::ClassUnlockDataTable). */
+UENUM(BlueprintType)
+enum class EDFClassUnlockRule : uint8
+{
+	AlwaysUnlocked UMETA(DisplayName = "Always unlocked"),
+	MinimumTotalRuns UMETA(DisplayName = "Minimum total runs completed"),
+	MinimumTotalWins UMETA(DisplayName = "Minimum total wins"),
+	MinimumMetaLevel UMETA(DisplayName = "Minimum meta level"),
+	/** Unlocks only via @c UDFSaveGame::UnlockedClasses (Nexus / meta purchase). */
+	SaveUnlockListOnly UMETA(DisplayName = "Save unlock list only"),
+};
+
+/** Unlock rule for class selection. Row name or @c AdditionalClassRowNames must match @c DT_Class row names. */
+USTRUCT(BlueprintType)
+struct DUNGEONFORGED_API FDFClassUnlockTableRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	/** Extra DT_Class row names that share this rule (e.g. Guerreiro + Warrior). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Unlock")
+	TArray<FName> AdditionalClassRowNames;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Unlock")
+	EDFClassUnlockRule UnlockRule = EDFClassUnlockRule::AlwaysUnlocked;
+
+	/** Threshold for runs / wins / meta level rules. Ignored for @c AlwaysUnlocked and @c SaveUnlockListOnly. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Unlock", meta = (ClampMin = "0"))
+	int32 RequiredValue = 0;
+
+	/** Shown on the lock overlay when locked. Empty = auto text from @c UnlockRule. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Unlock|UI")
+	FText UnlockHint;
+};
+
 /** DataTable: grant a UDF gameplay ability; used e.g. with ADFPlayerState::GrantAbilitiesFromDataTable. */
 USTRUCT(BlueprintType)
 struct DUNGEONFORGED_API FDFAbilityTableRow : public FTableRowBase
