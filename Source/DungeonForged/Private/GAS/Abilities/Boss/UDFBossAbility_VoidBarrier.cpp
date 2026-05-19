@@ -84,7 +84,21 @@ void UDFBossAbility_VoidBarrier::ActivateAbility(
 	Orbs.Empty();
 	if (!IsRunningDedicatedServer() && Boss->GetMesh() && BarrierVfx)
 	{
-		SpawnedBarrierNiagara = UNiagaraFunctionLibrary::SpawnSystemAttached(BarrierVfx, Boss->GetMesh(), NAME_None, FVector(0.f, 0.f, 80.f), FRotator::ZeroRotator, FVector::OneVector, EAttachLocation::SnapToTarget, true, ENCPoolMethod::None, true, true);
+		SpawnedBarrierNiagara = UNiagaraFunctionLibrary::SpawnSystemAttached(
+			BarrierVfx,
+			Boss->GetMesh(),
+			NAME_None,
+			FVector(0.f, 0.f, 80.f),
+			FRotator::ZeroRotator,
+			EAttachLocation::SnapToTarget,
+			true,
+			true,
+			ENCPoolMethod::None,
+			true);
+		if (SpawnedBarrierNiagara)
+		{
+			SpawnedBarrierNiagara->SetWorldScale3D(FVector::OneVector);
+		}
 	}
 	if (OrbClass && GetWorld())
 	{

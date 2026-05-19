@@ -8,13 +8,48 @@
 #include "Characters/ADFPlayerCharacter.h"
 #include "Combat/UDFComboComponent.h"
 #include "Combat/UDFMeleeAimComponent.h"
+#include "Combat/DFAnimCombatLibrary.h"
+#include "Animation/AnimInstance.h"
 #include "Combat/UDFMeleeTraceComponent.h"
 #include "GameFramework/Actor.h"
 #include "GAS/DFGameplayTags.h"
+#include "Combat/DFCombatDebug.h"
+#include "DungeonForgedModule.h"
+
+bool UDFAbility_Warrior_MeleeSwing::CanActivateAbility(const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags,
+	const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const
+{
+	bool bSkipCooldownForComboChain = false;
+	if (ActorInfo)
+	{
+		if (const ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(ActorInfo->AvatarActor.Get()))
+		{
+			if (const UDFComboComponent* const Combo = PC->Combo)
+			{
+				bSkipCooldownForComboChain = Combo->CurrentComboStep > 0
+					|| Combo->LockedComboActivationStep > 0
+					|| Combo->PendingComboActivationStep > 0
+					|| Combo->bComboWindowActive
+					|| Combo->bComboInputBuffered
+					|| Combo->bComboChainAdvancePending;
+			}
+		}
+	}
+	if (!bSkipCooldownForComboChain)
+	{
+		return Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags);
+	}
+	const float SavedCooldown = BaseCooldown;
+	const_cast<UDFAbility_Warrior_MeleeSwing*>(this)->BaseCooldown = 0.f;
+	const bool bCan = Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags);
+	const_cast<UDFAbility_Warrior_MeleeSwing*>(this)->BaseCooldown = SavedCooldown;
+	return bCan;
+}
 
 UDFAbility_Warrior_MeleeSwing::UDFAbility_Warrior_MeleeSwing()
 {
-	bRetriggerInstancedAbility = false;
+	bRetriggerInstancedAbility = true;
 	AbilityCost_Mana = 0.f;
 	AbilityCost_Stamina = 6.f;
 	BaseCooldown = 0.f;
@@ -78,11 +113,13 @@ void UDFAbility_Warrior_MeleeSwing::ActivateAbility(const FGameplayAbilitySpecHa
 			Aim->AcquireAndCommitTarget();
 		}
 	}
+	int32 ComboStep = 0;
+	int32 LockedStepForLog = -1;
 	if (Combo)
 	{
-		// Directional resolver picks Backward/Side override if the owner's local velocity matches,
-		// otherwise falls back to ComboMontages[step].
-		MontToPlay = Combo->ResolveDirectionalComboMontage(Combo->CurrentComboStep);
+		LockedStepForLog = Combo->LockedComboActivationStep;
+		ComboStep = Combo->ResolveComboStepForActivation();
+		MontToPlay = Combo->ResolveDirectionalComboMontage(ComboStep);
 	}
 	if (!MontToPlay)
 	{
@@ -95,24 +132,73 @@ void UDFAbility_Warrior_MeleeSwing::ActivateAbility(const FGameplayAbilitySpecHa
 		return;
 	}
 
+#if !UE_BUILD_SHIPPING
+	if (Combo && DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Combo))
+	{
+		UE_LOG(LogDungeonForged, Log, TEXT("[Combo|GAS] Activate step=%d locked=%d montage=%s (fallback=%s)"),
+			ComboStep,
+			LockedStepForLog,
+			*MontToPlay->GetName(),
+			MontToPlay == AbilityMontage.Get() ? TEXT("yes") : TEXT("no"));
+	}
+#endif
+
+	if (Combo)
+	{
+		Combo->ClearLockedComboStepAfterActivation(ComboStep);
+	}
+
 	if (Combo)
 	{
 		Combo->NotifyAbilitySwingMontageStarted(MontToPlay);
 	}
 
-	if (UAbilityTask_PlayMontageAndWait* PlayTask =
-			UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, MontToPlay, 1.f, NAME_None, true, 1.f, 0.f, true))
+	const bool bChainSwing = ComboStep > 0;
+	const float ChainBlendIn = Combo ? Combo->ComboChainMontageBlendInTime : 0.08f;
+
+	UAnimInstance* AnimInst = nullptr;
+	if (ACharacter* const Char = Cast<ACharacter>(GetAvatarActorFromActorInfo()))
 	{
+		AnimInst = Char->GetMesh() ? Char->GetMesh()->GetAnimInstance() : nullptr;
+	}
+
+	if (bChainSwing && AnimInst && MontToPlay)
+	{
+		bPlayedMontageDirect = true;
+		const float Len = UDFAnimCombatLibrary::PlayMontageWithBlendIn(AnimInst, MontToPlay, 1.f, ChainBlendIn, true);
+		if (Len <= 0.f)
+		{
+			EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+			return;
+		}
+
+		FOnMontageEnded EndDelegate;
+		EndDelegate.BindUObject(this, &UDFAbility_Warrior_MeleeSwing::OnDirectMontageEnded);
+		AnimInst->Montage_SetEndDelegate(EndDelegate, MontToPlay);
+	}
+	else
+	{
+		UAbilityTask_PlayMontageAndWait* PlayTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
+			this, NAME_None, MontToPlay, 1.f, NAME_None, true, 1.f, 0.f, true);
+		if (!PlayTask)
+		{
+			EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+			return;
+		}
+
 		PlayTask->OnCompleted.AddDynamic(this, &UDFAbility_Warrior_MeleeSwing::OnMontageEnd);
 		PlayTask->OnBlendOut.AddDynamic(this, &UDFAbility_Warrior_MeleeSwing::OnMontageEnd);
 		PlayTask->OnInterrupted.AddDynamic(this, &UDFAbility_Warrior_MeleeSwing::OnMontageEnd);
 		PlayTask->OnCancelled.AddDynamic(this, &UDFAbility_Warrior_MeleeSwing::OnMontageEnd);
 		PlayTask->ReadyForActivation();
 	}
-	else
-	{
-		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
-	}
+}
+
+void UDFAbility_Warrior_MeleeSwing::OnDirectMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+	(void)Montage;
+	(void)bInterrupted;
+	OnMontageEnd();
 }
 
 void UDFAbility_Warrior_MeleeSwing::OnMontageEnd()
@@ -126,6 +212,14 @@ void UDFAbility_Warrior_MeleeSwing::OnMontageEnd()
 		if (UDFComboComponent* const Combo = PC->Combo)
 		{
 			Combo->NotifyAbilitySwingMontagePlaybackEnded();
+			if (Combo->LockedComboActivationStep < 0
+				&& Combo->PendingComboActivationStep < 0
+				&& !Combo->bComboChainAdvancePending
+				&& !Combo->bComboWindowActive
+				&& !Combo->bComboInputBuffered)
+			{
+				Combo->ResetCombo();
+			}
 		}
 		if (UDFMeleeAimComponent* const Aim = PC->MeleeAim)
 		{

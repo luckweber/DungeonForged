@@ -1,0 +1,44 @@
+// Source/DungeonForged/Private/Combat/DFCombatDebug.cpp
+#include "Combat/DFCombatDebug.h"
+
+#if !UE_BUILD_SHIPPING
+#include "HAL/IConsoleManager.h"
+
+static TAutoConsoleVariable<int32> CVarDF_DebugCombat(
+	TEXT("df.DebugCombat"),
+	0,
+	TEXT("DungeonForged: debug draw for melee combo / heavy / warp / aim.\n")
+	TEXT(" 0: Off\n")
+	TEXT(" 1: Combo (step, window, buffers)\n")
+	TEXT(" 2: Heavy charge + montage\n")
+	TEXT(" 4: Motion warp targets (also enable bDrawDebug on ANS_DFMeleeWarp)\n")
+	TEXT(" 8: Melee aim cone\n")
+	TEXT(" 15: All"),
+	ECVF_Cheat);
+
+int32 DFCombatDebug::GetDebugCombatMask()
+{
+	return CVarDF_DebugCombat.GetValueOnGameThread();
+}
+
+bool DFCombatDebug::IsChannelEnabled(const EChannel Channel)
+{
+	const int32 Mask = GetDebugCombatMask();
+	if (Mask <= 0)
+	{
+		return false;
+	}
+	return (Mask & static_cast<int32>(Channel)) != 0;
+}
+#else
+int32 DFCombatDebug::GetDebugCombatMask()
+{
+	return 0;
+}
+
+bool DFCombatDebug::IsChannelEnabled(const EChannel Channel)
+{
+	(void)Channel;
+	return false;
+}
+#endif

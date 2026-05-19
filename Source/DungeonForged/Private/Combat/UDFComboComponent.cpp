@@ -4,8 +4,11 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Characters/ADFPlayerCharacter.h"
+#include "Combat/DFCombatDebug.h"
 #include "Combat/UDFMeleeTraceComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "DrawDebugHelpers.h"
+#include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Equipment/DFEquipmentTypes.h"
 #include "Equipment/UDFEquipmentComponent.h"
@@ -16,10 +19,45 @@
 #include "Data/UDFCombatTuningData.h"
 #include "DFAssetManager.h"
 #include "TimerManager.h"
+#include "DungeonForgedModule.h"
 
 UDFComboComponent::UDFComboComponent()
 {
-	PrimaryComponentTick.bCanEverTick = false;
+	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.bStartWithTickEnabled = false;
+	SetIsReplicatedByDefault(true);
+}
+
+int32 UDFComboComponent::ResolveComboStepForActivation() const
+{
+	if (LockedComboActivationStep >= 0)
+	{
+		return LockedComboActivationStep;
+	}
+	if (PendingComboActivationStep >= 0)
+	{
+		return PendingComboActivationStep;
+	}
+	return CurrentComboStep;
+}
+
+void UDFComboComponent::ClearLockedComboStepAfterActivation(const int32 ActivatedStep)
+{
+	CurrentComboStep = FMath::Max(0, ActivatedStep);
+	LockedComboActivationStep = -1;
+	PendingComboActivationStep = -1;
+	bComboChainAdvancePending = false;
+}
+
+void UDFComboComponent::Server_ChainMeleeComboStep_Implementation(const int32 Step)
+{
+	const int32 ClampedStep = FMath::Max(0, Step);
+	LockedComboActivationStep = ClampedStep;
+	PendingComboActivationStep = ClampedStep;
+	CurrentComboStep = ClampedStep;
+	bComboChainAdvancePending = true;
+	PrepareForComboChainActivation();
+	(void)TryActivatePrimaryMeleeGameplayAbility();
 }
 
 void UDFComboComponent::BeginPlay()
@@ -31,6 +69,42 @@ void UDFComboComponent::BeginPlay()
 		{
 			MeleeTrace = O->FindComponentByClass<UDFMeleeTraceComponent>();
 		}
+	}
+#if !UE_BUILD_SHIPPING
+	SetComponentTickEnabled(true);
+#endif
+}
+
+void UDFComboComponent::TickComponent(const float DeltaTime, ELevelTick TickType,
+	FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+#if !UE_BUILD_SHIPPING
+	const bool bWantCombo = DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Combo);
+	const bool bWantHeavy = DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Heavy);
+	SetComponentTickEnabled(bWantCombo || bWantHeavy);
+	if (bWantCombo || bWantHeavy)
+	{
+		DrawCombatDebug();
+	}
+#endif
+}
+
+int32 UDFComboComponent::GetEffectiveMaxComboSteps() const
+{
+	if (ComboMontages.Num() <= 0)
+	{
+		return MaxComboSteps;
+	}
+	return FMath::Min(MaxComboSteps, ComboMontages.Num());
+}
+
+void UDFComboComponent::BufferComboInputAndTryAdvance()
+{
+	bComboInputBuffered = true;
+	if (bComboWindowActive)
+	{
+		AdvanceCombo();
 	}
 }
 
@@ -107,7 +181,7 @@ void UDFComboComponent::OnPrimaryAttackPressed()
 {
 	if (bComboWindowActive)
 	{
-		bComboInputBuffered = true;
+		BufferComboInputAndTryAdvance();
 		return;
 	}
 	if (bPlayingComboMontage)
@@ -162,12 +236,15 @@ void UDFComboComponent::OnAttackInput()
 {
 	if (bComboWindowActive)
 	{
-		bComboInputBuffered = true;
+		BufferComboInputAndTryAdvance();
 		return;
 	}
 	if (!bPlayingComboMontage)
 	{
-		PrimeMeleeSwingAbilityChain();
+		if (LockedComboActivationStep < 0 && !bComboChainAdvancePending)
+		{
+			PrimeMeleeSwingAbilityChain();
+		}
 		if (ShouldRoutePrimaryMeleeThroughGAS())
 		{
 			// Do not fall back to StartCombo when GAS blocks activation (e.g. cooldown).
@@ -201,6 +278,10 @@ bool UDFComboComponent::ShouldRoutePrimaryMeleeThroughGAS() const
 
 void UDFComboComponent::PrimeMeleeSwingAbilityChain()
 {
+	if (LockedComboActivationStep >= 0 || bComboChainAdvancePending || PendingComboActivationStep >= 0)
+	{
+		return;
+	}
 	if (UWorld* W = GetWorld())
 	{
 		W->GetTimerManager().ClearTimer(ComboWindowTimer);
@@ -299,18 +380,48 @@ void UDFComboComponent::NotifyHeavyAbilitySwingMontageStarted(UAnimMontage* Mont
 	NotifyAbilitySwingMontageStarted(Montage);
 }
 
+void UDFComboComponent::PrepareForComboChainActivation()
+{
+	UnbindMontageEndDelegate();
+	if (UAnimInstance* const AnimInst = GetAnimInstance())
+	{
+		for (const TObjectPtr<UAnimMontage>& M : ComboMontages)
+		{
+			if (M && AnimInst->Montage_IsPlaying(M))
+			{
+				AnimInst->Montage_Stop(FMath::Max(0.f, ComboChainMontageStopBlendOutTime), M);
+			}
+		}
+	}
+	bPlayingComboMontage = false;
+}
+
 void UDFComboComponent::NotifyAbilitySwingMontageStarted(UAnimMontage* Montage)
 {
 	if (!Montage)
 	{
 		return;
 	}
-	TryBindEndDelegateFor(Montage);
+	if (!ShouldRoutePrimaryMeleeThroughGAS())
+	{
+		TryBindEndDelegateFor(Montage);
+	}
+	else
+	{
+		UnbindMontageEndDelegate();
+	}
 	bPlayingComboMontage = true;
 	if (MeleeTrace)
 	{
 		MeleeTrace->ScheduleAuthorityTraceWindowsFromMontage(Montage, 1.f);
 	}
+#if !UE_BUILD_SHIPPING
+	if (DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Combo))
+	{
+		UE_LOG(LogDungeonForged, Log, TEXT("[Combo|GAS] NotifySwingMontage step=%d montage=%s"),
+			CurrentComboStep, *Montage->GetName());
+	}
+#endif
 }
 
 void UDFComboComponent::NotifyAbilitySwingMontagePlaybackEnded()
@@ -366,16 +477,39 @@ void UDFComboComponent::AdvanceCombo()
 	}
 	bComboWindowActive = false;
 
+	const int32 EffectiveMax = GetEffectiveMaxComboSteps();
 	if (bComboInputBuffered)
 	{
-		if (CurrentComboStep + 1 < MaxComboSteps
-			&& CurrentComboStep + 1 < ComboMontages.Num())
+		if (CurrentComboStep + 1 < EffectiveMax)
 		{
 			++CurrentComboStep;
 			bComboInputBuffered = false;
 			if (ShouldRoutePrimaryMeleeThroughGAS())
 			{
-				(void)TryActivatePrimaryMeleeGameplayAbility();
+				const int32 ChainStep = CurrentComboStep;
+				LockedComboActivationStep = ChainStep;
+				PendingComboActivationStep = ChainStep;
+				bComboChainAdvancePending = true;
+				AActor* const Owner = GetOwner();
+				if (Owner && Owner->HasAuthority())
+				{
+					PrepareForComboChainActivation();
+					(void)TryActivatePrimaryMeleeGameplayAbility();
+				}
+				else if (Owner)
+				{
+					Server_ChainMeleeComboStep(ChainStep);
+					PrepareForComboChainActivation();
+					(void)TryActivatePrimaryMeleeGameplayAbility();
+				}
+#if !UE_BUILD_SHIPPING
+				if (DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Combo))
+				{
+					UE_LOG(LogDungeonForged, Log,
+						TEXT("[Combo|GAS] AdvanceCombo chain -> step=%d locked=%d montages=%d"),
+						CurrentComboStep, LockedComboActivationStep, ComboMontages.Num());
+				}
+#endif
 				return;
 			}
 			PlayCurrentComboMontage();
@@ -384,8 +518,7 @@ void UDFComboComponent::AdvanceCombo()
 		bComboInputBuffered = false;
 	}
 
-	if (CurrentComboStep + 1 < MaxComboSteps
-		&& CurrentComboStep + 1 < ComboMontages.Num())
+	if (CurrentComboStep + 1 < EffectiveMax)
 	{
 		bComboWindowActive = true;
 		if (W)
@@ -437,6 +570,9 @@ void UDFComboComponent::ResetCombo()
 	bPlayingComboMontage = false;
 	bHeavySwingPending = false;
 	bMaxHeavyPending = false;
+	bComboChainAdvancePending = false;
+	LockedComboActivationStep = -1;
+	PendingComboActivationStep = -1;
 	HeavyChargeStartTime = -1.f;
 }
 
@@ -800,8 +936,16 @@ void UDFComboComponent::ExecuteHeavyAttackAuthority()
 void UDFComboComponent::HandleMontageEndedInternal(UAnimMontage* EndedMontage, bool bInterrupted)
 {
 	(void)EndedMontage;
+	if (ShouldRoutePrimaryMeleeThroughGAS())
+	{
+		return;
+	}
 	if (bInterrupted)
 	{
+		if (CurrentComboStep > 0)
+		{
+			return;
+		}
 		bSwingInputBuffered = false;
 		SwingInputBufferExpireTime = -1.f;
 		return;
@@ -826,4 +970,67 @@ void UDFComboComponent::HandleMontageEndedInternal(UAnimMontage* EndedMontage, b
 void UDFComboComponent::OnMontageEnded(UAnimMontage* const EndedMontage, const bool bInterrupted)
 {
 	HandleMontageEndedInternal(EndedMontage, bInterrupted);
+}
+
+void UDFComboComponent::DrawCombatDebug() const
+{
+#if !UE_BUILD_SHIPPING
+	const AActor* const Owner = GetOwner();
+	UWorld* const World = GetWorld();
+	if (!Owner || !World)
+	{
+		return;
+	}
+	const FVector BaseLoc = Owner->GetActorLocation() + FVector(0.f, 0.f, 110.f);
+	int32 Line = 0;
+	auto DrawLine = [&](const FColor Color, const FString& Text)
+	{
+		DrawDebugString(World, BaseLoc + FVector(0.f, 0.f, 16.f * Line++), Text, nullptr, Color, 0.f, true, 1.15f);
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 0.f, Color, Text);
+		}
+	};
+
+	if (DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Combo))
+	{
+		const int32 DisplayStep = LockedComboActivationStep >= 0 ? LockedComboActivationStep : CurrentComboStep;
+		const UAnimMontage* const StepM = ResolveDirectionalComboMontage(DisplayStep);
+		DrawLine(FColor::Cyan,
+			FString::Printf(TEXT("Combo step %d/%d | locked %d | montages %d | win %s | buf %s"),
+				DisplayStep,
+				GetEffectiveMaxComboSteps() - 1,
+				LockedComboActivationStep,
+				ComboMontages.Num(),
+				bComboWindowActive ? TEXT("OPEN") : TEXT("-"),
+				bComboInputBuffered ? TEXT("Y") : TEXT("n")));
+		if (StepM)
+		{
+			DrawLine(FColor::White, FString::Printf(TEXT("  montage: %s"), *StepM->GetName()));
+		}
+		else if (ComboMontages.Num() == 0)
+		{
+			DrawLine(FColor::Red, TEXT("  !! ComboMontages EMPTY"));
+		}
+	}
+
+	if (DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Heavy))
+	{
+		const float ChargeT = HeavyChargeStartTime >= 0.f && World
+			? World->GetTimeSeconds() - HeavyChargeStartTime
+			: -1.f;
+		const UAnimMontage* const HeavyM = ResolveActiveHeavyMontage();
+		DrawLine(FColor::Orange,
+			FString::Printf(TEXT("Heavy charge %.2fs (thr %.2f/%.2f) | pending H=%s Max=%s"),
+				ChargeT,
+				HeavyChargeThreshold,
+				MaxHeavyChargeThreshold,
+				bHeavySwingPending ? TEXT("Y") : TEXT("n"),
+				bMaxHeavyPending ? TEXT("Y") : TEXT("n")));
+		if (HeavyM)
+		{
+			DrawLine(FColor::Yellow, FString::Printf(TEXT("  heavy montage: %s"), *HeavyM->GetName()));
+		}
+	}
+#endif
 }

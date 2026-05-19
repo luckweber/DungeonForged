@@ -98,11 +98,19 @@ void UANS_DFEnemyTelegraph::NotifyBegin(USkeletalMeshComponent* const MeshComp,
 	if (WeaponChargeVFX)
 	{
 		UNiagaraComponent* const Spawned = UNiagaraFunctionLibrary::SpawnSystemAttached(
-			WeaponChargeVFX, MeshComp, WeaponChargeSocketName,
-			FVector::ZeroVector, FRotator::ZeroRotator, FVector::OneVector,
-			EAttachLocation::SnapToTarget, /*bAutoDestroy=*/ false);
+			WeaponChargeVFX,
+			MeshComp,
+			WeaponChargeSocketName,
+			FVector::ZeroVector,
+			FRotator::ZeroRotator,
+			EAttachLocation::SnapToTarget,
+			/*bAutoDestroy=*/ false,
+			/*bAutoActivate=*/ true,
+			ENCPoolMethod::None,
+			true);
 		if (Spawned)
 		{
+			Spawned->SetWorldScale3D(FVector::OneVector);
 			WeaponFXByMesh.Add(MeshComp, Spawned);
 		}
 	}

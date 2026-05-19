@@ -33,6 +33,29 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Combat|Combo")
 	bool bComboWindowActive = false;
 
+	/** True while the next combo step GA is activating (prevents ResetCombo on the previous swing end). */
+	UPROPERTY(BlueprintReadOnly, Category = "Combat|Combo")
+	bool bComboChainAdvancePending = false;
+
+	/**
+	 * Step locked for the next GA activation (survives ResetCombo / PrimeMeleeSwing / OnMontageEnd races).
+	 * -1 = use @c CurrentComboStep.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Combat|Combo")
+	int32 LockedComboActivationStep = -1;
+
+	/** @deprecated display / server sync mirror; use @c LockedComboActivationStep for activation. */
+	UPROPERTY(BlueprintReadOnly, Category = "Combat|Combo")
+	int32 PendingComboActivationStep = -1;
+
+	/** Step index the next melee GA should play. */
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
+	int32 ResolveComboStepForActivation() const;
+
+	/** Called by the melee GA after it has read the locked step. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
+	void ClearLockedComboStepAfterActivation(int32 ActivatedStep);
+
 	/** Filled in BeginPlay if null; or assign in BP. */
 	UPROPERTY(BlueprintReadOnly, Category = "Combat|Combo")
 	TObjectPtr<UDFMeleeTraceComponent> MeleeTrace;
@@ -100,6 +123,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Heavy|MaxTier")
 	TObjectPtr<UAnimMontage> MaxHeavyAttackMontage;
 
+	/** Blend-in when chaining to the next swing (runtime override via Montage_PlayWithBlendIn). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Combo|Animation", meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float ComboChainMontageBlendInTime = 0.08f;
+
+	/** Blend-out when stopping the previous montage during a chain (0 = instant cut). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Combo|Animation", meta = (ClampMin = "0.0", ClampMax = "0.25"))
+	float ComboChainMontageStopBlendOutTime = 0.0f;
+
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
 	void OnAttackInput();
 
@@ -148,9 +179,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
 	void ResetCombo();
 
+	/** Client → server: sync step and run the chain activation on authority (single RPC). */
+	UFUNCTION(Server, Reliable)
+	void Server_ChainMeleeComboStep(int32 Step);
+
 	/** Gameplay Ability path: binds montage end + sets bPlayingComboMontage (UDFMeleeTrace + combo window still use the same montage). */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
 	void NotifyAbilitySwingMontageStarted(UAnimMontage* Montage);
+
+	/** GAS / abilities: montage for @a Step using directional overrides (backward/side) or @c ComboMontages. */
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Directional")
+	UAnimMontage* ResolveDirectionalComboMontage(int32 Step) const;
 
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
 	void NotifyAbilitySwingMontagePlaybackEnded();
@@ -159,9 +198,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
 	void OnMontageEnded(UAnimMontage* EndedMontage, bool bInterrupted);
 
+	/** Effective chain cap: min(MaxComboSteps, ComboMontages.Num()). */
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
+	int32 GetEffectiveMaxComboSteps() const;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 	UFUNCTION()
 	void OnComboWindowTimerExpired();
@@ -191,13 +235,14 @@ protected:
 	bool bSwingInputBuffered = false;
 	float SwingInputBufferExpireTime = -1.f;
 	void ApplyCombatTuningFromDataAsset();
+	void BufferComboInputAndTryAdvance();
+	void DrawCombatDebug() const;
+	/** Stops the previous swing montage and clears end delegates before a GAS combo chain step. */
+	void PrepareForComboChainActivation();
 
 	void CommitMaxHeavyAttack();
 	bool CanPerformMaxHeavyAttack() const;
 	bool ConsumeMaxHeavyStamina();
 	void ExecuteMaxHeavyAttackAuthority();
 	void ExecuteMaxHeavyAttackPresentation();
-
-	/** Returns the montage for `Step` from the directional override that matches the owner's current velocity. */
-	UAnimMontage* ResolveDirectionalComboMontage(int32 Step) const;
 };

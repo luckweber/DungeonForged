@@ -17,6 +17,10 @@ class DUNGEONFORGED_API UDFAbility_Warrior_MeleeSwing : public UDFGameplayAbilit
 public:
 	UDFAbility_Warrior_MeleeSwing();
 
+	virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
+		const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags,
+		FGameplayTagContainer* OptionalRelevantTags) const override;
+
 protected:
 	virtual void PostInitProperties() override;
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo,
@@ -24,4 +28,10 @@ protected:
 
 	UFUNCTION()
 	void OnMontageEnd();
+
+	UFUNCTION()
+	void OnDirectMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+
+	UPROPERTY(Transient)
+	bool bPlayedMontageDirect = false;
 };

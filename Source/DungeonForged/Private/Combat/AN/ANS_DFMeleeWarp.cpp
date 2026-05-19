@@ -2,6 +2,7 @@
 #include "Combat/AN/ANS_DFMeleeWarp.h"
 
 #include "Animation/AnimSequenceBase.h"
+#include "Combat/DFCombatDebug.h"
 #include "Combat/UDFMeleeAimComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
@@ -133,7 +134,7 @@ void UANS_DFMeleeWarp::UpdateWarpTarget(USkeletalMeshComponent* const MeshComp) 
 	Warp->AddOrUpdateWarpTargetFromTransform(WarpTargetName, Xform);
 
 #if ENABLE_DRAW_DEBUG
-	if (bDrawDebug)
+	if (bDrawDebug || DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Warp))
 	{
 		if (UWorld* const W = Owner->GetWorld())
 		{

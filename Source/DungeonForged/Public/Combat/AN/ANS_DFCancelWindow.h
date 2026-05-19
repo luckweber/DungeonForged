@@ -36,6 +36,14 @@ public:
 	UPROPERTY(EditAnywhere, Category = "DF|Cancel")
 	bool bSendGameplayEvents = true;
 
+	/** Opens the combo chain window (same as @c AN_ComboWindowOpen). Enable when montages only use this notify. */
+	UPROPERTY(EditAnywhere, Category = "DF|Cancel|Combo")
+	bool bOpenComboWindowOnBegin = true;
+
+	/** At window end, chain if the player buffered an attack during the window. */
+	UPROPERTY(EditAnywhere, Category = "DF|Cancel|Combo")
+	bool bAdvanceComboOnEndIfBuffered = true;
+
 	virtual FString GetNotifyName_Implementation() const override;
 	virtual void NotifyBegin(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation,
 		float TotalDuration, const FAnimNotifyEventReference& EventReference) override;

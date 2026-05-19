@@ -247,6 +247,7 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 		if (WRow.WeaponMeleeComboMontages.Num() > 0)
 		{
 			Combo->ComboMontages = WRow.WeaponMeleeComboMontages;
+			Combo->MaxComboSteps = FMath::Max(Combo->MaxComboSteps, WRow.WeaponMeleeComboMontages.Num());
 		}
 		else if (ClassRow && ClassRow->ArmedMeleeComboMontagesFallback.Num() > 0)
 		{

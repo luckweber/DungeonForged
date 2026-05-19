@@ -10,12 +10,14 @@
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "AI/DFAIKeys.h"
+#include "Combat/DFCombatDebug.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
 #include "WorldCollision.h"
+#include "Engine/OverlapResult.h"
 
 namespace
 {
@@ -210,7 +212,7 @@ AActor* UDFMeleeAimComponent::FindSoftConeTarget() const
 	}
 
 #if ENABLE_DRAW_DEBUG
-	if (bDrawDebug && World)
+	if ((bDrawDebug || DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Aim)) && World)
 	{
 		DrawDebugCone(World, Origin, Forward, SoftSearchDistance,
 			FMath::DegreesToRadians(SoftSearchHalfAngle), FMath::DegreesToRadians(SoftSearchHalfAngle),
