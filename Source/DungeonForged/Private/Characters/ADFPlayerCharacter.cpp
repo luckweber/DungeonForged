@@ -29,11 +29,8 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimTypes.h"
-#include "EnhancedInputComponent.h"
-#include "EnhancedInputSubsystems.h"
 #include "GAS/UDFAttributeSet.h"
-#include "InputAction.h"
-#include "InputMappingContext.h"
+#include "GameModes/Run/ADFRunPlayerController.h"
 #include "GameplayTagContainer.h"
 #include "Components/CapsuleComponent.h"
 #include "Engine/CollisionProfile.h"
@@ -53,24 +50,6 @@
 #include "TimerManager.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDFPlayer, Log, All);
-
-namespace DFPlayerCharacterInput_Impl
-{
-
-static bool IsSameInputActionAsset(UInputAction const* RowAct, UInputAction const* CharAttack)
-{
-	if (!RowAct || !CharAttack)
-	{
-		return false;
-	}
-	if (RowAct == CharAttack)
-	{
-		return true;
-	}
-	return RowAct->GetPathName() == CharAttack->GetPathName();
-}
-
-} // namespace
 
 ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<UDFCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
@@ -410,7 +389,6 @@ void ADFPlayerCharacter::BeginPlay()
 	{
 		EnsureAbilityBarSlotArraySize();
 	}
-	AddDefaultMappingContext();
 	RegisterModularSlotsWithEquipment();
 	RefreshWeaponAndOffHandSocketAttachments();
 	RefreshWeaponTraceForMelee();
@@ -507,171 +485,6 @@ void ADFPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
-void ADFPlayerCharacter::PawnClientRestart()
-{
-	Super::PawnClientRestart();
-	// Pawn can restart (respawn) without a new BeginPlay — ensure local IMC is present.
-	if (!bDefaultInputContextAdded)
-	{
-		AddDefaultMappingContext();
-	}
-}
-
-void ADFPlayerCharacter::AddDefaultMappingContext()
-{
-	if (bDefaultInputContextAdded || !IMC_Default || !IsLocallyControlled())
-	{
-		return;
-	}
-	APlayerController* PC = Cast<APlayerController>(GetController());
-	if (!PC)
-	{
-		return;
-	}
-	ULocalPlayer* LP = PC->GetLocalPlayer();
-	if (!LP)
-	{
-		return;
-	}
-	if (UEnhancedInputLocalPlayerSubsystem* Sub = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(LP))
-	{
-		Sub->AddMappingContext(IMC_Default, 0);
-		bDefaultInputContextAdded = true;
-	}
-}
-
-void ADFPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
-{
-	Super::SetupPlayerInputComponent(PlayerInputComponent);
-
-	UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(PlayerInputComponent);
-	if (!EIC)
-	{
-		return;
-	}
-
-	if (IA_Move)
-	{
-		EIC->BindAction(IA_Move, ETriggerEvent::Triggered, this, &ADFPlayerCharacter::Input_Move);
-	}
-	if (IA_Look)
-	{
-		EIC->BindAction(IA_Look, ETriggerEvent::Triggered, this, &ADFPlayerCharacter::Input_Look);
-	}
-	if (IA_Jump)
-	{
-		EIC->BindAction(IA_Jump, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_JumpStart);
-		EIC->BindAction(IA_Jump, ETriggerEvent::Completed, this, &ADFPlayerCharacter::Input_JumpEnd);
-	}
-	if (IA_CameraZoom)
-	{
-		EIC->BindAction(IA_CameraZoom, ETriggerEvent::Triggered, this, &ADFPlayerCharacter::Input_CameraZoom);
-	}
-	if (InputConfig)
-	{
-		RegisterAbilityInputFromConfig(EIC);
-	}
-	BindAbilityBarSlotInputs(EIC);
-	if (IA_SecondaryAttack)
-	{
-		EIC->BindAction(IA_SecondaryAttack, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_SecondaryAttack);
-	}
-	if (IA_Sprint)
-	{
-		EIC->BindAction(IA_Sprint, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_SprintStart);
-		EIC->BindAction(IA_Sprint, ETriggerEvent::Completed, this, &ADFPlayerCharacter::Input_SprintEnd);
-	}
-	if (IA_Dodge)
-	{
-		EIC->BindAction(IA_Dodge, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_Dodge);
-	}
-	if (IA_EquipmentWeaponToggle)
-	{
-		EIC->BindAction(
-			IA_EquipmentWeaponToggle, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_EquipmentWeaponToggle);
-	}
-	if (!InputConfig)
-	{
-		if (IA_Attack)
-		{
-			EIC->BindAction(IA_Attack, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_AttackPressed);
-			EIC->BindAction(IA_Attack, ETriggerEvent::Completed, this, &ADFPlayerCharacter::Input_AttackReleased);
-		}
-		if (IA_Interact)
-		{
-			EIC->BindAction(IA_Interact, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_Interact);
-		}
-	}
-}
-
-void ADFPlayerCharacter::RegisterAbilityInputFromConfig(UEnhancedInputComponent* EIC)
-{
-	if (!EIC || !InputConfig)
-	{
-		return;
-	}
-	for (int32 Index = 0; Index < InputConfig->AbilityInputActions.Num(); ++Index)
-	{
-		const FDFInputAction& Row = InputConfig->AbilityInputActions[Index];
-		if (!Row.Action)
-		{
-			continue;
-		}
-		// IA_Attack is handled by Input_Attack (combo + TryActivate tag), not AbilityLocalInputPressed.
-		// Otherwise the first AbilityInputActions row maps to InputID 1 (see GameplayInputId fallback) while
-		// UDFRunManager::GrantAbilitiesForCurrentRun assigns InputID from grant list index — easy mismatch.
-		if (IA_Attack && DFPlayerCharacterInput_Impl::IsSameInputActionAsset(Row.Action, IA_Attack))
-		{
-			EIC->BindAction(Row.Action, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_AttackPressed);
-			EIC->BindAction(Row.Action, ETriggerEvent::Completed, this, &ADFPlayerCharacter::Input_AttackReleased);
-			continue;
-		}
-		if (IA_SecondaryAttack
-			&& DFPlayerCharacterInput_Impl::IsSameInputActionAsset(Row.Action, IA_SecondaryAttack))
-		{
-			EIC->BindAction(Row.Action, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_SecondaryAttack);
-			continue;
-		}
-		if (IA_EquipmentWeaponToggle
-			&& DFPlayerCharacterInput_Impl::IsSameInputActionAsset(Row.Action, IA_EquipmentWeaponToggle))
-		{
-			EIC->BindAction(
-				Row.Action, ETriggerEvent::Started, this, &ADFPlayerCharacter::Input_EquipmentWeaponToggle);
-			continue;
-		}
-
-		int32 InputId = Row.GameplayInputId;
-		if (InputId <= 0)
-		{
-			InputId = Index + 1;
-		}
-		if (InputId >= 1 && InputId <= DFAbilityBarSlotCount)
-		{
-			const int32 CapturedSlot = InputId;
-			EIC->BindActionValueLambda(Row.Action, ETriggerEvent::Started, [this, CapturedSlot](const FInputActionValue&)
-			{
-				TryActivateAbilitySlot(CapturedSlot);
-			});
-			continue;
-		}
-		const int32 CapturedId = InputId;
-		EIC->BindActionValueLambda(Row.Action, ETriggerEvent::Started, [this, CapturedId](const FInputActionValue&)
-		{
-			if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
-			{
-				ASC->AbilityLocalInputPressed(CapturedId);
-			}
-		});
-		EIC->BindActionValueLambda(Row.Action, ETriggerEvent::Completed, [this, CapturedId](const FInputActionValue&)
-		{
-			if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
-			{
-				ASC->AbilityLocalInputReleased(CapturedId);
-			}
-		});
-	}
-}
-
 void ADFPlayerCharacter::PossessedBy(AController* NewController)
 {
 	Super::PossessedBy(NewController);
@@ -680,6 +493,13 @@ void ADFPlayerCharacter::PossessedBy(AController* NewController)
 	if (HasAuthority())
 	{
 		InitializeGAS();
+	}
+	if (ADFRunPlayerController* const RunPC = Cast<ADFRunPlayerController>(NewController))
+	{
+		if (IsLocallyControlled())
+		{
+			RunPC->EnsureGameplayInputReady();
+		}
 	}
 }
 
@@ -927,6 +747,13 @@ void ADFPlayerCharacter::InitializeGAS()
 	{
 		ScreenEffects->OnGASReady(AttributeSet);
 	}
+	if (IsLocallyControlled() && AttributeSet && AttributeSet->GetHealth() > 0.f)
+	{
+		if (ADFRunPlayerController* const RunPC = Cast<ADFRunPlayerController>(GetController()))
+		{
+			RunPC->EnsureGameplayInputReady();
+		}
+	}
 }
 
 void ADFPlayerCharacter::ApplyDefaultPassiveGameplayEffects()
@@ -947,58 +774,17 @@ void ADFPlayerCharacter::ApplyDefaultPassiveGameplayEffects()
 	}
 }
 
-void ADFPlayerCharacter::Input_Move(const FInputActionValue& Value)
-{
-	const FVector2D Axis = Value.Get<FVector2D>();
-	if (Axis.IsNearlyZero())
-	{
-		return;
-	}
-	const FRotator YawRot(0.f, GetControlRotation().Yaw, 0.f);
-	const FVector Forward = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X);
-	const FVector Right = FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y);
-	AddMovementInput(Forward, Axis.Y);
-	AddMovementInput(Right, Axis.X);
-}
-
-void ADFPlayerCharacter::Input_Look(const FInputActionValue& Value)
-{
-	const FVector2D Axis = Value.Get<FVector2D>();
-	if (Axis.IsNearlyZero())
-	{
-		return;
-	}
-	if (APlayerController* PC = Cast<APlayerController>(GetController()))
-	{
-		FRotator R = PC->GetControlRotation();
-		R.Pitch = FMath::Clamp(R.Pitch + Axis.Y, MinLookPitch, MaxLookPitch);
-		R.Yaw += Axis.X;
-		PC->SetControlRotation(R);
-	}
-}
-
-void ADFPlayerCharacter::Input_JumpStart()
-{
-	Jump();
-}
-
-void ADFPlayerCharacter::Input_JumpEnd()
-{
-	StopJumping();
-}
-
-void ADFPlayerCharacter::Input_CameraZoom(const FInputActionValue& Value)
+void ADFPlayerCharacter::ApplyCameraZoomInput(const float AxisValue)
 {
 	UDFCameraComponent* const Cam = CameraBoom;
 	if (!Cam)
 	{
 		return;
 	}
-	// Inverted wheel: zoom in = shorter arm; scales by ZoomSpeed on the camera
-	Cam->OnZoomInput(-Value.Get<float>() * (CameraZoomStep / 50.f));
+	Cam->OnZoomInput(-AxisValue * (CameraZoomStep / 50.f));
 }
 
-void ADFPlayerCharacter::Input_AttackPressed()
+void ADFPlayerCharacter::HandlePrimaryAttackPressed()
 {
 	if (Combo)
 	{
@@ -1006,7 +792,7 @@ void ADFPlayerCharacter::Input_AttackPressed()
 	}
 }
 
-void ADFPlayerCharacter::Input_AttackReleased()
+void ADFPlayerCharacter::HandlePrimaryAttackReleased()
 {
 	if (Combo)
 	{
@@ -1026,7 +812,7 @@ void ADFPlayerCharacter::Server_CommitHeavyAttack_Implementation()
 	}
 }
 
-void ADFPlayerCharacter::Input_SecondaryAttack()
+void ADFPlayerCharacter::HandleSecondaryAttackPressed()
 {
 	for (const FGameplayTag& Tag : RMBAbilityTryTags)
 	{
@@ -1046,32 +832,7 @@ void ADFPlayerCharacter::Input_SecondaryAttack()
 	}
 }
 
-void ADFPlayerCharacter::Input_AbilityBarSlot(const int32 Slot1Based)
-{
-	TryActivateAbilitySlot(Slot1Based);
-}
-
-void ADFPlayerCharacter::Input_Ability1()
-{
-	TryActivateAbilitySlot(1);
-}
-
-void ADFPlayerCharacter::Input_Ability2()
-{
-	TryActivateAbilitySlot(2);
-}
-
-void ADFPlayerCharacter::Input_Ability3()
-{
-	TryActivateAbilitySlot(3);
-}
-
-void ADFPlayerCharacter::Input_Ability4()
-{
-	TryActivateAbilitySlot(4);
-}
-
-void ADFPlayerCharacter::Input_Interact()
+void ADFPlayerCharacter::HandleInteractPressed()
 {
 	if (Interaction)
 	{
@@ -1079,22 +840,22 @@ void ADFPlayerCharacter::Input_Interact()
 	}
 }
 
-void ADFPlayerCharacter::Input_SprintStart()
+void ADFPlayerCharacter::HandleSprintStart()
 {
 	TryActivateByGameplayTagName(FName("Ability.Movement.Sprint"));
 }
 
-void ADFPlayerCharacter::Input_SprintEnd()
+void ADFPlayerCharacter::HandleSprintEnd()
 {
 	CancelAbilitiesByGameplayTagName(FName("Ability.Movement.Sprint"));
 }
 
-void ADFPlayerCharacter::Input_Dodge()
+void ADFPlayerCharacter::HandleDodgePressed()
 {
 	TryActivateByGameplayTagName(FName("Ability.Movement.Dodge"));
 }
 
-void ADFPlayerCharacter::Input_EquipmentWeaponToggle()
+void ADFPlayerCharacter::HandleEquipmentWeaponTogglePressed()
 {
 	if (!FDFGameplayTags::Ability_Equipment_WeaponToggle.IsValid())
 	{
@@ -1157,45 +918,6 @@ void ADFPlayerCharacter::EnsureAbilityBarSlotArraySize()
 void ADFPlayerCharacter::BroadcastAbilityBarSlotsChanged()
 {
 	OnAbilityBarSlotsChanged.Broadcast();
-}
-
-void ADFPlayerCharacter::BindAbilityBarSlotInputs(UEnhancedInputComponent* const EIC)
-{
-	if (!EIC)
-	{
-		return;
-	}
-
-	auto BindSlot = [this, EIC](UInputAction* const Action, const int32 Slot1Based)
-	{
-		if (!Action)
-		{
-			return;
-		}
-		const int32 Captured = Slot1Based;
-		EIC->BindActionValueLambda(Action, ETriggerEvent::Started, [this, Captured](const FInputActionValue&)
-		{
-			TryActivateAbilitySlot(Captured);
-		});
-	};
-
-	if (IA_AbilityBarSlots.Num() > 0)
-	{
-		const int32 Count = FMath::Min(IA_AbilityBarSlots.Num(), DFAbilityBarSlotCount);
-		for (int32 i = 0; i < Count; ++i)
-		{
-			BindSlot(IA_AbilityBarSlots[i], i + 1);
-		}
-		return;
-	}
-
-	if (!InputConfig)
-	{
-		BindSlot(IA_Ability1, 1);
-		BindSlot(IA_Ability2, 2);
-		BindSlot(IA_Ability3, 3);
-		BindSlot(IA_Ability4, 4);
-	}
 }
 
 void ADFPlayerCharacter::TryActivateAbilitySlot(const int32 Slot1Based)

@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/Combat/UDFHitReactionComponent.cpp
 #include "Combat/UDFHitReactionComponent.h"
+#include "Animation/UDFAnimInstance_Enemy.h"
 #include "Characters/ADFEnemyBase.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Engine/Engine.h"
@@ -62,34 +63,13 @@ void UDFHitReactionComponent::OnHitReceived(
 			{
 				const FVector Impulse = Dir * (KnockbackMagnitude * KnockbackImpulseFromHit);
 				CMC->AddImpulse(Impulse, true);
-				if (KnockbackMontage)
-				{
-					PlayHitReaction(KnockbackMontage, 1.f);
-				}
 			}
 		}
 	}
 
-	if (!bIsKnockback)
+	if (UAnimMontage* const ReactionMontage = ResolveHitMontage(DamageAmount, bIsKnockback, Dir, Instigator))
 	{
-		if (DamageAmount >= StaggerThreshold)
-		{
-			if (HeavyHitMontage)
-			{
-				PlayHitReaction(HeavyHitMontage, 1.f);
-			}
-			else if (LightHitMontage)
-			{
-				PlayHitReaction(LightHitMontage, 1.f);
-			}
-		}
-		else if (DamageAmount > 0.f)
-		{
-			if (LightHitMontage)
-			{
-				PlayHitReaction(LightHitMontage, 1.f);
-			}
-		}
+		PlayHitReaction(ReactionMontage, 1.f);
 	}
 
 	if (StaggerStunGameplayEffect && (!bIsKnockback) && (DamageAmount >= StaggerThreshold))
@@ -165,6 +145,121 @@ void UDFHitReactionComponent::OnHitReceived(
 	}
 	SpawnHitVFX(VfxPos, FacingVfx);
 	SpawnHitDecal(VfxPos, bUseImpact ? FRotator((-HitNormal).Rotation()) : FacingVfx);
+}
+
+UAnimMontage* UDFHitReactionComponent::PickDirectionalMontage(
+	const ACharacter* const Victim,
+	const FVector& HitDirectionFromAttacker,
+	UAnimMontage* const Front,
+	UAnimMontage* const Back,
+	UAnimMontage* const Left,
+	UAnimMontage* const Right,
+	UAnimMontage* const Fallback)
+{
+	if (!Victim)
+	{
+		return Fallback;
+	}
+	const FVector2D Fwd(FVector2D(Victim->GetActorForwardVector().GetSafeNormal2D()));
+	FVector2D ToHit = FVector2D(HitDirectionFromAttacker).GetSafeNormal();
+	if (ToHit.IsNearlyZero(0.01f))
+	{
+		return Fallback ? Fallback : Front;
+	}
+	const float CrossZ = Fwd.X * ToHit.Y - Fwd.Y * ToHit.X;
+	const float Dot = FMath::Clamp(FVector2D::DotProduct(Fwd, ToHit), -1.f, 1.f);
+	const float Yaw = FMath::RadiansToDegrees(FMath::Atan2(CrossZ, Dot));
+	const float A = FMath::Abs(Yaw);
+	if (A < 45.f)
+	{
+		return Front ? Front : Fallback;
+	}
+	if (A > 135.f)
+	{
+		return Back ? Back : Fallback;
+	}
+	if (Yaw > 0.f)
+	{
+		return Right ? Right : Fallback;
+	}
+	return Left ? Left : Fallback;
+}
+
+UAnimMontage* UDFHitReactionComponent::ResolveHitMontage(
+	const float DamageAmount,
+	const bool bIsKnockback,
+	const FVector& HitDirection2D,
+	AActor* const Instigator) const
+{
+	if (bIsKnockback)
+	{
+		return KnockbackMontage;
+	}
+	if (DamageAmount <= 0.f)
+	{
+		return nullptr;
+	}
+
+	const bool bHeavy = DamageAmount >= StaggerThreshold;
+	if (bUseDirectionalHitReactions)
+	{
+		if (bPreferAnimInstanceDirectionalMontages)
+		{
+			if (ACharacter* const C = Cast<ACharacter>(GetOwner()))
+			{
+				if (USkeletalMeshComponent* const Skel = C->GetMesh())
+				{
+					if (UUDFAnimInstance_Enemy* const EnemyAnim = Cast<UUDFAnimInstance_Enemy>(Skel->GetAnimInstance()))
+					{
+						EnemyAnim->HitReactionDirection = HitDirection2D;
+						EnemyAnim->HitFromWorldLocation =
+							Instigator ? Instigator->GetActorLocation() : FVector::ZeroVector;
+						if (UAnimMontage* const FromAnim = EnemyAnim->SelectHitMontage(HitDirection2D))
+						{
+							return FromAnim;
+						}
+					}
+				}
+			}
+		}
+
+		if (const ACharacter* const Victim = Cast<ACharacter>(GetOwner()))
+		{
+			UAnimMontage* const Fallback = bHeavy ? HeavyHitMontage : LightHitMontage;
+			if (bHeavy)
+			{
+				return PickDirectionalMontage(
+					Victim,
+					HitDirection2D,
+					HeavyHit_Front,
+					HeavyHit_Back,
+					HeavyHit_Left,
+					HeavyHit_Right,
+					PickDirectionalMontage(
+						Victim,
+						HitDirection2D,
+						LightHit_Front,
+						LightHit_Back,
+						LightHit_Left,
+						LightHit_Right,
+						Fallback));
+			}
+			return PickDirectionalMontage(
+				Victim,
+				HitDirection2D,
+				LightHit_Front,
+				LightHit_Back,
+				LightHit_Left,
+				LightHit_Right,
+				Fallback);
+		}
+	}
+
+	if (bHeavy)
+	{
+		return HeavyHitMontage ? HeavyHitMontage : LightHitMontage;
+	}
+	return LightHitMontage;
 }
 
 void UDFHitReactionComponent::TryApplyStaggerStun(AActor* const InstigatorActor) const

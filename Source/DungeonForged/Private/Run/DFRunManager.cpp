@@ -1,6 +1,7 @@
 // Source/DungeonForged/Private/Run/DFRunManager.cpp
 
 #include "Run/DFRunManager.h"
+#include "Run/UDFSaveSlotManagerSubsystem.h"
 #include "DungeonForgedModule.h"
 #include "Run/DFSaveGame.h"
 #include "Run/UDFSaveSlotManagerSubsystem.h"
@@ -25,6 +26,7 @@
 #include "TimerManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "GameFramework/Character.h"
 #include "AbilitySystemComponent.h"
 #include "GAS/Abilities/Warrior/UDFAbility_Warrior_HeavyAttack.h"
 #include "GAS/DFGameplayTags.h"
@@ -174,6 +176,37 @@ void UDFRunManager::RestoreRunState(ADFPlayerCharacter* const Player)
 const FDFClassTableRow* UDFRunManager::FindClassTableRow(const FName ClassRowName) const
 {
 	return FindClassRow(ClassRowName);
+}
+
+FName UDFRunManager::ResolveActiveClassRowName() const
+{
+	if (!PendingClassForArrival.IsNone())
+	{
+		return PendingClassForArrival;
+	}
+	if (!RunState.SelectedClass.IsNone())
+	{
+		return RunState.SelectedClass;
+	}
+	if (UGameInstance* const GI = GetGameInstance())
+	{
+		if (UDFSaveSlotManagerSubsystem* const Slots = GI->GetSubsystem<UDFSaveSlotManagerSubsystem>())
+		{
+			if (UDFSaveGame const* const Save = Slots->GetActiveOrLegacyMetaSave())
+			{
+				if (!Save->LastRunClass.IsNone())
+				{
+					return Save->LastRunClass;
+				}
+			}
+		}
+	}
+	return NAME_None;
+}
+
+void UDFRunManager::SetSessionSelectedClass(const FName ClassName)
+{
+	RunState.SelectedClass = ClassName;
 }
 
 void UDFRunManager::StartNewRun(FName ClassName)
@@ -761,6 +794,28 @@ void UDFRunManager::ApplyRunStateToPlayer(ADFPlayerCharacter* Player)
 		if (USkeletalMeshComponent* const Mesh = Player->GetMesh())
 		{
 			Mesh->SetSkeletalMesh(ClassRow->CharacterMesh);
+
+			TSubclassOf<UAnimInstance> AnimClass = nullptr;
+			if (!ClassRow->CharacterClass.IsNull())
+			{
+				if (UClass* const PawnClass = ClassRow->CharacterClass.LoadSynchronous())
+				{
+					if (ACharacter* const CDO = Cast<ACharacter>(PawnClass->GetDefaultObject()))
+					{
+						if (USkeletalMeshComponent* const CdoMesh = CDO->GetMesh())
+						{
+							AnimClass = CdoMesh->GetAnimClass();
+						}
+					}
+				}
+			}
+			if (AnimClass)
+			{
+				Mesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+				Mesh->SetAnimInstanceClass(AnimClass);
+				Mesh->InitAnim(true);
+			}
+
 			Player->RefreshWeaponAndOffHandSocketAttachments();
 		}
 	}

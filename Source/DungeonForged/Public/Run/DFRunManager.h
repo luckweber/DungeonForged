@@ -213,6 +213,17 @@ public:
 	/** @c FindClassRow for DT_Classes; C++ (Blueprint cannot return table row pointer). */
 	const FDFClassTableRow* FindClassTableRow(FName ClassRowName) const;
 
+	/**
+	 * Pending new-run class, in-run @c SelectedClass, or active save @c LastRunClass (slot / legacy mirror).
+	 * Used by Nexus/Run game modes to pick the correct pawn Blueprint.
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Run|Class")
+	FName ResolveActiveClassRowName() const;
+
+	/** Sets in-memory @c RunState.SelectedClass (e.g. after class selection, before Nexus travel). */
+	UFUNCTION(BlueprintCallable, Category = "Run|Class")
+	void SetSessionSelectedClass(FName ClassName);
+
 	/** C++: reference to the live in-memory run; valid until the run ends or StartNewRun. */
 	const FDFRunState& GetCurrentRunState() const { return RunState; }
 

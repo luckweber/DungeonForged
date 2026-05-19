@@ -26,6 +26,7 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
 #include "GameModes/Nexus/ADFNexusPlayerController.h"
+#include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
 #include "Run/DFRunManager.h"
@@ -780,6 +781,10 @@ void UDFClassSelectionSubsystem::CloseClassSelection(const bool bConfirm)
 					(void)Slots->SaveActiveSlot();
 				}
 			}
+			if (UDFRunManager* const RM = GI ? GI->GetSubsystem<UDFRunManager>() : nullptr)
+			{
+				RM->SetSessionSelectedClass(ConfirmedClass);
+			}
 			if (UDFWorldTransitionSubsystem* const WT = GI ? GI->GetSubsystem<UDFWorldTransitionSubsystem>() : nullptr)
 			{
 				if (MainMenuClassDestination == EDFMainMenuClassPickDestination::NexusFirstLaunch)
@@ -1075,14 +1080,58 @@ void UDFClassSelectionSubsystem::SpawnClassChangeVfx(const FDFClassTableRow& Row
 		return;
 	}
 	UNiagaraSystem* const NS = Row.ClassChangeVFX.IsNull() ? nullptr : Row.ClassChangeVFX.LoadSynchronous();
-	if (NS)
+	if (!NS)
 	{
-		const FVector L = SpawnedPreviewPawn->GetMesh()
-			 ? SpawnedPreviewPawn->GetMesh()->GetComponentLocation() + FVector(0.f, 0.f, 40.f)
-			 : SpawnedPreviewPawn->GetActorLocation();
-		UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-			SpawnedPreviewPawn->GetWorld(), NS, L, FRotator::ZeroRotator, FVector(1.f), true, true, ENCPoolMethod::None, true);
+		return;
 	}
+	UWorld* const World = SpawnedPreviewPawn->GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	const FVector RelLoc = Row.ClassChangeVFXRelativeTransform.GetLocation();
+	const FRotator RelRot = Row.ClassChangeVFXRelativeTransform.Rotator();
+	const FVector RelScale = Row.ClassChangeVFXRelativeTransform.GetScale3D();
+
+	USkeletalMeshComponent* const Mesh = SpawnedPreviewPawn->GetMesh();
+	const FName Socket = Row.ClassChangeVFXAttachSocket;
+	if (Mesh && !Socket.IsNone() && Mesh->DoesSocketExist(Socket))
+	{
+		if (UNiagaraComponent* const FX = UNiagaraFunctionLibrary::SpawnSystemAttached(
+				NS,
+				Mesh,
+				Socket,
+				RelLoc,
+				RelRot,
+				EAttachLocation::KeepRelativeOffset,
+				true,
+				true,
+				ENCPoolMethod::None,
+				true))
+		{
+			if (!RelScale.Equals(FVector::OneVector, KINDA_SMALL_NUMBER))
+			{
+				FX->SetRelativeScale3D(RelScale);
+			}
+		}
+		return;
+	}
+
+	const FVector BaseLoc = Mesh ? Mesh->GetComponentLocation() : SpawnedPreviewPawn->GetActorLocation();
+	const FQuat BaseQuat = Mesh ? Mesh->GetComponentQuat() : SpawnedPreviewPawn->GetActorQuat();
+	const FVector WorldLoc = BaseLoc + BaseQuat.RotateVector(RelLoc);
+	const FQuat WorldQuat = BaseQuat * RelRot.Quaternion();
+	UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+		World,
+		NS,
+		WorldLoc,
+		WorldQuat.Rotator(),
+		RelScale,
+		true,
+		true,
+		ENCPoolMethod::None,
+		true);
 }
 
 void UDFClassSelectionSubsystem::RotatePreview(const float YawDelta)

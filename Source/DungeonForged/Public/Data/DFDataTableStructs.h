@@ -18,6 +18,8 @@
 #include "DFDataTableStructs.generated.h"
 
 class AActor;
+class ADFPlayerCharacter;
+class APawn;
 class UBehaviorTree;
 class UGameplayAbility;
 class UGameplayEffect;
@@ -409,8 +411,18 @@ struct DUNGEONFORGED_API FDFClassTableRow : public FTableRowBase
 	TSoftObjectPtr<UAnimSequence> ClassPreviewIdle;
 
 	/** Optional burst when swapping class on the turntable. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|UI|Preview")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|UI|Preview|VFX")
 	TSoftObjectPtr<UNiagaraSystem> ClassChangeVFX;
+
+	/**
+	 * Preview mesh socket for @ref ClassChangeVFX (e.g. pelvis, spine_03). If None, spawns at mesh origin + @ref ClassChangeVFXRelativeTransform.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|UI|Preview|VFX")
+	FName ClassChangeVFXAttachSocket = NAME_None;
+
+	/** Local offset from socket or mesh origin when spawning class-change VFX in selection preview. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|UI|Preview|VFX")
+	FTransform ClassChangeVFXRelativeTransform = FTransform(FVector(0.f, 0.f, 40.f));
 
 	/** Multiplies or drives a simple tint on preview MID (setup in BP or future cosmetic hook). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|UI|Preview")
@@ -418,6 +430,20 @@ struct DUNGEONFORGED_API FDFClassTableRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Visuals")
 	TObjectPtr<USkeletalMesh> CharacterMesh = nullptr;
+
+	/**
+	 * Run pawn Blueprint (e.g. BP_JCHero_Character for Knight, BP_ElfCharacter for Warrior).
+	 * @c ADFRunGameMode::GetDefaultPawnClassForController. If unset, uses game mode default + @ref CharacterMesh swap.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Pawn")
+	TSoftClassPtr<ADFPlayerCharacter> CharacterClass;
+
+	/**
+	 * Nexus hub pawn Blueprint. @c ADFNexusGameMode::GetDefaultPawnClassForController.
+	 * If unset, uses @c ADFNexusGameMode::NexusPawnClass + optional @ref CharacterMesh on the body mesh.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Pawn")
+	TSoftClassPtr<APawn> NexusCharacterClass;
 
 	/** Row names in DT_Abilities for starting grants. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Abilities")

@@ -9,8 +9,6 @@
 #include "GameplayAbilitySpec.h"
 #include "GameplayEffectTypes.h"
 #include "GameplayTagContainer.h"
-#include "Input/DFInputConfig.h"
-#include "InputAction.h"
 #include "UI/DFAbilityBarTypes.h"
 #include "Audio/UDFAudioComponent.h"
 #include "Equipment/DFEquipmentTypes.h"
@@ -60,69 +58,9 @@ public:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "GAS")
 	TObjectPtr<UDFAttributeSet> AttributeSet;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<UInputMappingContext> IMC_Default;
-
-	/** If set, ability bindings (Attack, abilities, interact) use AbilityInputActions + GAS local input instead of per-IA handlers below. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<UDFInputConfig> InputConfig;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<UInputAction> IA_Move;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<UInputAction> IA_Look;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<UInputAction> IA_Jump;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<UInputAction> IA_CameraZoom;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<UInputAction> IA_Attack;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<UInputAction> IA_Ability1;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<UInputAction> IA_Ability2;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<UInputAction> IA_Ability3;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<UInputAction> IA_Ability4;
-
-	/** LMB stays on IA_Attack. RMB: tries RMBAbilityTryTags in order (e.g. block / heavy). */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input|Combat")
-	TObjectPtr<UInputAction> IA_SecondaryAttack;
-
-	/**
-	 * Optional bar keys when InputConfig is null: index 0 = slot 1 (key "1"), … index 11 = "=".
-	 * If empty, IA_Ability1..4 still map to slots 1-4.
-	 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input|AbilityBar")
-	TArray<TObjectPtr<UInputAction>> IA_AbilityBarSlots;
-
+	/** RMB: tries tags in order (e.g. block / heavy). Bound on @ref ADFRunPlayerController. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input|Combat", meta = (Categories = "Ability"))
 	FGameplayTagContainer RMBAbilityTryTags;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<UInputAction> IA_Interact;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<UInputAction> IA_Sprint;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<UInputAction> IA_Dodge;
-
-	/**
-	 * Tecla tipo Q: activa Ability.Equipment.WeaponToggle (Equipar/desarmar arma numa entrada).
-	 * Mapeie no IMC_Default (ex.: tecla Q → este Input Action).
-	 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
-	TObjectPtr<UInputAction> IA_EquipmentWeaponToggle;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	TObjectPtr<UDFCameraComponent> CameraBoom;
@@ -334,41 +272,44 @@ public:
 	UFUNCTION(Server, Reliable, Category = "DF|Combat|Heavy")
 	void Server_CommitHeavyAttack();
 
+	/** Called by @ref ADFRunPlayerController (run input is on the PC, not on hero BPs). */
+	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
+	void ApplyCameraZoomInput(float AxisValue);
+
+	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
+	void HandlePrimaryAttackPressed();
+
+	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
+	void HandlePrimaryAttackReleased();
+
+	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
+	void HandleSecondaryAttackPressed();
+
+	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
+	void HandleInteractPressed();
+
+	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
+	void HandleSprintStart();
+
+	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
+	void HandleSprintEnd();
+
+	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
+	void HandleDodgePressed();
+
+	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
+	void HandleEquipmentWeaponTogglePressed();
+
 protected:
 	virtual void PostInitializeComponents() override;
-	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
-	virtual void PawnClientRestart() override;
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void OnRep_PlayerState() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-	void AddDefaultMappingContext();
 	void InitializeGAS();
 	void ApplyDefaultPassiveGameplayEffects();
-
-	/** Binds each AbilityInputAction to ASC::AbilityLocalInputPressed/Released; InputID from FDFInputAction::GameplayInputId or 1-based array index. */
-	void RegisterAbilityInputFromConfig(class UEnhancedInputComponent* EIC);
-
-	void Input_Move(const FInputActionValue& Value);
-	void Input_Look(const FInputActionValue& Value);
-	void Input_JumpStart();
-	void Input_JumpEnd();
-	void Input_CameraZoom(const FInputActionValue& Value);
-	void Input_AttackPressed();
-	void Input_AttackReleased();
-	void Input_SecondaryAttack();
-	void Input_Ability1();
-	void Input_Ability2();
-	void Input_Ability3();
-	void Input_Ability4();
-	void Input_Interact();
-	void Input_AbilityBarSlot(int32 Slot1Based);
-	void Input_SprintStart();
-	void Input_SprintEnd();
-	void Input_Dodge();
-	void Input_EquipmentWeaponToggle();
 
 	void TryActivateByGameplayTagName(const FName& TagName);
 	void CancelAbilitiesByGameplayTagName(const FName& TagName);
@@ -392,14 +333,7 @@ protected:
 	UFUNCTION()
 	void OnEquipmentEvent(EEquipmentSlot Slot, FName ItemRow);
 
-	/** MMO-style look: one SetControlRotation with pitch clamp (avoids AddPitch/AddYaw + second clamp). */
-	static constexpr float MinLookPitch = -60.f;
-	static constexpr float MaxLookPitch = 60.f;
-
 private:
-	/** Set after IMC_Default is added so we do not register twice (BeginPlay + PawnClientRestart). */
-	bool bDefaultInputContextAdded = false;
-
 	/** OnEquipmentChanged bound once; cleared in EndPlay. */
 	bool bModularEquipmentDelegateBound = false;
 
@@ -425,5 +359,4 @@ private:
 	void OnRep_CurrentAbilitySlots();
 
 	void BroadcastAbilityBarSlotsChanged();
-	void BindAbilityBarSlotInputs(class UEnhancedInputComponent* EIC);
 };

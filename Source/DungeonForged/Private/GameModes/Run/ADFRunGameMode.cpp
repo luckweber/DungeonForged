@@ -11,6 +11,7 @@
 #include "Equipment/UDFEquipmentComponent.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Run/DFRunManager.h"
+#include "DungeonForgedModule.h"
 #include "AbilitySystemComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -113,6 +114,40 @@ void ADFRunGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		}
 	}
 	Super::EndPlay(EndPlayReason);
+}
+
+UClass* ADFRunGameMode::GetDefaultPawnClassForController_Implementation(AController* const InController)
+{
+	(void)InController;
+	if (UGameInstance* const GI = GetGameInstance())
+	{
+		if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
+		{
+			FName ClassRowName = RM->ResolveActiveClassRowName();
+			if (ClassRowName.IsNone() && !DefaultClassRowName.IsNone())
+			{
+				ClassRowName = DefaultClassRowName;
+			}
+			if (const FDFClassTableRow* const Row = RM->FindClassTableRow(ClassRowName))
+			{
+				if (!Row->CharacterClass.IsNull())
+				{
+					if (UClass* const Loaded = Row->CharacterClass.LoadSynchronous())
+					{
+						DF_LOG(Log,
+							"ADFRunGameMode::GetDefaultPawnClassForController: class row '%s' -> %s",
+							*ClassRowName.ToString(),
+							*Loaded->GetPathName());
+						return Loaded;
+					}
+					DF_LOG(Warning,
+						"ADFRunGameMode::GetDefaultPawnClassForController: row '%s' CharacterClass failed to load.",
+						*ClassRowName.ToString());
+				}
+			}
+		}
+	}
+	return Super::GetDefaultPawnClassForController_Implementation(InController);
 }
 
 void ADFRunGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer)

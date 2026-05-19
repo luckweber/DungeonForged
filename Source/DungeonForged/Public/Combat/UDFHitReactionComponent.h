@@ -9,6 +9,7 @@ class UAnimMontage;
 class UNiagaraSystem;
 class UMaterialInterface;
 class AActor;
+class ACharacter;
 class UGameplayEffect;
 
 UCLASS(ClassGroup = (Combat), meta = (BlueprintSpawnableComponent))
@@ -27,6 +28,50 @@ public:
 
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction")
 	TObjectPtr<UAnimMontage> KnockbackMontage;
+
+	/**
+	 * When true, plays Front/Back/Left/Right montages from @a HitDirection2D (attacker → victim, XY).
+	 * If the mesh uses @c UUDFAnimInstance_Enemy and @a bPreferAnimInstanceDirectionalMontages is set,
+	 * montages are taken from the AnimBP (HitReact_Front, etc.) instead of the fields below.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional")
+	bool bUseDirectionalHitReactions = false;
+
+	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
+		meta = (EditCondition = "bUseDirectionalHitReactions"))
+	bool bPreferAnimInstanceDirectionalMontages = true;
+
+	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
+		meta = (EditCondition = "bUseDirectionalHitReactions"))
+	TObjectPtr<UAnimMontage> LightHit_Front;
+
+	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
+		meta = (EditCondition = "bUseDirectionalHitReactions"))
+	TObjectPtr<UAnimMontage> LightHit_Back;
+
+	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
+		meta = (EditCondition = "bUseDirectionalHitReactions"))
+	TObjectPtr<UAnimMontage> LightHit_Left;
+
+	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
+		meta = (EditCondition = "bUseDirectionalHitReactions"))
+	TObjectPtr<UAnimMontage> LightHit_Right;
+
+	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
+		meta = (EditCondition = "bUseDirectionalHitReactions"))
+	TObjectPtr<UAnimMontage> HeavyHit_Front;
+
+	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
+		meta = (EditCondition = "bUseDirectionalHitReactions"))
+	TObjectPtr<UAnimMontage> HeavyHit_Back;
+
+	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
+		meta = (EditCondition = "bUseDirectionalHitReactions"))
+	TObjectPtr<UAnimMontage> HeavyHit_Left;
+
+	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
+		meta = (EditCondition = "bUseDirectionalHitReactions"))
+	TObjectPtr<UAnimMontage> HeavyHit_Right;
 
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction", meta = (ClampMin = "0.0"))
 	float StaggerThreshold = 30.f;
@@ -83,4 +128,15 @@ public:
 protected:
 	/** Stagger only for heavy band (Stagger..Knockback) if StaggerStun is set. */
 	void TryApplyStaggerStun(AActor* InstigatorActor) const;
+
+	UAnimMontage* ResolveHitMontage(float DamageAmount, bool bIsKnockback, const FVector& HitDirection2D, AActor* Instigator) const;
+
+	static UAnimMontage* PickDirectionalMontage(
+		const ACharacter* Victim,
+		const FVector& HitDirectionFromAttacker,
+		UAnimMontage* Front,
+		UAnimMontage* Back,
+		UAnimMontage* Left,
+		UAnimMontage* Right,
+		UAnimMontage* Fallback);
 };

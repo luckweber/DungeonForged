@@ -29,6 +29,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Nexus|Spawn")
 	FName CenterPlazaStartTag = FName(TEXT("Nexus.Plaza"));
 
+	virtual UClass* GetDefaultPawnClassForController_Implementation(AController* InController) override;
 	virtual void PostLogin(APlayerController* NewPlayer) override;
 	virtual AActor* FindPlayerStart_Implementation(AController* Player, const FString& IncomingName) override;
 
@@ -49,4 +50,7 @@ protected:
 	FName ActivePlayerStartTag;
 
 	FName SelectSpawnTagForArrival(ERunNexusTravelReason Reason) const;
+
+	/** Mesh + AnimBP from @c FDFClassTableRow (CharacterClass CDO when NexusCharacterClass is unset). */
+	void ApplyActiveClassVisualsToNexusPawn(APlayerController* PlayerController) const;
 };

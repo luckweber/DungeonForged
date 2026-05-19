@@ -4,13 +4,21 @@
 #include "CoreMinimal.h"
 #include "GameModes/Run/DFRunTypes.h"
 #include "Characters/ADFPlayerController.h"
+#include "Input/DFInputConfig.h"
 #include "ADFRunPlayerController.generated.h"
 
+class UInputAction;
 class UInputMappingContext;
 class UUserWidget;
 class UDFVictoryScreenWidget;
 class UDFDefeatScreenWidget;
+class UEnhancedInputComponent;
+struct FInputActionValue;
 
+/**
+ * Run gameplay input lives on the PlayerController (not on @ref ADFPlayerCharacter BPs).
+ * Configure IMC + Input Actions on the Run PlayerController Blueprint once for all classes.
+ */
 UCLASS(Blueprintable)
 class DUNGEONFORGED_API ADFRunPlayerController : public ADFPlayerController
 {
@@ -19,12 +27,63 @@ class DUNGEONFORGED_API ADFRunPlayerController : public ADFPlayerController
 public:
 	ADFRunPlayerController();
 
-	/** IMC for gameplay; if null, run tries the possessed @ref ADFPlayerCharacter::IMC_Default. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Run|Input")
+	TObjectPtr<UInputMappingContext> GameplayInputMapping;
+
+	/** Legacy name; if set, used when @ref GameplayInputMapping is null. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Run|Input", meta = (DisplayName = "Default Gameplay IMC (legacy)"))
 	TObjectPtr<UInputMappingContext> DefaultGameplayIMC;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Run|Input", meta = (DisplayPriority = "1"))
 	int32 IMC_Priority = 0;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input")
+	TObjectPtr<UDFInputConfig> InputConfig;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input")
+	TObjectPtr<UInputAction> IA_Move;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input")
+	TObjectPtr<UInputAction> IA_Look;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input")
+	TObjectPtr<UInputAction> IA_Jump;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input")
+	TObjectPtr<UInputAction> IA_CameraZoom;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input")
+	TObjectPtr<UInputAction> IA_Attack;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input")
+	TObjectPtr<UInputAction> IA_Ability1;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input")
+	TObjectPtr<UInputAction> IA_Ability2;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input")
+	TObjectPtr<UInputAction> IA_Ability3;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input")
+	TObjectPtr<UInputAction> IA_Ability4;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input|Combat")
+	TObjectPtr<UInputAction> IA_SecondaryAttack;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input|AbilityBar")
+	TArray<TObjectPtr<UInputAction>> IA_AbilityBarSlots;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input")
+	TObjectPtr<UInputAction> IA_Interact;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input")
+	TObjectPtr<UInputAction> IA_Sprint;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input")
+	TObjectPtr<UInputAction> IA_Dodge;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input")
+	TObjectPtr<UInputAction> IA_EquipmentWeaponToggle;
 
 	/** WBP_CharacterScreen — inventory / build. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Run|UI")
@@ -54,6 +113,10 @@ public:
 	/** Pause (optional) + mouse cursor + UI-only input focused on @a Widget (defeat/victory/pause/inventory). */
 	UFUNCTION(BlueprintCallable, Category = "Run|Input")
 	void SetupInputModeUIForWidget(UUserWidget* Widget, bool bPauseGame = true);
+
+	/** Game-only mode + IMC after possess, respawn, or leaving UI. */
+	UFUNCTION(BlueprintCallable, Category = "Run|Input")
+	void EnsureGameplayInputReady();
 
 	UFUNCTION(BlueprintCallable, Category = "Run|UI")
 	void ToggleInventory();
@@ -110,5 +173,35 @@ public:
 	void RequestPlayAgain();
 
 protected:
+	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void OnPossess(APawn* InPawn) override;
+	virtual void SetupInputComponent() override;
+
+	UInputMappingContext* ResolveGameplayInputMapping() const;
+	void AddGameplayMappingContext();
+	void RemoveGameplayMappingContext();
+	void RegisterAbilityInputFromConfig(UEnhancedInputComponent* EIC);
+	void BindAbilityBarSlotInputs(UEnhancedInputComponent* EIC);
+
+	class ADFPlayerCharacter* GetHeroPawn() const;
+
+	void Input_Move(const FInputActionValue& Value);
+	void Input_Look(const FInputActionValue& Value);
+	void Input_JumpStart();
+	void Input_JumpEnd();
+	void Input_CameraZoom(const FInputActionValue& Value);
+	void Input_AttackPressed();
+	void Input_AttackReleased();
+	void Input_SecondaryAttack();
+	void Input_Interact();
+	void Input_SprintStart();
+	void Input_SprintEnd();
+	void Input_Dodge();
+	void Input_EquipmentWeaponToggle();
+
+	static constexpr float MinLookPitch = -60.f;
+	static constexpr float MaxLookPitch = 60.f;
+
+	bool bGameplayMappingContextAdded = false;
 };

@@ -3,6 +3,7 @@
 #include "DungeonForgedModule.h"
 #include "Run/DFRunManager.h"
 #include "Run/DFSaveGame.h"
+#include "Run/UDFSaveSlotManagerSubsystem.h"
 #include "Settings/UDFWorldDeveloperSettings.h"
 #include "World/UDFLoadingScreenSubsystem.h"
 #include "GameModes/Run/ADFRunGameState.h"
@@ -152,6 +153,19 @@ void UDFWorldTransitionSubsystem::TravelToNexus(const ETravelReason Reason)
 	if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
 	{
 		RM->SetNexusArrivalReason(DFWorldTransition::TravelToNexusArrival(Reason));
+		if (Reason == ETravelReason::FirstLaunch)
+		{
+			if (UDFSaveSlotManagerSubsystem* const Slots = GI->GetSubsystem<UDFSaveSlotManagerSubsystem>())
+			{
+				if (UDFSaveGame const* const Save = Slots->GetActiveOrLegacyMetaSave())
+				{
+					if (!Save->LastRunClass.IsNone())
+					{
+						RM->SetSessionSelectedClass(Save->LastRunClass);
+					}
+				}
+			}
+		}
 	}
 	if (Reason == ETravelReason::Victory || Reason == ETravelReason::Defeat || Reason == ETravelReason::AbandonRun)
 	{
