@@ -62,6 +62,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Ability|DF|Enemy", meta = (ClampMin = "0.0"))
 	float AddedDamage = 0.f;
 
+	/** Dynamic tag on the damage spec for hit reactions (e.g. Damage.Source.Slash). */
+	UPROPERTY(EditDefaultsOnly, Category = "Ability|DF|Enemy", meta = (Categories = "Damage.Source"))
+	FGameplayTag DamageSourceTag;
+
 	/** Sphere trace origin = avatar location + forward * this (cm). */
 	UPROPERTY(EditDefaultsOnly, Category = "Ability|DF|Enemy", meta = (ClampMin = "0.0"))
 	float MeleeForwardOffset = 50.f;

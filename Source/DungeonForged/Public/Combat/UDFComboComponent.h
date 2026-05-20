@@ -3,6 +3,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Data/DFDataTableStructs.h"
 #include "UDFComboComponent.generated.h"
 
 class UAnimMontage;
@@ -63,6 +64,25 @@ public:
 	/** One montage per step (0 .. MaxComboSteps-1). The "forward / neutral" path. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo")
 	TArray<TObjectPtr<UAnimMontage>> ComboMontages;
+
+	/**
+	 * Per-step combo data (light + optional heavy finisher branch). When non-empty, overrides montage resolution
+	 * for each step and keeps @c ComboMontages in sync with each step's @c LightMontage.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo")
+	TArray<FDFComboStep> ComboSteps;
+
+	/** Loops while primary attack is held before heavy tier commits (optional). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Heavy")
+	TObjectPtr<UAnimMontage> ChargeWindupMontage;
+
+	/** Bridge montage on heavy release after windup; falls back to heavy attack montage when null. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Heavy")
+	TObjectPtr<UAnimMontage> HeavyChargeReleaseMontage;
+
+	/** True when the next combo step should use @c FDFComboStep::HeavyBranchMontage instead of light. */
+	UPROPERTY(BlueprintReadOnly, Category = "Combat|Combo")
+	bool bComboHeavyFinisherPending = false;
 
 	/**
 	 * Optional override per step when the owner is moving backward at the moment the swing starts.
@@ -191,6 +211,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Directional")
 	UAnimMontage* ResolveDirectionalComboMontage(int32 Step) const;
 
+	/** Populates @c ComboSteps and rebuilds @c ComboMontages from each step's light montage. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
+	void ApplyComboStepData(const TArray<FDFComboStep>& Steps);
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
+	void ClearComboStepData();
+
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
 	void NotifyAbilitySwingMontagePlaybackEnded();
 
@@ -232,11 +259,17 @@ protected:
 	bool bHeavySwingPending = false;
 	bool bMaxHeavyPending = false;
 	float HeavyChargeStartTime = -1.f;
+	float ComboBranchPressTime = -1.f;
 	bool bSwingInputBuffered = false;
 	float SwingInputBufferExpireTime = -1.f;
+	bool bPlayingChargeWindup = false;
+	bool bPendingChargeReleaseMontage = false;
 	void ApplyCombatTuningFromDataAsset();
 	void BufferComboInputAndTryAdvance();
 	void DrawCombatDebug() const;
+	void StartChargeWindupMontage();
+	void StopChargeWindupMontage();
+	void TryAdvanceComboBranchFromHold();
 	/** Stops the previous swing montage and clears end delegates before a GAS combo chain step. */
 	void PrepareForComboChainActivation();
 

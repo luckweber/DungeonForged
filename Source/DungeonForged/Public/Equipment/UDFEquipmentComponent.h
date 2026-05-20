@@ -51,6 +51,9 @@ public:
 	TMap<EEquipmentSlot, FActiveGameplayEffectHandle> EquipEffectHandles;
 	TMap<EEquipmentSlot, USkeletalMeshComponent*> SlotMeshComponents;
 
+	/** Loose weapon tags applied to the owner ASC while a weapon row is equipped (server only). */
+	FGameplayTagContainer AppliedWeaponLooseTags;
+
 	/** Granted from DT row `WeaponMeleeGameplayAbility` while a weapon occupies the slot (server revoke on unequip). */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|Equipment|GAS")
 	FGameplayAbilitySpecHandle GrantedWeaponMeleeAbilitySpecHandle;
@@ -158,6 +161,9 @@ protected:
 
 	void RevokeGrantedWeaponMeleeAbility(UAbilitySystemComponent* ASC);
 	void TryGrantWeaponMeleeAbilityFromEquippedRow(UAbilitySystemComponent* ASC, const FDFItemTableRow* Row);
+
+	void SyncEquippedWeaponLooseTags(UAbilitySystemComponent* ASC, const FDFItemTableRow* WeaponRow);
+	void ClearEquippedWeaponLooseTags(UAbilitySystemComponent* ASC);
 
 	UAbilitySystemComponent* ResolveOwnerASC() const;
 	UDFInventoryComponent* ResolveInventory() const;

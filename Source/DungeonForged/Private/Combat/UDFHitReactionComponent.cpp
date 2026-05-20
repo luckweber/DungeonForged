@@ -33,7 +33,8 @@ void UDFHitReactionComponent::OnHitReceived(
 	const FVector HitDirection2D,
 	AActor* const Instigator,
 	const FVector HitLocation,
-	const FVector HitNormal)
+	const FVector HitNormal,
+	const FGameplayTag DamageSourceTag)
 {
 	if (!GetOwner() || !GetOwner()->HasAuthority())
 	{
@@ -67,7 +68,7 @@ void UDFHitReactionComponent::OnHitReceived(
 		}
 	}
 
-	if (UAnimMontage* const ReactionMontage = ResolveHitMontage(DamageAmount, bIsKnockback, Dir, Instigator))
+	if (UAnimMontage* const ReactionMontage = ResolveHitMontage(DamageAmount, bIsKnockback, Dir, Instigator, DamageSourceTag))
 	{
 		PlayHitReaction(ReactionMontage, 1.f);
 	}
@@ -143,7 +144,7 @@ void UDFHitReactionComponent::OnHitReceived(
 			}
 		}
 	}
-	SpawnHitVFX(VfxPos, FacingVfx);
+	SpawnHitVFX(VfxPos, FacingVfx, DamageSourceTag);
 	SpawnHitDecal(VfxPos, bUseImpact ? FRotator((-HitNormal).Rotation()) : FacingVfx);
 }
 
@@ -189,8 +190,20 @@ UAnimMontage* UDFHitReactionComponent::ResolveHitMontage(
 	const float DamageAmount,
 	const bool bIsKnockback,
 	const FVector& HitDirection2D,
-	AActor* const Instigator) const
+	AActor* const Instigator,
+	const FGameplayTag DamageSourceTag) const
 {
+	if (DamageSourceTag.IsValid())
+	{
+		if (const TObjectPtr<UAnimMontage>* const Found = DamageSourceHitMontages.Find(DamageSourceTag))
+		{
+			if (*Found)
+			{
+				return Found->Get();
+			}
+		}
+	}
+
 	if (bIsKnockback)
 	{
 		return KnockbackMontage;
@@ -306,14 +319,35 @@ void UDFHitReactionComponent::PlayHitReaction(UAnimMontage* const Montage, const
 	}
 }
 
-void UDFHitReactionComponent::SpawnHitVFX(const FVector Location, const FRotator NormalRotation)
+void UDFHitReactionComponent::SpawnHitVFX(
+	const FVector Location,
+	const FRotator NormalRotation,
+	const FGameplayTag DamageSourceTag)
 {
-	if (IsRunningDedicatedServer() || !HitImpactNiagara)
+	if (IsRunningDedicatedServer())
+	{
+		return;
+	}
+	UNiagaraSystem* const Vfx = [this, DamageSourceTag]() -> UNiagaraSystem*
+	{
+		if (DamageSourceTag.IsValid())
+		{
+			if (const TObjectPtr<UNiagaraSystem>* const Found = DamageSourceHitImpactNiagara.Find(DamageSourceTag))
+			{
+				if (*Found)
+				{
+					return Found->Get();
+				}
+			}
+		}
+		return HitImpactNiagara;
+	}();
+	if (!Vfx)
 	{
 		return;
 	}
 	UNiagaraComponent* N = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-		this, HitImpactNiagara, Location, NormalRotation, FVector(1.f), true, true, ENCPoolMethod::None, true);
+		this, Vfx, Location, NormalRotation, FVector(1.f), true, true, ENCPoolMethod::None, true);
 	(void)N;
 }
 

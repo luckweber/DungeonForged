@@ -161,6 +161,19 @@ FGameplayTag FDFGameplayTags::State_Elemental_Wet;
 FGameplayTag FDFGameplayTags::Effect_Reaction_Melt;
 FGameplayTag FDFGameplayTags::Effect_Reaction_Steam;
 FGameplayTag FDFGameplayTags::Effect_Reaction_Electrocute;
+FGameplayTag FDFGameplayTags::Weapon;
+FGameplayTag FDFGameplayTags::Weapon_Sword;
+FGameplayTag FDFGameplayTags::Weapon_Sword_1H;
+FGameplayTag FDFGameplayTags::Weapon_Sword_2H;
+FGameplayTag FDFGameplayTags::Weapon_Axe;
+FGameplayTag FDFGameplayTags::Weapon_Mace;
+FGameplayTag FDFGameplayTags::Weapon_Dagger;
+FGameplayTag FDFGameplayTags::Weapon_Spear;
+FGameplayTag FDFGameplayTags::Weapon_Staff;
+FGameplayTag FDFGameplayTags::Damage_Source;
+FGameplayTag FDFGameplayTags::Damage_Source_Slash;
+FGameplayTag FDFGameplayTags::Damage_Source_Blunt;
+FGameplayTag FDFGameplayTags::Damage_Source_Pierce;
 FGameplayTag FDFGameplayTags::Event_Ability_Fire_Launch;
 FGameplayTag FDFGameplayTags::Event_Ability_Melee_Hit;
 FGameplayTag FDFGameplayTags::Event_Death;
@@ -392,6 +405,21 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(Effect_Reaction_Melt)(FName("Effect.Reaction.Melt"), FString("Melt: fire + frost reaction."));
 	DF_TAG(Effect_Reaction_Steam)(FName("Effect.Reaction.Steam"), FString("Steam: ice on burning target."));
 	DF_TAG(Effect_Reaction_Electrocute)(FName("Effect.Reaction.Electrocute"), FString("Electrocute: lightning on wet/slow."));
+
+	DF_TAG(Weapon)(FName("Weapon"), FString("Equipped weapon category."));
+	DF_TAG(Weapon_Sword)(FName("Weapon.Sword"), FString("Sword family."));
+	DF_TAG(Weapon_Sword_1H)(FName("Weapon.Sword.1H"), FString("One-handed sword."));
+	DF_TAG(Weapon_Sword_2H)(FName("Weapon.Sword.2H"), FString("Two-handed sword."));
+	DF_TAG(Weapon_Axe)(FName("Weapon.Axe"), FString("Axe / cleaver."));
+	DF_TAG(Weapon_Mace)(FName("Weapon.Mace"), FString("Mace / hammer."));
+	DF_TAG(Weapon_Dagger)(FName("Weapon.Dagger"), FString("Dagger / knife."));
+	DF_TAG(Weapon_Spear)(FName("Weapon.Spear"), FString("Spear / polearm."));
+	DF_TAG(Weapon_Staff)(FName("Weapon.Staff"), FString("Staff / wand."));
+
+	DF_TAG(Damage_Source)(FName("Damage.Source"), FString("Physical damage typing for hit reactions."));
+	DF_TAG(Damage_Source_Slash)(FName("Damage.Source.Slash"), FString("Slashing damage."));
+	DF_TAG(Damage_Source_Blunt)(FName("Damage.Source.Blunt"), FString("Blunt / crushing damage."));
+	DF_TAG(Damage_Source_Pierce)(FName("Damage.Source.Pierce"), FString("Piercing damage."));
 
 	DF_TAG(Event_Ability_Fire_Launch)(FName("Event.Ability.Fire.Launch"), FString("Anim notify: fire projectile release."));
 	DF_TAG(Event_Ability_Melee_Hit)(FName("Event.Ability.Melee.Hit"), FString("Melee impact / damage window."));

@@ -245,6 +245,23 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Effect_Reaction_Steam;
 	static FGameplayTag Effect_Reaction_Electrocute;
 
+	//~ Weapon (loose ASC tags while an item is equipped)
+	static FGameplayTag Weapon;
+	static FGameplayTag Weapon_Sword;
+	static FGameplayTag Weapon_Sword_1H;
+	static FGameplayTag Weapon_Sword_2H;
+	static FGameplayTag Weapon_Axe;
+	static FGameplayTag Weapon_Mace;
+	static FGameplayTag Weapon_Dagger;
+	static FGameplayTag Weapon_Spear;
+	static FGameplayTag Weapon_Staff;
+
+	//~ Damage source (melee typing for hit reactions / GE dynamic tags)
+	static FGameplayTag Damage_Source;
+	static FGameplayTag Damage_Source_Slash;
+	static FGameplayTag Damage_Source_Blunt;
+	static FGameplayTag Damage_Source_Pierce;
+
 	//~ Data (SetByCaller)
 	static FGameplayTag Data_Damage;
 	static FGameplayTag Data_Healing;

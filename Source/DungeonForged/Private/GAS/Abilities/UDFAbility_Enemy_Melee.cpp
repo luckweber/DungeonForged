@@ -464,6 +464,10 @@ void UDFAbility_Enemy_Melee::ApplyDamageToOverlappingTargets()
 			if (S.IsValid() && S.Data && FDFGameplayTags::Data_Damage.IsValid())
 			{
 				S.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Damage, Dmg);
+				if (DamageSourceTag.IsValid())
+				{
+					S.Data->AddDynamicAssetTag(DamageSourceTag);
+				}
 				SourceASC->ApplyGameplayEffectSpecToTarget(*S.Data.Get(), TASC);
 				ApplyBonusOnHitEffects(SourceASC, TASC, Ctx);
 				if (UDFHitReactionComponent* const Hit = A->FindComponentByClass<UDFHitReactionComponent>())
@@ -472,7 +476,7 @@ void UDFAbility_Enemy_Melee::ApplyDamageToOverlappingTargets()
 					HitDir.Z = 0.f;
 					HitDir.Normalize();
 					const FVector HitLocation = A->GetActorLocation();
-					Hit->OnHitReceived(Dmg, 0.f, HitDir, Char, HitLocation, -HitDir.GetSafeNormal());
+					Hit->OnHitReceived(Dmg, 0.f, HitDir, Char, HitLocation, -HitDir.GetSafeNormal(), DamageSourceTag);
 				}
 				PlayImpactCosmetics(Char, A->GetActorLocation(), Char->GetActorLocation() - A->GetActorLocation());
 				DamagedTargets.Add(A);

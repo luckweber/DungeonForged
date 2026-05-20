@@ -249,18 +249,66 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 
 	auto ApplyEquippedWeaponMeleeProfile = [&](const FDFItemTableRow& WRow)
 	{
-		if (WRow.WeaponMeleeComboMontages.Num() > 0)
+		if (WRow.WeaponMeleeComboSteps.Num() > 0)
 		{
+			Combo->ApplyComboStepData(WRow.WeaponMeleeComboSteps);
+			Combo->MaxComboSteps = FMath::Max(Combo->MaxComboSteps, WRow.WeaponMeleeComboSteps.Num());
+		}
+		else if (ClassRow && ClassRow->ArmedMeleeComboStepsFallback.Num() > 0)
+		{
+			Combo->ApplyComboStepData(ClassRow->ArmedMeleeComboStepsFallback);
+			Combo->MaxComboSteps = FMath::Max(Combo->MaxComboSteps, ClassRow->ArmedMeleeComboStepsFallback.Num());
+		}
+		else if (WRow.WeaponMeleeComboMontages.Num() > 0)
+		{
+			Combo->ClearComboStepData();
 			Combo->ComboMontages = WRow.WeaponMeleeComboMontages;
 			Combo->MaxComboSteps = FMath::Max(Combo->MaxComboSteps, WRow.WeaponMeleeComboMontages.Num());
 		}
 		else if (ClassRow && ClassRow->ArmedMeleeComboMontagesFallback.Num() > 0)
 		{
+			Combo->ClearComboStepData();
 			Combo->ComboMontages = ClassRow->ArmedMeleeComboMontagesFallback;
 		}
 		else
 		{
+			Combo->ClearComboStepData();
 			AssignComboBaseline();
+		}
+
+		if (WRow.WeaponChargeWindupMontage)
+		{
+			Combo->ChargeWindupMontage = WRow.WeaponChargeWindupMontage;
+		}
+		else if (ClassRow && ClassRow->ArmedChargeWindupMontageFallback)
+		{
+			Combo->ChargeWindupMontage = ClassRow->ArmedChargeWindupMontageFallback;
+		}
+		else
+		{
+			Combo->ChargeWindupMontage = nullptr;
+		}
+
+		if (WRow.WeaponHeavyChargeReleaseMontage)
+		{
+			Combo->HeavyChargeReleaseMontage = WRow.WeaponHeavyChargeReleaseMontage;
+		}
+		else if (ClassRow && ClassRow->ArmedHeavyChargeReleaseMontageFallback)
+		{
+			Combo->HeavyChargeReleaseMontage = ClassRow->ArmedHeavyChargeReleaseMontageFallback;
+		}
+		else
+		{
+			Combo->HeavyChargeReleaseMontage = nullptr;
+		}
+
+		if (WRow.WeaponDamageSourceTag.IsValid())
+		{
+			MeleeTrace->ActiveMeleeDamageSourceTag = WRow.WeaponDamageSourceTag;
+		}
+		else
+		{
+			MeleeTrace->ActiveMeleeDamageSourceTag = FGameplayTag::EmptyTag;
 		}
 
 		if (WRow.WeaponMeleeBaseDamage > KINDA_SMALL_NUMBER)
@@ -336,6 +384,13 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 
 		Combo->HeavyAttackMontage = nullptr;
 		Combo->MaxHeavyAttackMontage = nullptr;
+		Combo->ChargeWindupMontage = nullptr;
+		Combo->HeavyChargeReleaseMontage = nullptr;
+		Combo->ClearComboStepData();
+		if (bMeleeTraceDamageBaselineCaptured)
+		{
+			MeleeTrace->ActiveMeleeDamageSourceTag = FGameplayTag::EmptyTag;
+		}
 		// Directional fallbacks may still exist for unarmed combos in class data.
 		Combo->BackwardComboMontages = ClassRow
 			? ClassRow->ArmedBackwardMeleeComboMontagesFallback

@@ -376,15 +376,25 @@ void UDFEquipmentComponent::SyncWeaponMeleeGameplayAbilityGrant()
 	if (IsSlotEmpty(EEquipmentSlot::Weapon))
 	{
 		RevokeGrantedWeaponMeleeAbility(ASC);
+		ClearEquippedWeaponLooseTags(ASC);
 		return;
 	}
 	const FDFItemTableRow* const Row = GetEquippedItemDataRaw(EEquipmentSlot::Weapon);
-	if (!Row || !Row->WeaponMeleeGameplayAbility)
+	if (!Row)
 	{
 		RevokeGrantedWeaponMeleeAbility(ASC);
+		ClearEquippedWeaponLooseTags(ASC);
 		return;
 	}
-	TryGrantWeaponMeleeAbilityFromEquippedRow(ASC, Row);
+	if (Row->WeaponMeleeGameplayAbility)
+	{
+		TryGrantWeaponMeleeAbilityFromEquippedRow(ASC, Row);
+	}
+	else
+	{
+		RevokeGrantedWeaponMeleeAbility(ASC);
+	}
+	SyncEquippedWeaponLooseTags(ASC, Row);
 }
 
 void UDFEquipmentComponent::RevokeGrantedWeaponMeleeAbility(
@@ -399,6 +409,33 @@ void UDFEquipmentComponent::RevokeGrantedWeaponMeleeAbility(
 		ASC->ClearAbility(GrantedWeaponMeleeAbilitySpecHandle);
 	}
 	GrantedWeaponMeleeAbilitySpecHandle = FGameplayAbilitySpecHandle();
+}
+
+void UDFEquipmentComponent::ClearEquippedWeaponLooseTags(UAbilitySystemComponent* const ASC)
+{
+	if (!ASC || AppliedWeaponLooseTags.IsEmpty())
+	{
+		AppliedWeaponLooseTags.Reset();
+		return;
+	}
+	ASC->RemoveLooseGameplayTags(AppliedWeaponLooseTags);
+	AppliedWeaponLooseTags.Reset();
+}
+
+void UDFEquipmentComponent::SyncEquippedWeaponLooseTags(
+	UAbilitySystemComponent* const ASC,
+	const FDFItemTableRow* const WeaponRow)
+{
+	if (!ASC)
+	{
+		return;
+	}
+	ClearEquippedWeaponLooseTags(ASC);
+	if (WeaponRow && !WeaponRow->WeaponTags.IsEmpty())
+	{
+		ASC->AddLooseGameplayTags(WeaponRow->WeaponTags);
+		AppliedWeaponLooseTags = WeaponRow->WeaponTags;
+	}
 }
 
 void UDFEquipmentComponent::TryGrantWeaponMeleeAbilityFromEquippedRow(
@@ -627,6 +664,7 @@ void UDFEquipmentComponent::UnequipSlotInternal(
 		if (UAbilitySystemComponent* const ASC = ResolveOwnerASC())
 		{
 			RevokeGrantedWeaponMeleeAbility(ASC);
+			ClearEquippedWeaponLooseTags(ASC);
 		}
 	}
 
@@ -810,6 +848,7 @@ bool UDFEquipmentComponent::EquipItemInternal(
 	if (Slot == EEquipmentSlot::Weapon)
 	{
 		TryGrantWeaponMeleeAbilityFromEquippedRow(ASC, Row);
+		SyncEquippedWeaponLooseTags(ASC, Row);
 		RefreshWeaponAnimSetOnOwner();
 	}
 

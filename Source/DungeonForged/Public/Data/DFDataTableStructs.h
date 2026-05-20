@@ -162,6 +162,20 @@ struct DUNGEONFORGED_API FDFAttributeInitTableRow : public FTableRowBase
 	TSubclassOf<UGameplayEffect> StartupGameplayEffect;
 };
 
+/** One combo chain step: light swing plus optional heavy finisher branch montage. */
+USTRUCT(BlueprintType)
+struct DUNGEONFORGED_API FDFComboStep
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
+	TObjectPtr<UAnimMontage> LightMontage = nullptr;
+
+	/** Played instead of @c LightMontage when the player holds primary during the combo window (heavy finisher branch). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
+	TObjectPtr<UAnimMontage> HeavyBranchMontage = nullptr;
+};
+
 /** Item definition row (e.g. DT_Items). */
 USTRUCT(BlueprintType)
 struct DUNGEONFORGED_API FDFItemTableRow : public FTableRowBase
@@ -225,6 +239,26 @@ struct DUNGEONFORGED_API FDFItemTableRow : public FTableRowBase
 	/** Combo montages for basic melee while this weapon is equipped (overrides armed fallback class row / BP baseline). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat")
 	TArray<TObjectPtr<UAnimMontage>> WeaponMeleeComboMontages;
+
+	/** Per-step combo (light + optional heavy finisher). When non-empty, overrides @c WeaponMeleeComboMontages. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat")
+	TArray<FDFComboStep> WeaponMeleeComboSteps;
+
+	/** Loops on primary-attack hold before heavy tier commits (optional). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat|Heavy")
+	TObjectPtr<UAnimMontage> WeaponChargeWindupMontage;
+
+	/** Optional bridge montage on heavy release after windup; falls back to heavy montage. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat|Heavy")
+	TObjectPtr<UAnimMontage> WeaponHeavyChargeReleaseMontage;
+
+	/** e.g. Weapon.Sword.1H, Weapon.Axe — applied to ASC while equipped. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat", meta = (Categories = "Weapon"))
+	FGameplayTagContainer WeaponTags;
+
+	/** Hit reaction / damage typing: Damage.Source.Slash, Blunt, Pierce. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat", meta = (Categories = "Damage.Source"))
+	FGameplayTag WeaponDamageSourceTag;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat")
 	TObjectPtr<UAnimMontage> WeaponHeavyAttackMontage;
@@ -474,6 +508,16 @@ struct DUNGEONFORGED_API FDFClassTableRow : public FTableRowBase
 	/** Fallback armed montages when the equipped weapon row has no WeaponMeleeComboMontages. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat")
 	TArray<TObjectPtr<UAnimMontage>> ArmedMeleeComboMontagesFallback;
+
+	/** Per-step armed combo when weapon row has no @c WeaponMeleeComboSteps. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat")
+	TArray<FDFComboStep> ArmedMeleeComboStepsFallback;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat|Heavy")
+	TObjectPtr<UAnimMontage> ArmedChargeWindupMontageFallback;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat|Heavy")
+	TObjectPtr<UAnimMontage> ArmedHeavyChargeReleaseMontageFallback;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat")
 	TObjectPtr<UAnimMontage> ArmedHeavyAttackMontageFallback;

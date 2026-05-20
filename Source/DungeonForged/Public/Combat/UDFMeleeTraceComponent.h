@@ -90,6 +90,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Combat|GAS", meta = (Categories = "Data"))
 	FGameplayTag KnockbackTag;
 
+	/** Added to outgoing melee damage specs (e.g. Damage.Source.Slash). Set from equipped weapon row. */
+	UPROPERTY(BlueprintReadOnly, Category = "Combat|GAS", meta = (Categories = "Damage.Source"))
+	FGameplayTag ActiveMeleeDamageSourceTag;
+
 	/** Instant GE: execution UDFDamageCalculation, SetByCaller Data.Damage / Data.Knockback. */
 	UPROPERTY(EditAnywhere, Category = "Combat|GAS")
 	TSubclassOf<UGameplayEffect> MeleeDamageGameplayEffect;

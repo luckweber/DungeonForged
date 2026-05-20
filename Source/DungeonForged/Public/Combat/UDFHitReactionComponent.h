@@ -3,6 +3,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "GameplayTagContainer.h"
 #include "UDFHitReactionComponent.generated.h"
 
 class UAnimMontage;
@@ -107,6 +108,14 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Combat|Decal", meta = (ClampMin = "0.0"))
 	float DecalLifespan = 8.f;
 
+	/** Optional per-damage-source hit montage overrides (Damage.Source.Slash / Blunt / Pierce). */
+	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|DamageSource", meta = (Categories = "Damage.Source"))
+	TMap<FGameplayTag, TObjectPtr<UAnimMontage>> DamageSourceHitMontages;
+
+	/** Optional per-damage-source impact VFX overrides. */
+	UPROPERTY(EditAnywhere, Category = "Combat|VFX|DamageSource", meta = (Categories = "Damage.Source"))
+	TMap<FGameplayTag, TObjectPtr<UNiagaraSystem>> DamageSourceHitImpactNiagara;
+
 	UFUNCTION(BlueprintCallable, Category = "Combat|HitReaction")
 	void OnHitReceived(
 		float DamageAmount,
@@ -114,13 +123,14 @@ public:
 		FVector HitDirection2D,
 		AActor* Instigator,
 		FVector HitLocation = FVector::ZeroVector,
-		FVector HitNormal = FVector::UpVector);
+		FVector HitNormal = FVector::UpVector,
+		FGameplayTag DamageSourceTag = FGameplayTag());
 
 	UFUNCTION(BlueprintCallable, Category = "Combat|HitReaction")
 	void PlayHitReaction(UAnimMontage* Montage, float PlayRate = 1.f);
 
 	UFUNCTION(BlueprintCallable, Category = "Combat|VFX")
-	void SpawnHitVFX(FVector Location, FRotator NormalRotation);
+	void SpawnHitVFX(FVector Location, FRotator NormalRotation, FGameplayTag DamageSourceTag = FGameplayTag());
 
 	UFUNCTION(BlueprintCallable, Category = "Combat|VFX")
 	void SpawnHitDecal(FVector Location, FRotator NormalRotation);
@@ -129,7 +139,12 @@ protected:
 	/** Stagger only for heavy band (Stagger..Knockback) if StaggerStun is set. */
 	void TryApplyStaggerStun(AActor* InstigatorActor) const;
 
-	UAnimMontage* ResolveHitMontage(float DamageAmount, bool bIsKnockback, const FVector& HitDirection2D, AActor* Instigator) const;
+	UAnimMontage* ResolveHitMontage(
+		float DamageAmount,
+		bool bIsKnockback,
+		const FVector& HitDirection2D,
+		AActor* Instigator,
+		FGameplayTag DamageSourceTag) const;
 
 	static UAnimMontage* PickDirectionalMontage(
 		const ACharacter* Victim,

@@ -1156,6 +1156,10 @@ FGameplayEffectSpecHandle UDFMeleeTraceComponent::BuildDamageSpec(const float Ba
 		{
 			Out.Data->SetSetByCallerMagnitude(KnockbackTag, KnockbackForce);
 		}
+		if (ActiveMeleeDamageSourceTag.IsValid())
+		{
+			Out.Data->AddDynamicAssetTag(ActiveMeleeDamageSourceTag);
+		}
 	}
 	return Out;
 }
@@ -1445,7 +1449,19 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 		FVector ToTarget = Target->GetActorLocation() - Owner->GetActorLocation();
 		ToTarget.Z = 0.f;
 		ToTarget.Normalize();
-		Hit->OnHitReceived(DmgMagnitude, KbMagnitude, ToTarget, Owner, ImpactPoint, ImpactNormal);
+		FGameplayTag DamageSourceTag = ActiveMeleeDamageSourceTag;
+		if (SpecHandle.Data)
+		{
+			for (const FGameplayTag& Tag : SpecHandle.Data->GetDynamicAssetTags())
+			{
+				if (Tag.MatchesTag(FDFGameplayTags::Damage_Source))
+				{
+					DamageSourceTag = Tag;
+					break;
+				}
+			}
+		}
+		Hit->OnHitReceived(DmgMagnitude, KbMagnitude, ToTarget, Owner, ImpactPoint, ImpactNormal, DamageSourceTag);
 	}
 
 	const bool bAppliedDamage = Applied.IsValid() || bInstantGE;

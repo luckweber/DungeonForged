@@ -70,19 +70,17 @@ void UDFComboComponent::BeginPlay()
 			MeleeTrace = O->FindComponentByClass<UDFMeleeTraceComponent>();
 		}
 	}
-#if !UE_BUILD_SHIPPING
 	SetComponentTickEnabled(true);
-#endif
 }
 
 void UDFComboComponent::TickComponent(const float DeltaTime, ELevelTick TickType,
 	FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	TryAdvanceComboBranchFromHold();
 #if !UE_BUILD_SHIPPING
 	const bool bWantCombo = DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Combo);
 	const bool bWantHeavy = DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Heavy);
-	SetComponentTickEnabled(bWantCombo || bWantHeavy);
 	if (bWantCombo || bWantHeavy)
 	{
 		DrawCombatDebug();
@@ -92,11 +90,28 @@ void UDFComboComponent::TickComponent(const float DeltaTime, ELevelTick TickType
 
 int32 UDFComboComponent::GetEffectiveMaxComboSteps() const
 {
-	if (ComboMontages.Num() <= 0)
+	const int32 MontageCount = ComboSteps.Num() > 0 ? ComboSteps.Num() : ComboMontages.Num();
+	if (MontageCount <= 0)
 	{
 		return MaxComboSteps;
 	}
-	return FMath::Min(MaxComboSteps, ComboMontages.Num());
+	return FMath::Min(MaxComboSteps, MontageCount);
+}
+
+void UDFComboComponent::ApplyComboStepData(const TArray<FDFComboStep>& Steps)
+{
+	ComboSteps = Steps;
+	ComboMontages.Empty();
+	ComboMontages.Reserve(ComboSteps.Num());
+	for (const FDFComboStep& Step : ComboSteps)
+	{
+		ComboMontages.Add(Step.LightMontage);
+	}
+}
+
+void UDFComboComponent::ClearComboStepData()
+{
+	ComboSteps.Empty();
 }
 
 void UDFComboComponent::BufferComboInputAndTryAdvance()
@@ -177,11 +192,70 @@ void UDFComboComponent::ApplyCombatTuningFromDataAsset()
 	AttackInputBufferDuration = Tuning->AttackInputBufferDuration;
 }
 
+void UDFComboComponent::StartChargeWindupMontage()
+{
+	if (!ChargeWindupMontage || bPlayingComboMontage)
+	{
+		return;
+	}
+	UAnimInstance* const AnimInst = GetAnimInstance();
+	if (!AnimInst || AnimInst->Montage_IsPlaying(ChargeWindupMontage))
+	{
+		return;
+	}
+	if (AnimInst->Montage_Play(ChargeWindupMontage, 1.f) > 0.f)
+	{
+		bPlayingChargeWindup = true;
+	}
+}
+
+void UDFComboComponent::StopChargeWindupMontage()
+{
+	if (!bPlayingChargeWindup)
+	{
+		return;
+	}
+	if (UAnimInstance* const AnimInst = GetAnimInstance())
+	{
+		if (ChargeWindupMontage)
+		{
+			AnimInst->Montage_Stop(0.1f, ChargeWindupMontage);
+		}
+	}
+	bPlayingChargeWindup = false;
+}
+
+void UDFComboComponent::TryAdvanceComboBranchFromHold()
+{
+	if (!bComboWindowActive || !bComboInputBuffered || ComboBranchPressTime < 0.f)
+	{
+		return;
+	}
+	UWorld* const W = GetWorld();
+	if (!W)
+	{
+		return;
+	}
+	const float Held = W->GetTimeSeconds() - ComboBranchPressTime;
+	if (Held < HeavyChargeThreshold)
+	{
+		return;
+	}
+	bComboHeavyFinisherPending = true;
+	ComboBranchPressTime = -1.f;
+	AdvanceCombo();
+}
+
 void UDFComboComponent::OnPrimaryAttackPressed()
 {
 	if (bComboWindowActive)
 	{
-		BufferComboInputAndTryAdvance();
+		bComboInputBuffered = true;
+		bComboHeavyFinisherPending = false;
+		if (UWorld* const W = GetWorld())
+		{
+			ComboBranchPressTime = W->GetTimeSeconds();
+		}
 		return;
 	}
 	if (bPlayingComboMontage)
@@ -197,10 +271,22 @@ void UDFComboComponent::OnPrimaryAttackPressed()
 	{
 		HeavyChargeStartTime = W->GetTimeSeconds();
 	}
+	StartChargeWindupMontage();
 }
 
 void UDFComboComponent::OnPrimaryAttackReleased()
 {
+	if (bComboWindowActive && bComboInputBuffered)
+	{
+		UWorld* const W = GetWorld();
+		const float Held = (W && ComboBranchPressTime >= 0.f)
+			? W->GetTimeSeconds() - ComboBranchPressTime
+			: 0.f;
+		ComboBranchPressTime = -1.f;
+		bComboHeavyFinisherPending = Held >= HeavyChargeThreshold;
+		AdvanceCombo();
+		return;
+	}
 	if (bComboWindowActive)
 	{
 		return;
@@ -213,10 +299,14 @@ void UDFComboComponent::OnPrimaryAttackReleased()
 	if (!W)
 	{
 		HeavyChargeStartTime = -1.f;
+		StopChargeWindupMontage();
 		return;
 	}
 	const float Held = W->GetTimeSeconds() - HeavyChargeStartTime;
 	HeavyChargeStartTime = -1.f;
+	const bool bHadChargeWindup = bPlayingChargeWindup;
+	StopChargeWindupMontage();
+	bPendingChargeReleaseMontage = bHadChargeWindup && HeavyChargeReleaseMontage != nullptr;
 
 	if (Held >= MaxHeavyChargeThreshold)
 	{
@@ -228,6 +318,7 @@ void UDFComboComponent::OnPrimaryAttackReleased()
 	}
 	else
 	{
+		bPendingChargeReleaseMontage = false;
 		OnAttackInput();
 	}
 }
@@ -363,6 +454,7 @@ void UDFComboComponent::NotifyHeavyAbilitySwingMontageStarted(UAnimMontage* Mont
 	{
 		return;
 	}
+	bPendingChargeReleaseMontage = false;
 	AActor* const Owner = GetOwner();
 	if (Owner && Owner->HasAuthority() && MeleeTrace)
 	{
@@ -402,6 +494,8 @@ void UDFComboComponent::NotifyAbilitySwingMontageStarted(UAnimMontage* Montage)
 	{
 		return;
 	}
+	bComboHeavyFinisherPending = false;
+	ComboBranchPressTime = -1.f;
 	if (!ShouldRoutePrimaryMeleeThroughGAS())
 	{
 		TryBindEndDelegateFor(Montage);
@@ -574,6 +668,10 @@ void UDFComboComponent::ResetCombo()
 	LockedComboActivationStep = -1;
 	PendingComboActivationStep = -1;
 	HeavyChargeStartTime = -1.f;
+	ComboBranchPressTime = -1.f;
+	bComboHeavyFinisherPending = false;
+	bPendingChargeReleaseMontage = false;
+	StopChargeWindupMontage();
 }
 
 UAnimMontage* UDFComboComponent::ResolveHeavyAttackMontage() const
@@ -604,11 +702,28 @@ UAnimMontage* UDFComboComponent::ResolveActiveHeavyMontage() const
 	{
 		return ResolveMaxHeavyAttackMontage();
 	}
+	if (bPendingChargeReleaseMontage && HeavyChargeReleaseMontage)
+	{
+		return HeavyChargeReleaseMontage;
+	}
 	return ResolveHeavyAttackMontage();
 }
 
 UAnimMontage* UDFComboComponent::ResolveDirectionalComboMontage(const int32 Step) const
 {
+	if (ComboSteps.IsValidIndex(Step))
+	{
+		const FDFComboStep& StepData = ComboSteps[Step];
+		if (bComboHeavyFinisherPending && StepData.HeavyBranchMontage)
+		{
+			return StepData.HeavyBranchMontage;
+		}
+		if (StepData.LightMontage)
+		{
+			return StepData.LightMontage;
+		}
+	}
+
 	const AActor* const Owner = GetOwner();
 	if (!Owner)
 	{

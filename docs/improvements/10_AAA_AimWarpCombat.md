@@ -279,11 +279,11 @@ HeavyAttackMontage (set por refresh) → ComboMontages[0] (fallback final)
 |---|---|---|
 | **Tiered heavy** (3 tiers: tap, heavy hold, max hold) | ✅ | `UDFComboComponent::MaxHeavyChargeThreshold` (default 1.4s) — ver §5.3 |
 | **Directional attacks** (forward / back / side) | ✅ | `BackwardComboMontages`, `SideComboMontages` — ver §5.4 |
-| Combo branches (light → heavy finisher) | ❌ | Adicionar struct `FDFComboStep` com `LightMontage`, `HeavyBranchMontage` |
-| Charge windup montage | ❌ | Tocar `ChargeWindupMontage` em loop durante hold; `ChargeReleaseMontage` no release |
-| Weapon-type tags (`Weapon.Sword.1H`, `Weapon.Axe`) | ❌ | Adicionar `FGameplayTagContainer WeaponTags` a `FDFItemTableRow` |
+| Combo branches (light → heavy finisher) | ✅ | `FDFComboStep` + hold durante combo window (`HeavyChargeThreshold`) |
+| Charge windup montage | ✅ | `ChargeWindupMontage` em loop no hold; `HeavyChargeReleaseMontage` no release heavy |
+| Weapon-type tags (`Weapon.Sword.1H`, `Weapon.Axe`) | ✅ | `FDFItemTableRow::WeaponTags` → loose tags no ASC ao equipar |
 | Stamina cost por tier | ✅ | Heavy=15, MaxHeavy=30; combo light continua sem stamina cost |
-| Hit reaction por weapon kind | ❌ | `UGE_Damage_Physical` poderia incluir tag `Damage.Source.Blunt/Slash/Pierce` |
+| Hit reaction por weapon kind | ✅ | `Damage.Source.*` no spec + mapas em `UDFHitReactionComponent` |
 
 ### 5.3 Tiered heavy — como configurar
 
