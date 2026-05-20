@@ -14,6 +14,36 @@ class UDFHitReactionComponent;
 class UGameplayEffect;
 class USkeletalMeshComponent;
 class UAnimMontage;
+class USoundBase;
+class UNiagaraSystem;
+
+/** Per-swing attack/impact cosmetics (usually set from UDFAbility_Warrior_MeleeSwing). */
+USTRUCT(BlueprintType)
+struct DUNGEONFORGED_API FDFMeleeTraceCosmetics
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee|FX")
+	TObjectPtr<USoundBase> SwingSound = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee|FX")
+	TObjectPtr<UNiagaraSystem> SwingVFX = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee|FX")
+	FName SwingFXSocketName = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee|FX")
+	FVector SwingVFXScale = FVector(1.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee|FX")
+	TObjectPtr<USoundBase> ImpactSound = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee|FX")
+	TObjectPtr<UNiagaraSystem> ImpactVFX = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee|FX")
+	FVector ImpactVFXScale = FVector(1.f);
+};
 
 UCLASS(ClassGroup = (Combat), meta = (BlueprintSpawnableComponent))
 class DUNGEONFORGED_API UDFMeleeTraceComponent : public UActorComponent
@@ -183,6 +213,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Trace|Heavy")
 	void ConfigureHeavySwing(float DamageMultiplier, float KnockbackMultiplier, float TraceRadiusBonus);
 
+	/** Default cosmetics on the component; overridden per swing via SetSwingCosmetics. */
+	UPROPERTY(EditAnywhere, Category = "Combat|FX")
+	FDFMeleeTraceCosmetics DefaultCosmetics;
+
+	/** Called from melee GA on activate (server). Merged over DefaultCosmetics for the next trace window. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|FX")
+	void SetSwingCosmetics(const FDFMeleeTraceCosmetics& Cosmetics);
+
 	UFUNCTION(BlueprintCallable, Category = "Combat|Trace|Heavy")
 	void ClearHeavySwing();
 
@@ -235,4 +273,9 @@ protected:
 
 	bool bHeavySwingActive = false;
 	float HeavySwingTraceRadius = 0.f;
+
+	FDFMeleeTraceCosmetics ActiveCosmetics;
+
+	void PlaySwingCosmetics() const;
+	void PlayImpactCosmeticsAt(const FVector& HitLocation, const FVector& HitNormal) const;
 };

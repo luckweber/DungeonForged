@@ -12,7 +12,9 @@ enum class EChannel : uint8
 	Heavy = 1 << 1,
 	Warp  = 1 << 2,
 	Aim   = 1 << 3,
-	All   = Combo | Heavy | Warp | Aim,
+	Trail = 1 << 4,
+	EnemyMelee = 1 << 5,
+	All   = Combo | Heavy | Warp | Aim | Trail | EnemyMelee,
 };
 
 /** Returns mask from df.DebugCombat (0 = off). */

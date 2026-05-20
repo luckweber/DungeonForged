@@ -2,6 +2,7 @@
 
 #include "GAS/Abilities/UDFAbility_Enemy_Melee.h"
 #include "Characters/ADFEnemyBase.h"
+#include "Combat/AN/AN_SendGameplayEvent.h"
 #include "Combat/UDFCombatDirectorSubsystem.h"
 #include "Combat/UDFHitReactionComponent.h"
 #include "Combat/UDFMeleeAimComponent.h"
@@ -16,11 +17,38 @@
 #include "GAS/UDFAttributeSet.h"
 #include "GameplayEffectTypes.h"
 #include "Animation/AnimMontage.h"
+#include "Combat/DFCombatDebug.h"
+#include "DrawDebugHelpers.h"
+#include "DungeonForgedModule.h"
+#include "Engine/Engine.h"
 #include "Engine/OverlapResult.h"
 #include "Engine/World.h"
 #include "NiagaraSystem.h"
 #include "Sound/SoundBase.h"
 #include "WorldCollision.h"
+
+#if !UE_BUILD_SHIPPING
+static TAutoConsoleVariable<int32> CVarDF_DebugEnemyMelee(
+	TEXT("df.DebugEnemyMelee"),
+	0,
+	TEXT("DungeonForged: debug UDFAbility_Enemy_Melee hit volume.\n")
+	TEXT(" 0: Off (also enable df.DebugCombat 32)\n")
+	TEXT(" 1: Log + on-screen\n")
+	TEXT(" 2: Log + draw hit sphere + lines to targets"),
+	ECVF_Cheat);
+
+static bool IsEnemyMeleeDebugLogEnabled()
+{
+	return CVarDF_DebugEnemyMelee.GetValueOnGameThread() > 0
+		|| DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::EnemyMelee);
+}
+
+static bool IsEnemyMeleeDebugDrawEnabled()
+{
+	return CVarDF_DebugEnemyMelee.GetValueOnGameThread() >= 2
+		|| DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::EnemyMelee);
+}
+#endif
 
 namespace
 {
@@ -37,6 +65,86 @@ bool IsDFEnemyMeleeTargetAlive(UAbilitySystemComponent* const TargetASC)
 	const FGameplayAttribute HealthAttribute = UDFAttributeSet::GetHealthAttribute();
 	return !HealthAttribute.IsValid() || TargetASC->GetNumericAttribute(HealthAttribute) > 0.f;
 }
+
+/** Reads UAN_SendGameplayEvent time on the montage asset (same idea as MeleeTrace ScheduleAuthorityTraceWindows). */
+bool FindSendGameplayEventNotifyTime(UAnimMontage* const Montage, const FGameplayTag EventTag, float& OutSec)
+{
+	OutSec = -1.f;
+	if (!Montage || !EventTag.IsValid())
+	{
+		return false;
+	}
+	for (const FAnimNotifyEvent& Ev : Montage->Notifies)
+	{
+		if (!Ev.Notify)
+		{
+			continue;
+		}
+		const UAN_SendGameplayEvent* const SendNotify = Cast<UAN_SendGameplayEvent>(Ev.Notify);
+		if (!SendNotify || SendNotify->EventTag != EventTag)
+		{
+			continue;
+		}
+		const float T = Ev.GetTriggerTime();
+		if (OutSec < 0.f || T < OutSec)
+		{
+			OutSec = T;
+		}
+	}
+	return OutSec >= 0.f;
+}
+
+#if !UE_BUILD_SHIPPING
+static void EnemyMeleeDebugLog(const ACharacter* Char, const FString& Line, const FColor Color = FColor::Orange)
+{
+	DF_LOG(Log, "%s", *Line);
+	if (GEngine && IsEnemyMeleeDebugLogEnabled())
+	{
+		DF_SCREEN(Color, 2.f, "%s", *Line);
+	}
+	(void)Char;
+}
+
+static void DrawEnemyMeleeHitVolume(
+	UWorld* const World,
+	const ACharacter* Char,
+	const FVector& Center,
+	const float Radius,
+	const TArray<AActor*>& HitTargets,
+	const bool bAnyDamage)
+{
+	if (!World || !IsEnemyMeleeDebugDrawEnabled())
+	{
+		return;
+	}
+	const float Duration = 2.f;
+	const FColor VolColor = bAnyDamage ? FColor::Orange : FColor(255, 128, 0, 128);
+	DrawDebugSphere(World, Center, Radius, 16, VolColor, false, Duration, 0, 1.5f);
+	if (Char)
+	{
+		const FVector Origin = Char->GetActorLocation();
+		DrawDebugLine(World, Origin, Center, FColor::Yellow, false, Duration, 0, 1.f);
+		DrawDebugString(
+			World,
+			Center + FVector(0.f, 0.f, Radius + 12.f),
+			FString::Printf(TEXT("EnemyMelee R=%.0f"), Radius),
+			nullptr,
+			FColor::Orange,
+			Duration,
+			true,
+			1.f);
+	}
+	for (AActor* const Target : HitTargets)
+	{
+		if (!Target)
+		{
+			continue;
+		}
+		DrawDebugLine(World, Center, Target->GetActorLocation(), FColor::Green, false, Duration, 0, 2.f);
+		DrawDebugSphere(World, Target->GetActorLocation(), 24.f, 8, FColor::Green, false, Duration, 0, 1.5f);
+	}
+}
+#endif
 } // namespace
 
 UDFAbility_Enemy_Melee::UDFAbility_Enemy_Melee()
@@ -56,6 +164,10 @@ void UDFAbility_Enemy_Melee::PostInitProperties()
 		AbilityTags.AddTag(FDFGameplayTags::Ability_Attack_Melee);
 		BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Dead);
 		ActivationOwnedTags.AddTag(FDFGameplayTags::State_Attacking);
+		if (FDFGameplayTags::Event_Ability_Melee_Hit.IsValid())
+		{
+			HitGameplayEventTag = FDFGameplayTags::Event_Ability_Melee_Hit;
+		}
 	}
 }
 
@@ -100,10 +212,39 @@ void UDFAbility_Enemy_Melee::ActivateAbility(
 	ActiveParallelTasks = 0;
 	bHitWindowDone = false;
 	bMontageFinishHandled = false;
-	const bool bUseGameplayEventHit = HitGameplayEventTag.IsValid() && AbilityMontage;
 
-	// 1) Hit window: prefer montage GameplayEvent for exact frame timing; otherwise use the legacy delay.
-	if (bUseGameplayEventHit)
+	const FGameplayTag ResolvedHitTag = HitGameplayEventTag.IsValid()
+		? HitGameplayEventTag
+		: FDFGameplayTags::Event_Ability_Melee_Hit;
+
+	float MontageHitSec = -1.f;
+	const bool bScheduledFromMontage = AbilityMontage && FindSendGameplayEventNotifyTime(AbilityMontage, ResolvedHitTag, MontageHitSec);
+	const bool bUseGameplayEventHit = !bScheduledFromMontage && HitGameplayEventTag.IsValid() && AbilityMontage;
+
+	// 1) Hit window: montage notify time (authoritative) > runtime GameplayEvent > legacy fixed delay.
+	if (bScheduledFromMontage)
+	{
+#if !UE_BUILD_SHIPPING
+		DF_LOG(Log, "[EnemyMelee] Hit scheduled from montage %s at %.3fs (tag=%s)",
+			*AbilityMontage->GetName(), MontageHitSec, *ResolvedHitTag.ToString());
+#endif
+		if (MontageHitSec <= 0.001f)
+		{
+			ExecuteHitWindow();
+		}
+		else if (UAbilityTask_WaitDelay* const D = UAbilityTask_WaitDelay::WaitDelay(this, MontageHitSec))
+		{
+			++ActiveParallelTasks;
+			D->OnFinish.AddDynamic(this, &UDFAbility_Enemy_Melee::OnHitWindowElapsed);
+			D->ReadyForActivation();
+		}
+		else
+		{
+			EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+			return;
+		}
+	}
+	else if (bUseGameplayEventHit)
 	{
 		if (UAbilityTask_WaitGameplayEvent* const HitEventTask =
 				UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(this, HitGameplayEventTag, nullptr, true, true))
@@ -119,10 +260,18 @@ void UDFAbility_Enemy_Melee::ActivateAbility(
 	}
 	else if (HitWindowDelay <= 0.001f)
 	{
+#if !UE_BUILD_SHIPPING
+		DF_LOG(Warning, "[EnemyMelee] No DF Send Gameplay Event on montage for %s — instant hit. Add notify or tune HitWindowDelay.",
+			AbilityMontage ? *AbilityMontage->GetName() : TEXT("(no montage)"));
+#endif
 		ExecuteHitWindow();
 	}
 	else if (UAbilityTask_WaitDelay* const D = UAbilityTask_WaitDelay::WaitDelay(this, HitWindowDelay))
 	{
+#if !UE_BUILD_SHIPPING
+		DF_LOG(Log, "[EnemyMelee] Hit via HitWindowDelay=%.3fs (add UAN_SendGameplayEvent %s on montage for sync)",
+			HitWindowDelay, *ResolvedHitTag.ToString());
+#endif
 		++ActiveParallelTasks;
 		D->OnFinish.AddDynamic(this, &UDFAbility_Enemy_Melee::OnHitWindowElapsed);
 		D->ReadyForActivation();
@@ -284,49 +433,84 @@ void UDFAbility_Enemy_Melee::ApplyDamageToOverlappingTargets()
 	Q.AddIgnoredActor(Char);
 	FCollisionShape const Sphere = FCollisionShape::MakeSphere(MeleeRadius);
 	TArray<FOverlapResult> Overlaps;
-	if (!GetWorld()->OverlapMultiByObjectType(Overlaps, Center, FQuat::Identity, Obj, Sphere, Q))
-	{
-		return;
-	}
+	const bool bOverlapped = GetWorld()->OverlapMultiByObjectType(Overlaps, Center, FQuat::Identity, Obj, Sphere, Q);
+
+	TArray<AActor*> DamagedTargets;
 	TSet<AActor*> Seen;
-	for (const FOverlapResult& H : Overlaps)
+	if (bOverlapped)
 	{
-		AActor* const A = H.GetActor();
-		if (!A || Seen.Contains(A) || A == Char)
+		for (const FOverlapResult& H : Overlaps)
 		{
-			continue;
-		}
-		Seen.Add(A);
-		// Do not hit other AI enemies; adjust if you want friendly damage.
-		if (Cast<ADFEnemyBase>(A) && A != Char)
-		{
-			continue;
-		}
-		UAbilitySystemComponent* const TASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(A);
-		if (!IsDFEnemyMeleeTargetAlive(TASC))
-		{
-			continue;
-		}
-		FGameplayEffectContextHandle Ctx = SourceASC->MakeEffectContext();
-		Ctx.AddSourceObject(this);
-		Ctx.AddInstigator(Char, Char);
-		const FGameplayEffectSpecHandle S = SourceASC->MakeOutgoingSpec(UGE_Damage_Physical::StaticClass(), 1.f, Ctx);
-		if (S.IsValid() && S.Data && FDFGameplayTags::Data_Damage.IsValid())
-		{
-			S.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Damage, Dmg);
-			SourceASC->ApplyGameplayEffectSpecToTarget(*S.Data.Get(), TASC);
-			ApplyBonusOnHitEffects(SourceASC, TASC, Ctx);
-			if (UDFHitReactionComponent* const Hit = A->FindComponentByClass<UDFHitReactionComponent>())
+			AActor* const A = H.GetActor();
+			if (!A || Seen.Contains(A) || A == Char)
 			{
-				FVector HitDir = A->GetActorLocation() - Char->GetActorLocation();
-				HitDir.Z = 0.f;
-				HitDir.Normalize();
-				const FVector HitLocation = A->GetActorLocation();
-				Hit->OnHitReceived(Dmg, 0.f, HitDir, Char, HitLocation, -HitDir.GetSafeNormal());
+				continue;
 			}
-			PlayImpactCosmetics(Char, A->GetActorLocation(), Char->GetActorLocation() - A->GetActorLocation());
+			Seen.Add(A);
+			// Do not hit other AI enemies; adjust if you want friendly damage.
+			if (Cast<ADFEnemyBase>(A) && A != Char)
+			{
+				continue;
+			}
+			UAbilitySystemComponent* const TASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(A);
+			if (!IsDFEnemyMeleeTargetAlive(TASC))
+			{
+				continue;
+			}
+			FGameplayEffectContextHandle Ctx = SourceASC->MakeEffectContext();
+			Ctx.AddSourceObject(this);
+			Ctx.AddInstigator(Char, Char);
+			const FGameplayEffectSpecHandle S = SourceASC->MakeOutgoingSpec(UGE_Damage_Physical::StaticClass(), 1.f, Ctx);
+			if (S.IsValid() && S.Data && FDFGameplayTags::Data_Damage.IsValid())
+			{
+				S.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Damage, Dmg);
+				SourceASC->ApplyGameplayEffectSpecToTarget(*S.Data.Get(), TASC);
+				ApplyBonusOnHitEffects(SourceASC, TASC, Ctx);
+				if (UDFHitReactionComponent* const Hit = A->FindComponentByClass<UDFHitReactionComponent>())
+				{
+					FVector HitDir = A->GetActorLocation() - Char->GetActorLocation();
+					HitDir.Z = 0.f;
+					HitDir.Normalize();
+					const FVector HitLocation = A->GetActorLocation();
+					Hit->OnHitReceived(Dmg, 0.f, HitDir, Char, HitLocation, -HitDir.GetSafeNormal());
+				}
+				PlayImpactCosmetics(Char, A->GetActorLocation(), Char->GetActorLocation() - A->GetActorLocation());
+				DamagedTargets.Add(A);
+			}
 		}
 	}
+
+#if !UE_BUILD_SHIPPING
+	if (IsEnemyMeleeDebugLogEnabled())
+	{
+		FString TargetList = TEXT("(none)");
+		if (DamagedTargets.Num() > 0)
+		{
+			TargetList = DamagedTargets[0]->GetName();
+			for (int32 Idx = 1; Idx < DamagedTargets.Num(); ++Idx)
+			{
+				TargetList += TEXT(", ") + DamagedTargets[Idx]->GetName();
+			}
+		}
+		EnemyMeleeDebugLog(
+			Char,
+			FString::Printf(
+				TEXT("[EnemyMelee|Hit] %s dmg=%.1f center=%s R=%.0f off=%.0f overlaps=%d hit=%d targets=%s"),
+				*Char->GetName(),
+				Dmg,
+				*Center.ToCompactString(),
+				MeleeRadius,
+				MeleeForwardOffset,
+				Overlaps.Num(),
+				DamagedTargets.Num(),
+				*TargetList),
+			DamagedTargets.Num() > 0 ? FColor::Green : FColor::Orange);
+	}
+	if (IsEnemyMeleeDebugDrawEnabled() || bDrawDebugHitVolume)
+	{
+		DrawEnemyMeleeHitVolume(GetWorld(), Char, Center, MeleeRadius, DamagedTargets, DamagedTargets.Num() > 0);
+	}
+#endif
 }
 
 void UDFAbility_Enemy_Melee::ApplyBonusOnHitEffects(

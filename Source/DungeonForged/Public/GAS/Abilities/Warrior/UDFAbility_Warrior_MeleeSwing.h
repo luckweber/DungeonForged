@@ -7,6 +7,8 @@
 #include "UDFAbility_Warrior_MeleeSwing.generated.h"
 
 struct FGameplayAbilityActorInfo;
+class USoundBase;
+class UNiagaraSystem;
 
 /** GAS melee basic: selects montage from combo by CurrentComboStep, otherwise AbilityMontage. */
 UCLASS()
@@ -34,4 +36,29 @@ protected:
 
 	UPROPERTY(Transient)
 	bool bPlayedMontageDirect = false;
+
+	/** Plays at trace start (AN_TraceStart), aligned with enemy AttackSound/VFX. */
+	UPROPERTY(EditDefaultsOnly, Category = "Ability|DF|Warrior|FX")
+	TObjectPtr<USoundBase> SwingSound = nullptr;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Ability|DF|Warrior|FX")
+	TObjectPtr<UNiagaraSystem> SwingVFX = nullptr;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Ability|DF|Warrior|FX")
+	FName SwingFXSocketName = FName(TEXT("weapon_end"));
+
+	UPROPERTY(EditDefaultsOnly, Category = "Ability|DF|Warrior|FX")
+	FVector SwingVFXScale = FVector(1.f);
+
+	/** Plays at each damaged target (in addition to victim HitReaction VFX). */
+	UPROPERTY(EditDefaultsOnly, Category = "Ability|DF|Warrior|FX")
+	TObjectPtr<USoundBase> ImpactSound = nullptr;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Ability|DF|Warrior|FX")
+	TObjectPtr<UNiagaraSystem> ImpactVFX = nullptr;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Ability|DF|Warrior|FX")
+	FVector ImpactVFXScale = FVector(1.f);
+
+	void PushSwingCosmeticsToMeleeTrace(class ADFPlayerCharacter* Player) const;
 };

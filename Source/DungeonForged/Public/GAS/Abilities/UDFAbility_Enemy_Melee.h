@@ -50,7 +50,7 @@ class DUNGEONFORGED_API UDFAbility_Enemy_Melee : public UDFGameplayAbility
 public:
 	UDFAbility_Enemy_Melee();
 
-	/** After activation, time until `UGE_Damage_Physical` is applied (align with a swing notify). */
+	/** Fallback when the montage has no `UAN_SendGameplayEvent` at HitGameplayEventTag. Prefer anim notify sync. */
 	UPROPERTY(EditDefaultsOnly, Category = "Ability|DF|Enemy", meta = (ClampMin = "0.0"))
 	float HitWindowDelay = 0.2f;
 
@@ -66,13 +66,18 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Ability|DF|Enemy", meta = (ClampMin = "0.0"))
 	float MeleeForwardOffset = 50.f;
 
-	/** Overlap radius for the hit check (cm). */
+	/** Overlap radius for the hit check (cm). Draw with df.DebugEnemyMelee 2. */
 	UPROPERTY(EditDefaultsOnly, Category = "Ability|DF|Enemy", meta = (ClampMin = "1.0"))
 	float MeleeRadius = 100.f;
 
+	/** When true (and df.DebugEnemyMelee), draws hit sphere even if df.DebugEnemyMelee CVar is 0. */
+	UPROPERTY(EditDefaultsOnly, Category = "Ability|DF|Enemy|Debug")
+	bool bDrawDebugHitVolume = false;
+
 	/**
-	 * If set, the hit frame is driven by an AnimNotify that sends this GameplayEvent.
-	 * If unset, the legacy HitWindowDelay timer drives the hit frame.
+	 * Hit frame tag. Montage should place `DF Send Gameplay Event` (UAN_SendGameplayEvent) at the impact frame.
+	 * Default: Event.Ability.Melee.Hit. Ability schedules damage at that notify time (same idea as player AN_TraceStart).
+	 * If the montage has no notify, falls back to HitWindowDelay.
 	 */
 	UPROPERTY(EditDefaultsOnly, Category = "Ability|DF|Enemy|Timing", meta = (Categories = "Event"))
 	FGameplayTag HitGameplayEventTag;

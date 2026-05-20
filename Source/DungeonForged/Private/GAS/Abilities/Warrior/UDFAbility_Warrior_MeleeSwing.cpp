@@ -105,6 +105,7 @@ void UDFAbility_Warrior_MeleeSwing::ActivateAbility(const FGameplayAbilitySpecHa
 	UAnimMontage* MontToPlay = nullptr;
 	if (ADFPlayerCharacter* PC = Cast<ADFPlayerCharacter>(Avatar))
 	{
+		PushSwingCosmeticsToMeleeTrace(PC);
 		Combo = PC->Combo;
 		// AAA aim: snap-rotate to face the resolved target (lock-on > soft cone) and commit it so
 		// UANS_DFMeleeWarp notify states warp to the same actor for the duration of the swing.
@@ -227,4 +228,41 @@ void UDFAbility_Warrior_MeleeSwing::OnMontageEnd()
 		}
 	}
 	EndAbility(GetCurrentAbilitySpecHandle(), GetCurrentActorInfo(), GetCurrentActivationInfo(), true, false);
+}
+
+void UDFAbility_Warrior_MeleeSwing::PushSwingCosmeticsToMeleeTrace(ADFPlayerCharacter* const Player) const
+{
+	if (!Player || !Player->MeleeTrace)
+	{
+		return;
+	}
+	if (!Player->HasAuthority())
+	{
+		return;
+	}
+
+	FDFMeleeTraceCosmetics Cosmetics = Player->MeleeTrace->DefaultCosmetics;
+	if (SwingSound)
+	{
+		Cosmetics.SwingSound = SwingSound;
+	}
+	if (SwingVFX)
+	{
+		Cosmetics.SwingVFX = SwingVFX;
+	}
+	if (!SwingFXSocketName.IsNone())
+	{
+		Cosmetics.SwingFXSocketName = SwingFXSocketName;
+	}
+	Cosmetics.SwingVFXScale = SwingVFXScale;
+	if (ImpactSound)
+	{
+		Cosmetics.ImpactSound = ImpactSound;
+	}
+	if (ImpactVFX)
+	{
+		Cosmetics.ImpactVFX = ImpactVFX;
+	}
+	Cosmetics.ImpactVFXScale = ImpactVFXScale;
+	Player->MeleeTrace->SetSwingCosmetics(Cosmetics);
 }

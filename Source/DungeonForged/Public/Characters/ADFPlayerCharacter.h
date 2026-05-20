@@ -25,6 +25,8 @@ class UDFHitReactionComponent;
 class UDFInteractionComponent;
 class UDFMeleeTraceComponent;
 class UDFMeleeAimComponent;
+class USoundBase;
+class UNiagaraSystem;
 class UMotionWarpingComponent;
 class UInputAction;
 class UInputMappingContext;
@@ -223,6 +225,17 @@ public:
 	 */
 	UFUNCTION(Client, Unreliable)
 	void Client_HitFeedback(EDFHitFeedbackBand Band, float DamagePercent, AActor* InstigatorActor);
+
+	/** Server-triggered swing/impact FX for melee (same pattern as ADFEnemyBase::Multicast_PlayEnemyCosmeticCue). */
+	UFUNCTION(NetMulticast, Unreliable, Category = "DF|Combat|FX")
+	void Multicast_PlayMeleeCosmeticCue(
+		USoundBase* Sound,
+		UNiagaraSystem* VFX,
+		FName AttachSocketName,
+		FVector_NetQuantize Location,
+		FRotator Rotation,
+		FVector_NetQuantize100 Scale,
+		bool bAttachToMesh);
 
 	UFUNCTION(NetMulticast, Unreliable)
 	void Multicast_PlayHitReactionMontage(UAnimMontage* Montage, float PlayRate = 1.f);

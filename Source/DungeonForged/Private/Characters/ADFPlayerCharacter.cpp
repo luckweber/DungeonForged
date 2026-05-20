@@ -43,6 +43,11 @@
 #include "Equipment/UDFEquipmentComponent.h"
 #include "FX/UDFHitStopSubsystem.h"
 #include "FX/UDFScreenEffectsComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "NiagaraComponent.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
+#include "Sound/SoundBase.h"
 #include "UI/Minimap/UDFMinimapFogComponent.h"
 #include "Debug/UDFDebugComponent.h"
 #include "Data/DFDataTableStructs.h"
@@ -1155,6 +1160,79 @@ void ADFPlayerCharacter::Client_HitFeedback_Implementation(
 		OnDamageTakenForUI.Broadcast(SourceLoc, FMath::Clamp(DamagePercent, 0.05f, 1.f));
 	}
 	UDFCombatStateLibrary::NotifyCombatActivity(this, this);
+}
+
+void ADFPlayerCharacter::Multicast_PlayMeleeCosmeticCue_Implementation(
+	USoundBase* const Sound,
+	UNiagaraSystem* const VFX,
+	const FName AttachSocketName,
+	const FVector_NetQuantize Location,
+	const FRotator Rotation,
+	const FVector_NetQuantize100 Scale,
+	const bool bAttachToMesh)
+{
+	if (IsRunningDedicatedServer() || (!Sound && !VFX))
+	{
+		return;
+	}
+
+	const FVector CueScale(FMath::Max(Scale.X, 0.01f), FMath::Max(Scale.Y, 0.01f), FMath::Max(Scale.Z, 0.01f));
+	USkeletalMeshComponent* AttachMesh = GetMesh();
+	if (bAttachToMesh && Mesh_Weapon && !AttachSocketName.IsNone() && Mesh_Weapon->DoesSocketExist(AttachSocketName))
+	{
+		AttachMesh = Mesh_Weapon;
+	}
+	if (bAttachToMesh && AttachMesh)
+	{
+		if (Sound)
+		{
+			UGameplayStatics::SpawnSoundAttached(
+				Sound,
+				AttachMesh,
+				AttachSocketName,
+				FVector::ZeroVector,
+				FRotator::ZeroRotator,
+				EAttachLocation::SnapToTarget,
+				true);
+		}
+		if (VFX)
+		{
+			UNiagaraComponent* const Spawned = UNiagaraFunctionLibrary::SpawnSystemAttached(
+				VFX,
+				AttachMesh,
+				AttachSocketName,
+				FVector::ZeroVector,
+				FRotator::ZeroRotator,
+				EAttachLocation::SnapToTarget,
+				true,
+				true,
+				ENCPoolMethod::AutoRelease,
+				true);
+			if (Spawned)
+			{
+				Spawned->SetWorldScale3D(CueScale);
+			}
+		}
+		return;
+	}
+
+	if (Sound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, Sound, Location, Rotation);
+	}
+	if (VFX)
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+			this,
+			VFX,
+			Location,
+			Rotation,
+			CueScale,
+			true,
+			true,
+			ENCPoolMethod::AutoRelease,
+			true);
+	}
 }
 
 void ADFPlayerCharacter::Multicast_PlayHitReactionMontage_Implementation(UAnimMontage* Montage, const float PlayRate)

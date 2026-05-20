@@ -844,11 +844,72 @@ void UDFMeleeTraceComponent::DumpMeleeTraceDiagnostics() const
 #endif
 }
 
+void UDFMeleeTraceComponent::SetSwingCosmetics(const FDFMeleeTraceCosmetics& Cosmetics)
+{
+	ActiveCosmetics = Cosmetics;
+}
+
+void UDFMeleeTraceComponent::PlaySwingCosmetics() const
+{
+	AActor* const Owner = GetOwner();
+	if (!Owner || !Owner->HasAuthority())
+	{
+		return;
+	}
+	const FDFMeleeTraceCosmetics& Fx = ActiveCosmetics;
+	if (!Fx.SwingSound && !Fx.SwingVFX)
+	{
+		return;
+	}
+	if (ADFPlayerCharacter* const Player = Cast<ADFPlayerCharacter>(Owner))
+	{
+		Player->Multicast_PlayMeleeCosmeticCue(
+			Fx.SwingSound,
+			Fx.SwingVFX,
+			Fx.SwingFXSocketName,
+			Owner->GetActorLocation(),
+			Owner->GetActorRotation(),
+			Fx.SwingVFXScale,
+			true);
+	}
+}
+
+void UDFMeleeTraceComponent::PlayImpactCosmeticsAt(const FVector& HitLocation, const FVector& HitNormal) const
+{
+	AActor* const Owner = GetOwner();
+	if (!Owner || !Owner->HasAuthority())
+	{
+		return;
+	}
+	const FDFMeleeTraceCosmetics& Fx = ActiveCosmetics;
+	if (!Fx.ImpactSound && !Fx.ImpactVFX)
+	{
+		return;
+	}
+	if (ADFPlayerCharacter* const Player = Cast<ADFPlayerCharacter>(Owner))
+	{
+		const FRotator ImpactRotation = HitNormal.IsNearlyZero() ? FRotator::ZeroRotator : HitNormal.GetSafeNormal().Rotation();
+		Player->Multicast_PlayMeleeCosmeticCue(
+			Fx.ImpactSound,
+			Fx.ImpactVFX,
+			NAME_None,
+			HitLocation,
+			ImpactRotation,
+			Fx.ImpactVFXScale,
+			false);
+	}
+}
+
 void UDFMeleeTraceComponent::StartTrace()
 {
 	if (bTracing)
 	{
 		return;
+	}
+	if (ActiveCosmetics.SwingSound == nullptr && ActiveCosmetics.SwingVFX == nullptr
+		&& ActiveCosmetics.ImpactSound == nullptr && ActiveCosmetics.ImpactVFX == nullptr)
+	{
+		ActiveCosmetics = DefaultCosmetics;
 	}
 	HitActorsThisSwing.Empty();
 	bTracing = true;
@@ -885,6 +946,7 @@ void UDFMeleeTraceComponent::StartTrace()
 		}
 	}
 #endif
+	PlaySwingCosmetics();
 }
 
 void UDFMeleeTraceComponent::ClearScheduledTraceWindows()
@@ -1371,19 +1433,29 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 	}
 #endif
 
+	FVector ImpactPoint = FVector::ZeroVector;
+	FVector ImpactNormal = FVector::UpVector;
+	if (OptionalHit && OptionalHit->bBlockingHit)
+	{
+		ImpactPoint = OptionalHit->ImpactPoint;
+		ImpactNormal = OptionalHit->ImpactNormal;
+	}
 	if (UDFHitReactionComponent* Hit = Target->FindComponentByClass<UDFHitReactionComponent>())
 	{
 		FVector ToTarget = Target->GetActorLocation() - Owner->GetActorLocation();
 		ToTarget.Z = 0.f;
 		ToTarget.Normalize();
-		const FVector P = (OptionalHit && OptionalHit->bBlockingHit) ? OptionalHit->ImpactPoint : FVector::ZeroVector;
-		const FVector N = (OptionalHit && OptionalHit->bBlockingHit) ? OptionalHit->ImpactNormal : FVector::UpVector;
-		Hit->OnHitReceived(DmgMagnitude, KbMagnitude, ToTarget, Owner, P, N);
+		Hit->OnHitReceived(DmgMagnitude, KbMagnitude, ToTarget, Owner, ImpactPoint, ImpactNormal);
 	}
 
 	const bool bAppliedDamage = Applied.IsValid() || bInstantGE;
 	if (bAppliedDamage && DmgMagnitude > KINDA_SMALL_NUMBER)
 	{
+		const FVector ImpactLoc = !ImpactPoint.IsNearlyZero()
+			? ImpactPoint
+			: Target->GetActorLocation();
+		const FVector ImpactDir = Owner->GetActorLocation() - Target->GetActorLocation();
+		PlayImpactCosmeticsAt(ImpactLoc, ImpactDir);
 		UDFCombatStateLibrary::NotifyCombatActivity(Owner, Owner);
 	}
 	if (bAppliedDamage && DmgMagnitude > KINDA_SMALL_NUMBER && Owner->HasAuthority())

@@ -13,7 +13,9 @@ static TAutoConsoleVariable<int32> CVarDF_DebugCombat(
 	TEXT(" 2: Heavy charge + montage\n")
 	TEXT(" 4: Motion warp targets (also enable bDrawDebug on ANS_DFMeleeWarp)\n")
 	TEXT(" 8: Melee aim cone\n")
-	TEXT(" 15: All"),
+	TEXT(" 16: Weapon trail VFX (SpawnTrailVFX notify)\n")
+	TEXT(" 32: Enemy melee hit sphere (UDFAbility_Enemy_Melee)\n")
+	TEXT(" 63: All"),
 	ECVF_Cheat);
 
 int32 DFCombatDebug::GetDebugCombatMask()

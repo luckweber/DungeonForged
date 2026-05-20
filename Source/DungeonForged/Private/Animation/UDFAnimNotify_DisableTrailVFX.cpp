@@ -2,6 +2,7 @@
 #include "Animation/UDFAnimNotify_DisableTrailVFX.h"
 #include "Animation/AnimSequenceBase.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "NiagaraComponent.h"
 
@@ -14,6 +15,15 @@ void UUDFAnimNotify_DisableTrailVFX::Notify(USkeletalMeshComponent* MeshComp, UA
 	{
 		return;
 	}
+	const UWorld* const World = MeshComp->GetWorld();
+	if (!World || !World->IsGameWorld())
+	{
+		return;
+	}
+	if (ComponentTag.IsNone())
+	{
+		return;
+	}
 	AActor* const Owner = MeshComp->GetOwner();
 	if (!Owner)
 	{
@@ -23,7 +33,7 @@ void UUDFAnimNotify_DisableTrailVFX::Notify(USkeletalMeshComponent* MeshComp, UA
 	Owner->GetComponents<UNiagaraComponent>(Ns, true);
 	for (UNiagaraComponent* N : Ns)
 	{
-		if (N && (ComponentTag.IsNone() || N->ComponentHasTag(ComponentTag)))
+		if (N && N->ComponentHasTag(ComponentTag))
 		{
 			N->Deactivate();
 		}
