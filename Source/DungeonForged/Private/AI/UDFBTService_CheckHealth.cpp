@@ -38,8 +38,16 @@ void UDFBTService_CheckHealth::TickNode(
 		BB->SetValueAsBool(DFAIKeys::bIsDead, true);
 		return;
 	}
-	if (Mx > KINDA_SMALL_NUMBER && (Hp / Mx) < FleeHealthFraction)
+	const float Ratio = Hp / Mx;
+	const uint8 StateRaw = BB->GetValueAsEnum(DFAIKeys::CombatState);
+	const EADFAICombatState CurrentState = static_cast<EADFAICombatState>(StateRaw);
+
+	if (Ratio < FleeHealthFraction && CurrentState != EADFAICombatState::Flee)
 	{
 		BB->SetValueAsEnum(DFAIKeys::CombatState, static_cast<uint8>(EADFAICombatState::Flee));
+	}
+	else if (Ratio > FleeReturnHealthFraction && CurrentState == EADFAICombatState::Flee)
+	{
+		BB->SetValueAsEnum(DFAIKeys::CombatState, static_cast<uint8>(EADFAICombatState::Chase));
 	}
 }

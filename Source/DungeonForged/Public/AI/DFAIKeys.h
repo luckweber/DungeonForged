@@ -18,6 +18,8 @@ namespace DFAIKeys
 	inline const FName bIsDead = TEXT("bIsDead");
 	inline const FName PatrolIndex = TEXT("PatrolIndex");
 	inline const FName CombatState = TEXT("CombatState");
+	inline const FName bWasParried = TEXT("bWasParried");
+	inline const FName bCanTelegraph = TEXT("bCanTelegraph");
 }
 
 UENUM(BlueprintType)
@@ -27,7 +29,8 @@ enum class EADFAICombatState : uint8
 	Patrol UMETA(DisplayName = "Patrol"),
 	Chase  UMETA(DisplayName = "Chase"),
 	Attack UMETA(DisplayName = "Attack"),
-	Flee   UMETA(DisplayName = "Flee")
+	Flee   UMETA(DisplayName = "Flee"),
+	Recover UMETA(DisplayName = "Recover")
 };
 
 /**

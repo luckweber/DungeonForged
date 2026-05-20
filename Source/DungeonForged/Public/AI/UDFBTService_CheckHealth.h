@@ -17,4 +17,8 @@ public:
 
 	UPROPERTY(EditAnywhere, Category = "DF|GAS", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float FleeHealthFraction = 0.2f;
+
+	/** Hysteresis: return to Chase when HP rises above this while Fleeing. */
+	UPROPERTY(EditAnywhere, Category = "DF|GAS", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FleeReturnHealthFraction = 0.6f;
 };

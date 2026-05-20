@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/Combat/UDFCombatStateLibrary.cpp
 #include "Combat/UDFCombatStateLibrary.h"
+#include "Audio/UDFMusicManagerSubsystem.h"
 #include "ADFDungeonManager.h"
 #include "Characters/ADFEnemyBase.h"
 #include "Data/DFDataTableStructs.h"
@@ -53,8 +54,21 @@ FOnDFRoomCleared& UDFCombatStateLibrary::GetOnRoomClearedDelegate()
 
 void UDFCombatStateLibrary::NotifyRoomCleared(UObject* const WorldContextObject, const bool bFloorCleared)
 {
-	(void)WorldContextObject;
-	(void)bFloorCleared;
+	UWorld* World = Cast<UWorld>(WorldContextObject);
+	if (!World && WorldContextObject)
+	{
+		World = WorldContextObject->GetWorld();
+	}
+	if (World)
+	{
+		if (!bFloorCleared)
+		{
+			if (UDFMusicManagerSubsystem* const Music = World->GetSubsystem<UDFMusicManagerSubsystem>())
+			{
+				Music->OnRoomCombatCleared();
+			}
+		}
+	}
 	GOnDFRoomCleared.Broadcast();
 }
 

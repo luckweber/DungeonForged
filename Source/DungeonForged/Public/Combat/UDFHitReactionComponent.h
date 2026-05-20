@@ -77,6 +77,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction", meta = (ClampMin = "0.0"))
 	float StaggerThreshold = 30.f;
 
+	/** Heavy hit damage that retargets AI aggro to the attacker (co-op tanking). */
+	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|AI", meta = (ClampMin = "0.0"))
+	float AggroSwitchDamageThreshold = 40.f;
+
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction", meta = (ClampMin = "0.0"))
 	float KnockbackThreshold = 60.f;
 

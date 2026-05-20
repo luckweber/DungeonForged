@@ -7,6 +7,8 @@
 #include "Animation/AnimMontage.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
+#include "Characters/ADFEnemyBase.h"
+#include "Combat/UDFCombatDirectorSubsystem.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "GameFramework/Character.h"
@@ -258,6 +260,30 @@ void UDFStaggerComponent::TriggerStagger(const float Overshoot)
 				}
 			}
 		}
+	}
+
+	if (UWorld* const W = GetWorld())
+	{
+		if (UDFCombatDirectorSubsystem* const Dir = W->GetSubsystem<UDFCombatDirectorSubsystem>())
+		{
+			if (ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(Owner))
+			{
+				Dir->ReleaseAttackToken(Enemy);
+			}
+		}
+	}
+	if (ASC)
+	{
+		FGameplayTagContainer WithoutDeath;
+		if (FDFGameplayTags::Ability_Death.IsValid())
+		{
+			WithoutDeath.AddTag(FDFGameplayTags::Ability_Death);
+		}
+		if (FDFGameplayTags::Ability_Death_Enemy.IsValid())
+		{
+			WithoutDeath.AddTag(FDFGameplayTags::Ability_Death_Enemy);
+		}
+		ASC->CancelAbilities(nullptr, WithoutDeath.Num() > 0 ? &WithoutDeath : nullptr);
 	}
 
 #if !UE_BUILD_SHIPPING

@@ -53,6 +53,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|Audio|Music")
 	void OnBossDefeated();
 
+	/** Last enemy in room died — crossfade back to exploration (Patch 4). */
+	UFUNCTION(BlueprintCallable, Category = "DF|Audio|Music")
+	void OnRoomCombatCleared();
+
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Audio|Music")
 	EMusicState CurrentState = EMusicState::Exploration;
 

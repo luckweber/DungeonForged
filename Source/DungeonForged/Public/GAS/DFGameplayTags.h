@@ -166,6 +166,8 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag State_Combat_FinisherReady;
 	/** Parry window is open on a vulnerable attacker — strike now to trigger parry/stagger. */
 	static FGameplayTag State_Combat_ParryWindow_Open;
+	/** Boss telegraphed cast — CC can cancel montage/ability (Shield Bash, stun). */
+	static FGameplayTag State_Combat_Casting_Interruptible;
 	/** Stun / most CC: UTargetTagRequirementsGameplayEffectComponent should ignore targets with this tag. */
 	static FGameplayTag State_CCIgnore;
 	static FGameplayTag State_BossEnraged;
@@ -208,6 +210,8 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Event_Combat_ParryWindow_Close;
 	/** Player struck an enemy during its parry window — bonus damage + stagger. */
 	static FGameplayTag Event_Combat_Parry_Triggered;
+	/** Boss cast was interrupted by player CC during interruptible window. */
+	static FGameplayTag Event_Combat_Boss_Interrupted;
 	/** Accumulated damage in the stagger window exceeded Poise — break/stagger reaction. */
 	static FGameplayTag Event_Combat_Stagger_Triggered;
 	static FGameplayTag Event_Combat_HitConfirm;

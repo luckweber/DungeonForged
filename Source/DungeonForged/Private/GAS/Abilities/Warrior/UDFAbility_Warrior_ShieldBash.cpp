@@ -15,6 +15,7 @@
 #include "GAS/DFGameplayTags.h"
 #include "GAS/Effects/UGE_Buff_Shield.h"
 #include "GAS/Effects/UGE_Damage_Physical.h"
+#include "Combat/UDFCombatInterruptLibrary.h"
 #include "GAS/Effects/UGE_Debuff_Stun.h"
 #include "GAS/UDFAttributeSet.h"
 #include "GameplayEffect.h"
@@ -142,6 +143,8 @@ void UDFAbility_Warrior_ShieldBash::DoShieldBashBoxTrace() const
 		{
 			continue;
 		}
+		(void)UDFCombatInterruptLibrary::TryInterruptBossCast(
+			GetWorld(), A, Char, UGE_Debuff_Stun::StaticClass(), 2.f);
 		UAbilitySystemComponent* TASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(A);
 		if (!TASC)
 		{

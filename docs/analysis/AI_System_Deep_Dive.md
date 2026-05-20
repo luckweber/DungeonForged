@@ -20,6 +20,21 @@ Hoje a AI: ✅ vê, ✅ persegue, ✅ ataca, ✅ tem priority no director, ✅ u
 
 **Fix de impacto máximo: liberar token na stagger + ramificar BT por archetype + listen-on-parry.** ~12-20h para virar combate de "1v1 × N" para "1vN coreografado".
 
+### Status de implementação (2026-05-18)
+
+| Patch | Descrição | C++ | Editor |
+|-------|-----------|-----|--------|
+| 1 | Release token on stagger | ✅ `UDFStaggerComponent` | — |
+| 2 | Parry → Recover | ✅ `UDFBTService_CombatEventListener` | ⚠️ BB + branch BT |
+| 3 | Aggro switch heavy hit | ✅ `UDFHitReactionComponent` | — |
+| 4 | Music room clear | ✅ `NotifyRoomCleared` → `OnRoomCombatCleared` | — |
+| 5 | Telegraph cap | ✅ Awareness + Coordinator + Melee gate | ⚠️ Service no BT |
+| 6 | Subtrees por archetype | ✅ `UDFBTDecorator_IsArchetype` | ⚠️ `BT_Sub_*` assets |
+| 7 | Flee return | ✅ `UDFBTService_CheckHealth` | — |
+| 8 | Boss interrupt | ✅ `UANS_DFInterruptibleCast` + Shield Bash | ⚠️ Notify no montage boss |
+
+Setup editor: [`docs/improvements/12_AIBlueprintSetup.md`](../improvements/12_AIBlueprintSetup.md)
+
 ---
 
 ## 1. Visão arquitetural — as 3 camadas
@@ -492,7 +507,7 @@ public:
 
 Ordem otimizada por **impacto × menor esforço × menor risco**.
 
-### 🔥 Patch 1 — Release token on stagger (Tier S #1) — 15 min
+### 🔥 Patch 1 — Release token on stagger (Tier S #1) — 15 min ✅ C++
 
 **Onde:** [`UDFStaggerComponent::TriggerStagger`](../../Source/DungeonForged/Private/Combat/UDFStaggerComponent.cpp)
 
@@ -522,7 +537,7 @@ void UDFStaggerComponent::TriggerStagger(...)
 
 ---
 
-### 🔥 Patch 2 — AI listens to parry trigger (Tier S #2) — 1h
+### 🔥 Patch 2 — AI listens to parry trigger (Tier S #2) — 1h ✅ C++ · ⚠️ BT
 
 **Passo 2a:** Criar novo BT service `UDFBTService_CombatEventListener`:
 
@@ -565,7 +580,7 @@ Selector
 
 ---
 
-### 🔥 Patch 3 — Aggro switch on heavy hit (Tier S #3) — 30 min
+### 🔥 Patch 3 — Aggro switch on heavy hit (Tier S #3) — 30 min ✅ C++
 
 **Onde:** [`UDFHitReactionComponent::OnHitReceived`](../../Source/DungeonForged/Private/Combat/UDFHitReactionComponent.cpp)
 
@@ -598,7 +613,7 @@ void UDFHitReactionComponent::OnHitReceived(
 
 ---
 
-### 🟠 Patch 4 — Music downgrade on room clear (Tier A #5) — 30 min
+### 🟠 Patch 4 — Music downgrade on room clear (Tier A #5) — 30 min ✅ C++
 
 **Onde:** [`ADFEnemyBase::HandleServerDeath`](../../Source/DungeonForged/Private/Characters/ADFEnemyBase.cpp)
 
@@ -633,7 +648,7 @@ void ADFEnemyBase::HandleServerDeath(AActor* Killer)
 
 ---
 
-### 🟠 Patch 5 — Telegraph coordination (Tier A #4) — 2h
+### 🟠 Patch 5 — Telegraph coordination (Tier A #4) — 2h ✅ C++ · ⚠️ BT
 
 **Adicionar BT service `UDFBTService_TelegraphCoordinator`:**
 
@@ -668,7 +683,7 @@ if (UDFAIAwarenessSubsystem* AS = GetWorld()->GetSubsystem<UDFAIAwarenessSubsyst
 
 ---
 
-### 🟡 Patch 6 — Archetype-specific BT subtrees (Tier A #6) — 8-12h
+### 🟡 Patch 6 — Archetype-specific BT subtrees (Tier A #6) — 8-12h ✅ decorator · ⚠️ subtrees
 
 **Estratégia:** manter o BT principal, mas adicionar **subtrees externos** por archetype, chamados via `BTTask_RunBehaviorTree` (UE 5.4 native).
 
@@ -707,7 +722,7 @@ virtual bool CalculateRawConditionValue(...) const override
 
 ---
 
-### 🟡 Patch 7 — Flee return logic (Tier A #7) — 1h
+### 🟡 Patch 7 — Flee return logic (Tier A #7) — 1h ✅ C++
 
 **Onde:** [`UDFBTService_CheckHealth`](../../Source/DungeonForged/Private/AI/UDFBTService_CheckHealth.cpp)
 
@@ -786,18 +801,7 @@ void ActivateAbility(...)
 
 ### 7.2 Telemetria
 
-Adicionar `LogDFAI`:
-
-```cpp
-DECLARE_LOG_CATEGORY_EXTERN(LogDFAI, Log, All);
-
-// Em pontos quentes:
-UE_LOG(LogDFAI, Verbose, TEXT("[AI] %s State=%s Target=%s Tokens=%d/%d"),
-       *GetNameSafe(Enemy), *StateName, *GetNameSafe(Target),
-       Director->ActiveTokens, Director->MaxAttackTokens);
-```
-
-Playtest gravado com `-log LogDFAI Verbose -log LogDFEnemyDeath Verbose` produz timeline auditável de decisões da AI.
+`LogDFAI` implementado em `DungeonForgedModule.h` / `.cpp`. Playtest: `-log LogDFAI Verbose`.
 
 ### 7.3 Edge cases
 
@@ -867,6 +871,12 @@ DungeonForged tem **fundação de AI sólida** (controller, perception, BT, GAS 
 | [`AI/UDFBTDecorator_HasGASTag.h`](../../Source/DungeonForged/Public/AI/UDFBTDecorator_HasGASTag.h) | Gate por GAS tag |
 | [`AI/UDFBTDecorator_IsInRange.h`](../../Source/DungeonForged/Public/AI/UDFBTDecorator_IsInRange.h) | Gate por distância |
 | [`AI/UDFBTTask_*.h`](../../Source/DungeonForged/Public/AI/) | Die, FindPatrol, Flee, Melee, Ranged, Taunt |
+| [`AI/UDFAIAwarenessSubsystem.h`](../../Source/DungeonForged/Public/AI/UDFAIAwarenessSubsystem.h) | Telegraph counting |
+| [`AI/UDFBTService_CombatEventListener.h`](../../Source/DungeonForged/Public/AI/UDFBTService_CombatEventListener.h) | Parry → BB Recover |
+| [`AI/UDFBTService_TelegraphCoordinator.h`](../../Source/DungeonForged/Public/AI/UDFBTService_TelegraphCoordinator.h) | Cap concurrent telegraphs |
+| [`AI/UDFBTDecorator_IsArchetype.h`](../../Source/DungeonForged/Public/AI/UDFBTDecorator_IsArchetype.h) | Subtree dispatch |
+| [`Combat/UDFCombatInterruptLibrary.h`](../../Source/DungeonForged/Public/Combat/UDFCombatInterruptLibrary.h) | Boss cast interrupt |
+| [`Combat/AN/ANS_DFInterruptibleCast.h`](../../Source/DungeonForged/Public/Combat/AN/ANS_DFInterruptibleCast.h) | Interruptible window notify |
 
 ### Integration
 

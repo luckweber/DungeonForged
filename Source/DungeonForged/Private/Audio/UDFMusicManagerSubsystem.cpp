@@ -120,6 +120,18 @@ void UDFMusicManagerSubsystem::OnCombatClearedToExploration()
 	SetMusicState(EMusicState::Exploration);
 }
 
+void UDFMusicManagerSubsystem::OnRoomCombatCleared()
+{
+	if (!ShouldRunMusic() || !GetWorld())
+	{
+		return;
+	}
+	GetWorld()->GetTimerManager().ClearTimer(CombatExploreTimer);
+	SetMusicState(EMusicState::Exploration);
+	SetLayerTargetVolumes(1.f, 0.f, 0.f);
+	StartVolumeLerp();
+}
+
 void UDFMusicManagerSubsystem::OnBossEncounterStarted()
 {
 	SetMusicState(EMusicState::Boss);

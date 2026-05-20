@@ -1,8 +1,12 @@
 // Source/DungeonForged/Private/Combat/UDFHitReactionComponent.cpp
 #include "Combat/UDFHitReactionComponent.h"
 #include "Animation/UDFAnimInstance_Enemy.h"
+#include "AI/DFAIKeys.h"
+#include "AIController.h"
+#include "BehaviorTree/BlackboardComponent.h"
 #include "Characters/ADFEnemyBase.h"
 #include "Characters/ADFPlayerCharacter.h"
+#include "DungeonForgedModule.h"
 #include "Engine/Engine.h"
 #include "FX/UDFCombatFeedbackTypes.h"
 #include "GAS/DFGameplayTags.h"
@@ -77,6 +81,23 @@ void UDFHitReactionComponent::OnHitReceived(
 	if (StaggerStunGameplayEffect && (!bIsKnockback) && (DamageAmount >= StaggerThreshold))
 	{
 		TryApplyStaggerStun(Instigator);
+	}
+
+	if (Instigator && DamageAmount >= AggroSwitchDamageThreshold)
+	{
+		if (APawn* const VictimPawn = Cast<APawn>(GetOwner()))
+		{
+			if (AAIController* const AIC = Cast<AAIController>(VictimPawn->GetController()))
+			{
+				if (UBlackboardComponent* const BB = AIC->GetBlackboardComponent())
+				{
+					BB->SetValueAsObject(DFAIKeys::TargetActor, Instigator);
+					BB->SetValueAsBool(DFAIKeys::bCanSeeTarget, true);
+					UE_LOG(LogDFAI, Verbose, TEXT("[AI] %s aggro -> %s (%.0f dmg)"),
+						*GetNameSafe(GetOwner()), *GetNameSafe(Instigator), DamageAmount);
+				}
+			}
+		}
 	}
 
 	if (ADFPlayerCharacter* const Victim = Cast<ADFPlayerCharacter>(GetOwner()))

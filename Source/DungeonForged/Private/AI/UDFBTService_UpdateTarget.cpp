@@ -102,5 +102,6 @@ void UDFBTService_UpdateTarget::TickNode(
 	BB->SetValueAsBool(DFAIKeys::bCanSeeTarget, bLineOk);
 	const float R = FMath::Max(0.f, Self->AttackRange);
 	BB->SetValueAsBool(DFAIKeys::bIsInAttackRange, BestD <= R);
+	BB->SetValueAsBool(DFAIKeys::bCanTelegraph, true);
 	(void)BestD;
 }

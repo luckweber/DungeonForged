@@ -83,6 +83,10 @@ EBTNodeResult::Type UDFBTTask_MeleeAttack::ExecuteTask(
 	}
 	if (UBlackboardComponent* const BB = OwnerComp.GetBlackboardComponent())
 	{
+		if (!BB->GetValueAsBool(DFAIKeys::bCanTelegraph))
+		{
+			return EBTNodeResult::Failed;
+		}
 		AActor* const Target = Cast<AActor>(BB->GetValueAsObject(DFAIKeys::TargetActor));
 		if (!IsDFMeleeTargetAlive(Target))
 		{

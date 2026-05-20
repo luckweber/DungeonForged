@@ -4,6 +4,7 @@
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "Animation/AnimSequenceBase.h"
+#include "AI/UDFAIAwarenessSubsystem.h"
 #include "Combat/UDFMeleeAimComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
@@ -120,6 +121,11 @@ void UANS_DFEnemyTelegraph::NotifyBegin(USkeletalMeshComponent* const MeshComp,
 		UGameplayStatics::PlaySoundAtLocation(World, WindupSound, Owner->GetActorLocation());
 	}
 
+	if (UDFAIAwarenessSubsystem* const Awareness = World->GetSubsystem<UDFAIAwarenessSubsystem>())
+	{
+		Awareness->OnTelegraphBegin(Owner);
+	}
+
 	if (UAbilitySystemComponent* const ASC = GetOwnerASC(MeshComp))
 	{
 		if (bAddStateTag && FDFGameplayTags::State_Combat_Telegraph_Active.IsValid())
@@ -193,6 +199,17 @@ void UANS_DFEnemyTelegraph::NotifyEnd(USkeletalMeshComponent* const MeshComp,
 		}
 		WeaponFXByMesh.Remove(MeshComp);
 	}
+	if (AActor* const Owner = MeshComp->GetOwner())
+	{
+		if (UWorld* const EndWorld = MeshComp->GetWorld())
+		{
+			if (UDFAIAwarenessSubsystem* const Awareness = EndWorld->GetSubsystem<UDFAIAwarenessSubsystem>())
+			{
+				Awareness->OnTelegraphEnd(Owner);
+			}
+		}
+	}
+
 	if (UAbilitySystemComponent* const ASC = GetOwnerASC(MeshComp))
 	{
 		if (bAddStateTag && FDFGameplayTags::State_Combat_Telegraph_Active.IsValid())
