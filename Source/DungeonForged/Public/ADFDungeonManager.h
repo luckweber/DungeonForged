@@ -93,7 +93,7 @@ public:
 	void SpawnEnemies(const FDFDungeonFloorRow& FloorData);
 
 	UFUNCTION(BlueprintCallable, Category = "DF|Dungeon")
-	void OnEnemyKilled(AActor* Enemy);
+	void OnEnemyKilled(AActor* Enemy, AActor* Killer = nullptr);
 
 	/**
 	 * Last enemy down: open exit, loot, broadcast the OnFloorCleared delegate.

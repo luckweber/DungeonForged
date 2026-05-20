@@ -10,6 +10,7 @@
 DEFINE_LOG_CATEGORY(LogDungeonForged);
 DEFINE_LOG_CATEGORY(LogDFTuning);
 DEFINE_LOG_CATEGORY(LogDFFeel);
+DEFINE_LOG_CATEGORY(LogDFDeath);
 
 void DFPrepareWidgetForUIModeFocus(UUserWidget* const Widget)
 {

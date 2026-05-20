@@ -42,6 +42,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|Audio|Music")
 	void SetMusicState(EMusicState NewState);
 
+	/** One-shot death sting (player death cinematic). */
+	UFUNCTION(BlueprintCallable, Category = "DF|Audio|Music")
+	void PlayDeathSting() const;
+
 	/** Boss encounter started (call from boss BP or encounter manager). */
 	UFUNCTION(BlueprintCallable, Category = "DF|Audio|Music")
 	void OnBossEncounterStarted();
@@ -96,7 +100,6 @@ protected:
 		USoundBase* NewSound,
 		bool bShouldBePlaying) const;
 	bool ShouldRunMusic() const;
-	void PlayDeathSting() const;
 	void PlayVictorySting() const;
 
 	TWeakObjectPtr<ADFMusicLayerHost> Host;

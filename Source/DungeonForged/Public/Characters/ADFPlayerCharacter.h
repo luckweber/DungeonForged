@@ -110,6 +110,19 @@ public:
 	/** Called from @c UUDFAbility_Player_Death at activation. */
 	void BeginDeathPresentationFromAbility();
 
+	/** Server → local client: slow-mo, desaturation, death sting (Patch 1). */
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_PlayPlayerDeathCinematic();
+
+	UFUNCTION(BlueprintCallable, Category = "DF|Death")
+	void SetLastLethalDamageContext(AActor* DamageInstigator, AActor* DamageCauser, const FGameplayTagContainer& DamageTags);
+
+	UFUNCTION(BlueprintCallable, Category = "DF|Death")
+	FString GetLastLethalCauseString() const;
+
+	UFUNCTION(BlueprintPure, Category = "DF|Death")
+	UDFScreenEffectsComponent* GetScreenEffects() const { return ScreenEffects; }
+
 	/** Called from @c UUDFAbility_Player_Death / Multicast when montage ends. */
 	void FinalizeDeathPresentation();
 
@@ -232,7 +245,7 @@ public:
 
 	/** Local combat spectacle (last kill / room clear). */
 	UFUNCTION(Client, Unreliable)
-	void Client_PlayCombatSpectacle(bool bRoomClear);
+	void Client_PlayCombatSpectacle(bool bRoomClear, AActor* LastVictim = nullptr, AActor* Killer = nullptr);
 
 	/** Server rejected a predicted ability activation — stop local montage (G7/N3). */
 	UFUNCTION(Client, Unreliable)
@@ -384,6 +397,15 @@ private:
 	bool bHasWeaponLSocket = false;
 	bool bPlayerDeathHandled = false;
 	bool bDeathPresentationFinalized = false;
+
+	UPROPERTY(Transient)
+	TObjectPtr<AActor> LastLethalInstigator = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<AActor> LastLethalCauser = nullptr;
+
+	UPROPERTY(Transient)
+	FGameplayTagContainer LastLethalTags;
 	FActiveGameplayEffectHandle StaminaRegenEffectHandle;
 
 	FGameplayAbilitySpecHandle DeathAbilitySpecHandle;

@@ -1,5 +1,9 @@
 // Source/DungeonForged/Private/Combat/UDFCombatStateLibrary.cpp
 #include "Combat/UDFCombatStateLibrary.h"
+#include "ADFDungeonManager.h"
+#include "Characters/ADFEnemyBase.h"
+#include "Data/DFDataTableStructs.h"
+#include "Engine/GameInstance.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "Characters/ADFPlayerCharacter.h"
@@ -52,6 +56,33 @@ void UDFCombatStateLibrary::NotifyRoomCleared(UObject* const WorldContextObject,
 	(void)WorldContextObject;
 	(void)bFloorCleared;
 	GOnDFRoomCleared.Broadcast();
+}
+
+bool UDFCombatStateLibrary::IsLastEnemyInRoom(UObject* const WorldContextObject, AActor* const DyingEnemy)
+{
+	(void)WorldContextObject;
+	if (!IsValid(DyingEnemy))
+	{
+		return false;
+	}
+	if (const ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(DyingEnemy))
+	{
+		if (Enemy->GetEnemyTier() == EEnemyTier::Boss)
+		{
+			return false;
+		}
+	}
+	if (UWorld* const World = DyingEnemy->GetWorld())
+	{
+		if (UGameInstance* const GI = World->GetGameInstance())
+		{
+			if (UDFDungeonManager* const DM = GI->GetSubsystem<UDFDungeonManager>())
+			{
+				return DM->EnemiesRemaining <= 1 && DM->SpawnedEnemies.Contains(DyingEnemy);
+			}
+		}
+	}
+	return false;
 }
 
 float UDFCombatStateLibrary::GetCombatExitDelay(const UObject* WorldContextObject)

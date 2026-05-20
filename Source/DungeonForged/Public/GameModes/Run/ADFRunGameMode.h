@@ -88,6 +88,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Run")
 	void TriggerBetweenFloorSequence();
 
+	/** Clears defeat timers and travels to Nexus immediately (Patch 7). */
+	UFUNCTION(BlueprintCallable, Category = "Run|Defeat")
+	void SkipDefeatToNexus();
+
 protected:
 	UFUNCTION()
 	void HandleDungeonRunCompleted();
@@ -103,6 +107,8 @@ protected:
 	void TriggerDefeat(const FString& DefeatCause = TEXT("Your health reached zero."));
 	void ScheduleFinishVictoryToNexus();
 	void ScheduleFinishDefeatToNexus();
+
+	FString ResolveDefeatCauseForBoundPlayer() const;
 	void UnbindPawnOutOfHealth(APlayerController* PC);
 	void TryBindPawnOutOfHealth(APlayerController* PC);
 	void UnbindAllDungeonDelegates();

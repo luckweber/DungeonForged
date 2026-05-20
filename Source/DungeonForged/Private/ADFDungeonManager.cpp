@@ -606,9 +606,9 @@ void UDFDungeonManager::SnapEnemySpawnToWorld(
 		EnemySpawnVerticalOffsetCm);
 }
 
-void UDFDungeonManager::HandleEnemyDied(AActor* Enemy, AActor* /*Killer*/, float /*ExperienceReward*/)
+void UDFDungeonManager::HandleEnemyDied(AActor* const Enemy, AActor* const Killer, float /*ExperienceReward*/)
 {
-	OnEnemyKilled(Enemy);
+	OnEnemyKilled(Enemy, Killer);
 }
 
 void UDFDungeonManager::UnregisterEnemy(AActor* Enemy)
@@ -644,7 +644,7 @@ void UDFDungeonManager::ClearFloorActors()
 	EnemiesRemaining = 0;
 }
 
-void UDFDungeonManager::OnEnemyKilled(AActor* Enemy)
+void UDFDungeonManager::OnEnemyKilled(AActor* const Enemy, AActor* const Killer)
 {
 	if (!IsAuthorityWorld() || !Enemy)
 	{
@@ -655,9 +655,11 @@ void UDFDungeonManager::OnEnemyKilled(AActor* Enemy)
 		return;
 	}
 	OnRunEnemyKilled.Broadcast(Enemy);
+	const ADFEnemyBase* const EnemyBase = Cast<ADFEnemyBase>(Enemy);
+	const bool bIsBoss = EnemyBase && EnemyBase->GetEnemyTier() == EEnemyTier::Boss;
 	const bool bWasLastEnemy = (EnemiesRemaining <= 1);
 	UnregisterEnemy(Enemy);
-	if (bWasLastEnemy)
+	if (bWasLastEnemy && !bIsBoss)
 	{
 		UDFCombatStateLibrary::NotifyRoomCleared(GetWorld(), false);
 		if (UWorld* const W = GetWorld())
@@ -668,7 +670,7 @@ void UDFDungeonManager::OnEnemyKilled(AActor* Enemy)
 				{
 					if (ADFPlayerCharacter* const Ch = Cast<ADFPlayerCharacter>(PC->GetPawn()))
 					{
-						Ch->Client_PlayCombatSpectacle(false);
+						Ch->Client_PlayCombatSpectacle(false, Enemy, Killer);
 					}
 				}
 			}

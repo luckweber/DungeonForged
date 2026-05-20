@@ -2,6 +2,7 @@
 
 #include "GAS/UDFAttributeSet.h"
 #include "Characters/ADFEnemyBase.h"
+#include "Characters/ADFPlayerCharacter.h"
 #include "Engine/Engine.h"
 #include "GAS/DFGameplayTags.h"
 #include "UI/Combat/DFCombatTextTypes.h"
@@ -377,6 +378,19 @@ void UDFAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 			if (!FMath::IsNearlyEqual(Clamped, GetHealth()))
 			{
 				ASC2->SetNumericAttributeBase(GetHealthAttribute(), Clamped);
+			}
+		}
+		if (GetHealth() <= KINDA_SMALL_NUMBER && Data.EvaluatedData.Magnitude < 0.f)
+		{
+			if (UAbilitySystemComponent* const OwningASC = GetOwningAbilitySystemComponent())
+			{
+				if (ADFPlayerCharacter* const Player = Cast<ADFPlayerCharacter>(OwningASC->GetAvatarActor()))
+				{
+					Player->SetLastLethalDamageContext(
+						Data.EffectSpec.GetContext().GetInstigator(),
+						Data.EffectSpec.GetContext().GetEffectCauser(),
+						Data.EffectSpec.CapturedSourceTags.GetSpecTags());
+				}
 			}
 		}
 		HandleOutOfHealth();

@@ -15,7 +15,7 @@ class DUNGEONFORGED_API UDFCombatSpectacleSubsystem : public UWorldSubsystem
 
 public:
 	UFUNCTION(BlueprintCallable, Category = "DF|Combat|Spectacle")
-	void PlayLastKillSpectacle(AActor* KilledEnemy);
+	void PlayLastKillSpectacle(AActor* KilledEnemy, AActor* Killer = nullptr);
 
 	UFUNCTION(BlueprintCallable, Category = "DF|Combat|Spectacle")
 	void PlayRoomClearSpectacle();

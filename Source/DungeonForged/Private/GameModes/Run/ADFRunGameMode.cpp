@@ -8,6 +8,7 @@
 #include "World/UDFWorldTransitionSubsystem.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Characters/ADFPlayerState.h"
+#include "Combat/UDFDeathCinematicSubsystem.h"
 #include "Equipment/UDFEquipmentComponent.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Run/DFRunManager.h"
@@ -292,15 +293,50 @@ void ADFRunGameMode::HandlePlayerOutOfHealth()
 		{
 			RM->OnPlayerDied(false);
 		}
+		const FString DefeatCause = ResolveDefeatCauseForBoundPlayer();
 		W->GetTimerManager().SetTimer(
 			DefeatAfterDeathAnimTimer,
-			[this]()
+			[this, DefeatCause]()
 			{
-				TriggerDefeat(TEXT("Your health reached zero."));
+				TriggerDefeat(DefeatCause);
 			},
 			3.f,
 			false);
 	}
+}
+
+FString ADFRunGameMode::ResolveDefeatCauseForBoundPlayer() const
+{
+	if (UDFAttributeSet* const AS = BoundAttributeSet.Get())
+	{
+		if (UAbilitySystemComponent* const ASC = AS->GetOwningAbilitySystemComponent())
+		{
+			if (ADFPlayerCharacter* const Player = Cast<ADFPlayerCharacter>(ASC->GetAvatarActor()))
+			{
+				const FString Cause = Player->GetLastLethalCauseString();
+				if (!Cause.IsEmpty())
+				{
+					return Cause;
+				}
+			}
+		}
+	}
+	return TEXT("Your health reached zero.");
+}
+
+void ADFRunGameMode::SkipDefeatToNexus()
+{
+	bDefeatInProgress = true;
+	if (UWorld* const W = GetWorld())
+	{
+		W->GetTimerManager().ClearTimer(DefeatEndTimer);
+		W->GetTimerManager().ClearTimer(DefeatAfterDeathAnimTimer);
+		if (UDFDeathCinematicSubsystem* const DeathFx = W->GetSubsystem<UDFDeathCinematicSubsystem>())
+		{
+			DeathFx->ClearDeathTimeEffects();
+		}
+	}
+	ScheduleFinishDefeatToNexus();
 }
 
 void ADFRunGameMode::HandleRunEnemyKilled(AActor* const /*Enemy*/)

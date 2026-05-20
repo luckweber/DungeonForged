@@ -1543,6 +1543,7 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 		}
 		HitCtx.Band = UDFCombatFeedbackLibrary::ResolveFeedbackBand(
 			DmgMagnitude, MaxH, bCrit, KbMagnitude > 100.f);
+		HitCtx.bWasLethal = (Health - DmgMagnitude) <= KINDA_SMALL_NUMBER;
 		if (OptionalHit)
 		{
 			HitCtx.HitBoneName = OptionalHit->BoneName;

@@ -65,4 +65,8 @@ struct DUNGEONFORGED_API FDFHitConfirmedContext
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
 	FName HitBoneName = NAME_None;
+
+	/** True when this hit reduced the victim to zero HP (lethal blow band boost). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	bool bWasLethal = false;
 };

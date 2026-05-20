@@ -55,6 +55,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|FX|HitStop")
 	void BossSlam(AActor* ExcludeActor = nullptr) { TriggerHitStop(0.20f, 0.0f, ExcludeActor); }
 
+	/** Clears an active hit-stop window (e.g. when skipping defeat UI). */
+	UFUNCTION(BlueprintCallable, Category = "DF|FX|HitStop")
+	void ForceEndHitStop();
+
 protected:
 	/** If BossSlam requests 0.0 global dilation, use this so ticks and real-time end still work. */
 	static float SafeGlobalDilation(float Requested);

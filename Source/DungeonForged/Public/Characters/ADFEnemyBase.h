@@ -268,6 +268,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Enemy")
 	EDFEnemyArchetype GetEnemyArchetype() const { return CachedEnemyArchetype; }
 
+	UFUNCTION(BlueprintPure, Category = "DF|Enemy")
+	EEnemyTier GetEnemyTier() const { return CachedEnemyTier; }
+
 	/** Server: death GA running; anim/hits stay active until montage ends. */
 	UFUNCTION(BlueprintPure, Category = "DF|Enemy")
 	bool IsInDeathFlow() const { return bDeathFlowActive; }

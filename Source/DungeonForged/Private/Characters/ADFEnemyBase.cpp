@@ -1341,8 +1341,9 @@ void ADFEnemyBase::ExecuteEnemyDeathPresentationCue()
 		return;
 	}
 	FGameplayCueParameters CueParams;
-	CueParams.Instigator = this;
+	CueParams.Instigator = LastDamageAttacker.IsValid() ? LastDamageAttacker.Get() : nullptr;
 	CueParams.EffectCauser = this;
+	CueParams.Location = GetActorLocation();
 	AbilitySystemComponent->ExecuteGameplayCue(FDFGameplayTags::GameplayCue_Enemy_Death, CueParams);
 }
 

@@ -73,6 +73,10 @@ void UUDFAbility_Player_Death::OnDeathFlowStarted()
 	if (ADFPlayerCharacter* const Player = Cast<ADFPlayerCharacter>(GetAvatarActorFromActorInfo()))
 	{
 		Player->BeginDeathPresentationFromAbility();
+		if (Player->HasAuthority())
+		{
+			Player->Multicast_PlayPlayerDeathCinematic();
+		}
 	}
 }
 

@@ -61,4 +61,8 @@ public:
 	void HandleReturnNexus();
 	UFUNCTION()
 	void HandlePlayAgain();
+
+	/** Skip the 5s defeat timer and return to Nexus immediately. */
+	UFUNCTION(BlueprintCallable, Category = "Run|UI")
+	void RequestSkipToNexus();
 };

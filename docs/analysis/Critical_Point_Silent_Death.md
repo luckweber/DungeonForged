@@ -1,7 +1,8 @@
 # Ponto Crítico — A Morte Silenciosa
 
-> **Data:** 2026-05-20
+> **Data:** 2026-05-20 · **Status C++:** 2026-05-18 ✅ Patches 1–7 implementados
 > **Escopo:** auditoria cirúrgica do sistema de morte (player + inimigo) com identificação do **único ponto mais crítico** do jogo.
+> **Setup Blueprint/Editor:** [`11_SilentDeathBlueprintSetup.md`](../improvements/11_SilentDeathBlueprintSetup.md)
 > **Audiência:** o desenvolvedor solo (você). Doc denso, com referências `arquivo:linha` em cada afirmação.
 > **Premissa:** complementa [`Combat_Advanced_Report.md`](Combat_Advanced_Report.md) e [`Game_Analysis.md`](Game_Analysis.md).
 
@@ -9,7 +10,10 @@
 
 ## 0. TL;DR
 
-> **O ponto mais crítico do DungeonForged hoje:**
+> **Status (2026-05-18):** ✅ **Implementado em C++** — `UDFDeathCinematicSubsystem` + Patches 1–7.  
+> ⚠️ Falta assign de `DeathBurstNiagara` / `DeathImpactSound` no GCN e playtest.
+
+> **O ponto mais crítico do DungeonForged era:**
 > **Toda a infraestrutura cinematográfica de morte existe em C++ (`UDFScreenEffectsComponent::OnDeath`, `UDFHitStopSubsystem::BossSlam`, `UDFGameplayCueNotify_EnemyDeath`, post-process death MID, slow-mo de 3s a 0.2x). NADA disso é chamado pelo fluxo de morte.**
 >
 > Resultado: o momento mais cinematográfico do jogo — a morte do player ou do último inimigo de uma sala — é tratado como uma **transição silenciosa de UI**. Sem slow-mo, sem desaturação, sem stinger sonoro, sem "killer attribution", sem celebração de kill.
@@ -400,9 +404,21 @@ struct DUNGEONFORGED_API FDFDeathCinematicContext
 
 ## 6. Migration Plan — patch por patch
 
+> **✅ Todos os patches abaixo foram aplicados.** Ver [`11_SilentDeathBlueprintSetup.md`](../improvements/11_SilentDeathBlueprintSetup.md).
+
+| Patch | Descrição | Status |
+|-------|-----------|--------|
+| 1 | Player death cinematic wire | ✅ |
+| 2 | Killer attribution | ✅ |
+| 3 | GameplayCue VFX/SFX | ✅ C++ · ⚠️ assets GCN |
+| 4 | Last enemy celebration | ✅ |
+| 5 | Lethal blow band | ✅ |
+| 6 | Safe death pose lock | ✅ |
+| 7 | Skip defeat | ✅ |
+
 Sequenciado pelo **menor risco × maior impacto**. Cada patch é isolado e testável independentemente.
 
-### Patch 1 — Wire `ScreenEffects->OnDeath()` no fluxo do player (15 min)
+### Patch 1 — Wire `ScreenEffects->OnDeath()` no fluxo do player (15 min) ✅
 
 **Onde:** [`UUDFAbility_Player_Death::OnDeathFlowStarted()`](../../Source/DungeonForged/Private/GAS/Abilities/UDFAbility_Player_Death.cpp)
 
@@ -848,15 +864,15 @@ Findings das auditorias dos agentes que NÃO ficam no top mas merecem entrada no
 
 ## 11. Conclusão
 
-A Morte Silenciosa é **o** ponto crítico do DungeonForged hoje porque:
+A Morte Silenciosa **foi endereçada em C++** (Patches 1–7 + `UDFDeathCinematicSubsystem`):
 
-1. **A infraestrutura cinematográfica está completa em C++** — `ScreenEffects::OnDeath`, `HitStopSubsystem::BossSlam`, `MusicManager::StingDeath`, `GameplayCueNotify_EnemyDeath` — TUDO pronto.
-2. **Nada disso é chamado pelo fluxo de morte.** A descoberta foi: 6 funções existem prontas para a morte ser cinematic, e o player death ability não chama nenhuma.
-3. **Em ~6 horas de patches focados** o momento mais importante de cada run sai de "transição silenciosa de UI" para "Hades-tier ritual de morte."
-4. **Não bloqueia nem requer nenhum outro trabalho** — pode ser feito hoje, em paralelo com Tier S/A do relatório anterior.
-5. **Impacto retenção:** num roguelike, a morte do player é o último momento de cada run. É o que decide entre "vou tentar de novo agora" e "fecho o jogo". Hades é a prova de que death scene drive replay.
+1. ✅ Infraestrutura cinematográfica **wired** ao fluxo de morte do player
+2. ✅ GameplayCue de inimigo implementada (assets VFX/SFX no editor)
+3. ✅ Killer attribution no defeat screen
+4. ✅ Golpe letal e último inimigo com juice distinto
+5. ⚠️ **Validação:** playtest com checklist §8 + assign GCN assets
 
-> Se você fizer **um único conjunto de patches este mês**, faça este. O delta percebido será maior que qualquer outro fix individual — e o esforço é menor que praticamente todos eles.
+> Próximo passo: [`11_SilentDeathBlueprintSetup.md`](../improvements/11_SilentDeathBlueprintSetup.md)
 
 ---
 

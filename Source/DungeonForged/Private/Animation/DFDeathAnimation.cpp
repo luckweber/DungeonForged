@@ -5,6 +5,7 @@
 #include "Animation/AnimMontage.h"
 #include "Animation/Skeleton.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "NiagaraComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "HAL/IConsoleManager.h"
 
@@ -170,10 +171,21 @@ void LockDeathPoseOnMesh(USkeletalMeshComponent* const Mesh, UAnimMontage* const
 		}
 	}
 
-	// Freeze the whole mesh tick so the AnimGraph can't blend back to idle and root motion stops.
-	// More robust than bPauseAnims alone — also halts locomotion/state machine evaluation and any root motion extraction.
+	bool bHasAttachedFXChildren = false;
+	for (USceneComponent* const Child : Mesh->GetAttachChildren())
+	{
+		if (Child && Child->IsA<UNiagaraComponent>())
+		{
+			bHasAttachedFXChildren = true;
+			break;
+		}
+	}
+
 	Mesh->bPauseAnims = true;
-	Mesh->SetComponentTickEnabled(false);
+	if (!bHasAttachedFXChildren)
+	{
+		Mesh->SetComponentTickEnabled(false);
+	}
 }
 
 float GetDeathDestroyDelaySeconds(UAnimMontage* const Montage, const float MinSeconds, const float PaddingSeconds)

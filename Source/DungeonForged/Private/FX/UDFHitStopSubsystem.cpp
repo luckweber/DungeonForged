@@ -148,6 +148,11 @@ void UDFHitStopSubsystem::EndHitStop()
 	bInHitStop = false;
 }
 
+void UDFHitStopSubsystem::ForceEndHitStop()
+{
+	EndHitStop();
+}
+
 float UDFHitStopSubsystem::GetHitStopRemainingSeconds() const
 {
 	if (!bInHitStop)

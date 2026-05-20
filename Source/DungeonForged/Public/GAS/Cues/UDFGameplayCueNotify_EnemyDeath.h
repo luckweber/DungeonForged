@@ -14,5 +14,11 @@ class DUNGEONFORGED_API UDFGameplayCueNotify_EnemyDeath : public UGameplayCueNot
 public:
 	UDFGameplayCueNotify_EnemyDeath();
 
+	UPROPERTY(EditAnywhere, Category = "Death|Cue")
+	TObjectPtr<class UNiagaraSystem> DeathBurstNiagara = nullptr;
+
+	UPROPERTY(EditAnywhere, Category = "Death|Cue")
+	TObjectPtr<class USoundBase> DeathImpactSound = nullptr;
+
 	virtual bool OnExecute_Implementation(AActor* Target, const FGameplayCueParameters& Parameters) const override;
 };

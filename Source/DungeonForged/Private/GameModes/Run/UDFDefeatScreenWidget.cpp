@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/GameModes/Run/UDFDefeatScreenWidget.cpp
 #include "GameModes/Run/UDFDefeatScreenWidget.h"
+#include "GameModes/Run/ADFRunGameMode.h"
 #include "GameModes/Run/ADFRunPlayerController.h"
 #include "Audio/UDFMusicManagerSubsystem.h"
 #include "Engine/DataTable.h"
@@ -92,6 +93,20 @@ void UDFDefeatScreenWidget::SetDefeatData(
 
 void UDFDefeatScreenWidget::HandleReturnNexus()
 {
+	RequestSkipToNexus();
+}
+
+void UDFDefeatScreenWidget::RequestSkipToNexus()
+{
+	if (UWorld* const W = GetWorld())
+	{
+		if (ADFRunGameMode* const GM = W->GetAuthGameMode<ADFRunGameMode>())
+		{
+			GM->SkipDefeatToNexus();
+			RemoveFromParent();
+			return;
+		}
+	}
 	if (ADFRunPlayerController* const DPC = Cast<ADFRunPlayerController>(GetOwningPlayer()))
 	{
 		DPC->RequestReturnToNexus(ERunNexusTravelReason::Defeat);

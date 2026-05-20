@@ -1,4 +1,6 @@
 #include "Characters/ADFPlayerCharacter.h"
+#include "Combat/UDFDeathCinematicSubsystem.h"
+#include "Combat/UDFCombatSpectacleSubsystem.h"
 
 #include "Animation/DFDeathAnimation.h"
 #include "GAS/Abilities/UDFAbility_Player_Death.h"
@@ -698,6 +700,40 @@ void ADFPlayerCharacter::BeginDeathPresentationFromAbility()
 	}
 }
 
+void ADFPlayerCharacter::Multicast_PlayPlayerDeathCinematic_Implementation()
+{
+	if (IsRunningDedicatedServer())
+	{
+		return;
+	}
+	if (UWorld* const W = GetWorld())
+	{
+		if (UDFDeathCinematicSubsystem* const DeathFx = W->GetSubsystem<UDFDeathCinematicSubsystem>())
+		{
+			DeathFx->PlayPlayerDeathCinematic(this);
+		}
+	}
+}
+
+void ADFPlayerCharacter::SetLastLethalDamageContext(
+	AActor* const DamageInstigator,
+	AActor* const DamageCauser,
+	const FGameplayTagContainer& DamageTags)
+{
+	LastLethalInstigator = DamageInstigator;
+	LastLethalCauser = DamageCauser;
+	LastLethalTags = DamageTags;
+}
+
+FString ADFPlayerCharacter::GetLastLethalCauseString() const
+{
+	return UDFDeathCinematicSubsystem::ResolveLethalCauseString(
+		const_cast<ADFPlayerCharacter*>(this),
+		LastLethalInstigator,
+		LastLethalCauser,
+		LastLethalTags);
+}
+
 void ADFPlayerCharacter::HandlePlayerOutOfHealth()
 {
 	if (!HasAuthority() || bPlayerDeathHandled)
@@ -1234,7 +1270,10 @@ void ADFPlayerCharacter::Client_OnAttackHitConfirmed_Implementation(const FDFHit
 	UDFCombatFeedbackLibrary::DispatchAttackerHitFeel(this, Context);
 }
 
-void ADFPlayerCharacter::Client_PlayCombatSpectacle_Implementation(const bool bRoomClear)
+void ADFPlayerCharacter::Client_PlayCombatSpectacle_Implementation(
+	const bool bRoomClear,
+	AActor* const LastVictim,
+	AActor* const Killer)
 {
 	if (IsRunningDedicatedServer())
 	{
@@ -1242,6 +1281,21 @@ void ADFPlayerCharacter::Client_PlayCombatSpectacle_Implementation(const bool bR
 	}
 	if (UWorld* const W = GetWorld())
 	{
+		if (UDFDeathCinematicSubsystem* const DeathFx = W->GetSubsystem<UDFDeathCinematicSubsystem>())
+		{
+			if (bRoomClear)
+			{
+				if (UDFCombatSpectacleSubsystem* const Spec = W->GetSubsystem<UDFCombatSpectacleSubsystem>())
+				{
+					Spec->PlayRoomClearSpectacle();
+				}
+			}
+			else
+			{
+				DeathFx->PlayLastEnemyKillCinematic(Killer, LastVictim);
+			}
+			return;
+		}
 		if (UDFCombatSpectacleSubsystem* const Spec = W->GetSubsystem<UDFCombatSpectacleSubsystem>())
 		{
 			if (bRoomClear)
@@ -1250,7 +1304,7 @@ void ADFPlayerCharacter::Client_PlayCombatSpectacle_Implementation(const bool bR
 			}
 			else
 			{
-				Spec->PlayLastKillSpectacle(nullptr);
+				Spec->PlayLastKillSpectacle(LastVictim, Killer);
 			}
 		}
 	}

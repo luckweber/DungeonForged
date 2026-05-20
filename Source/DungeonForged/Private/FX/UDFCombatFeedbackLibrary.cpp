@@ -297,7 +297,11 @@ void UDFCombatFeedbackLibrary::DispatchAttackerHitFeel(
 	const bool bKnockback = Context.KnockbackMagnitude >= 60.f
 		|| Context.Band == EDFHitFeedbackBand::Knockback;
 	EDFHitFeedbackBand Band = Context.Band;
-	if (Band == EDFHitFeedbackBand::Light)
+	if (Context.bWasLethal)
+	{
+		Band = EDFHitFeedbackBand::Critical;
+	}
+	else if (Band == EDFHitFeedbackBand::Light)
 	{
 		Band = ResolveFeedbackBand(Context.Magnitude, MaxH, Context.bIsCrit, bKnockback);
 	}
@@ -450,6 +454,16 @@ void UDFCombatFeedbackLibrary::DispatchOnHitConfirmed(
 	}
 
 	FDFHitConfirmedContext LocalCtx = Context;
+	if (!LocalCtx.bWasLethal && Context.Victim)
+	{
+		if (UAbilitySystemComponent* const VictimASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Context.Victim))
+		{
+			if (VictimASC->GetNumericAttribute(UDFAttributeSet::GetHealthAttribute()) <= KINDA_SMALL_NUMBER)
+			{
+				LocalCtx.bWasLethal = true;
+			}
+		}
+	}
 	if (!LocalCtx.ImpactTag.IsValid())
 	{
 		float MaxH = Context.MaxHealth;

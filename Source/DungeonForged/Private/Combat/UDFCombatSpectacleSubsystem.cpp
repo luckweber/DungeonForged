@@ -24,7 +24,7 @@ ADFPlayerCharacter* GetLocalPlayerCharacter(UWorld* const World)
 }
 } // namespace
 
-void UDFCombatSpectacleSubsystem::PlayLastKillSpectacle(AActor* const KilledEnemy)
+void UDFCombatSpectacleSubsystem::PlayLastKillSpectacle(AActor* const KilledEnemy, AActor* const Killer)
 {
 	(void)KilledEnemy;
 	if (IsRunningDedicatedServer())
@@ -38,7 +38,7 @@ void UDFCombatSpectacleSubsystem::PlayLastKillSpectacle(AActor* const KilledEnem
 	}
 	if (UDFHitStopSubsystem* const HS = World->GetSubsystem<UDFHitStopSubsystem>())
 	{
-		HS->TriggerHitStop(KillSlowMoDuration, KillSlowMoDilation, nullptr);
+		HS->BossSlam(Killer);
 	}
 	if (ADFPlayerCharacter* const Player = GetLocalPlayerCharacter(World))
 	{

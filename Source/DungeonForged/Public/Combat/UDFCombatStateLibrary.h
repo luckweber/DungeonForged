@@ -29,5 +29,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|Combat|State", meta = (WorldContext = "WorldContextObject"))
 	static void NotifyRoomCleared(UObject* WorldContextObject, bool bFloorCleared);
 
+	/** True when @a DyingEnemy is the last tracked floor enemy (excludes bosses for celebration). */
+	UFUNCTION(BlueprintPure, Category = "DF|Combat|State", meta = (WorldContext = "WorldContextObject"))
+	static bool IsLastEnemyInRoom(UObject* WorldContextObject, AActor* DyingEnemy);
+
 	static float GetCombatExitDelay(const UObject* WorldContextObject);
 };
