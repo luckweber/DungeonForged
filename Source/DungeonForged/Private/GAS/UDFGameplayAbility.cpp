@@ -1,10 +1,15 @@
 // Source/DungeonForged/Private/GAS/UDFGameplayAbility.cpp
 
 #include "GAS/UDFGameplayAbility.h"
+#include "Characters/ADFPlayerCharacter.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/Effects/UGE_Cooldown_Base.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Boss/ADFBossBase.h"
+#include "Combat/UDFComboComponent.h"
+#include "Combat/UDFAbilityGlobalCooldownSubsystem.h"
+#include "Data/UDFCombatTuningData.h"
+#include "DFAssetManager.h"
 
 #include "Abilities/GameplayAbilityTypes.h"
 #include "AbilitySystemComponent.h"
@@ -61,14 +66,65 @@ bool UDFGameplayAbility::CanActivateAbility(const FGameplayAbilitySpecHandle Han
 			}
 			return false;
 		}
+		if (bUseGlobalAbilityCooldown)
+		{
+			float GCD = GlobalAbilityGCDOverride;
+			if (GCD <= KINDA_SMALL_NUMBER)
+			{
+				if (const UDFCombatTuningData* const Tuning = UDFAssetManager::Get().GetCombatTuningData())
+				{
+					GCD = Tuning->GlobalAbilityGCD;
+				}
+			}
+			if (UWorld* const World = ActorInfo->AvatarActor.IsValid() ? ActorInfo->AvatarActor->GetWorld() : nullptr)
+			{
+				if (UDFAbilityGlobalCooldownSubsystem* const GCDSys = World->GetSubsystem<UDFAbilityGlobalCooldownSubsystem>())
+				{
+					if (!GCDSys->IsGlobalCooldownReady(ASC, GCD))
+					{
+						return false;
+					}
+				}
+			}
+		}
 	}
-	return Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags);
+	const bool bSuperOk = Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags);
+	if (bSuperOk)
+	{
+		return true;
+	}
+	if (OptionalRelevantTags && ActorInfo && ActorInfo->AvatarActor.IsValid())
+	{
+		const FGameplayTag& BlockedTag = UAbilitySystemGlobals::Get().ActivateFailTagsBlockedTag;
+		if (BlockedTag.IsValid() && OptionalRelevantTags->HasTag(BlockedTag))
+		{
+			if (UDFComboComponent* const Combo = ActorInfo->AvatarActor->FindComponentByClass<UDFComboComponent>())
+			{
+				if (Combo->IsAbilityCancellable(AbilityTags))
+				{
+					return true;
+				}
+			}
+		}
+	}
+	return false;
 }
 
 void UDFGameplayAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 	const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+
+	if (bUseGlobalAbilityCooldown && ActorInfo && ActorInfo->AbilitySystemComponent.IsValid())
+	{
+		if (UWorld* const World = ActorInfo->AvatarActor.IsValid() ? ActorInfo->AvatarActor->GetWorld() : nullptr)
+		{
+			if (UDFAbilityGlobalCooldownSubsystem* const GCDSys = World->GetSubsystem<UDFAbilityGlobalCooldownSubsystem>())
+			{
+				GCDSys->MarkGlobalCooldownUsed(ActorInfo->AbilitySystemComponent.Get());
+			}
+		}
+	}
 
 	if (!ActorInfo)
 	{
@@ -78,6 +134,13 @@ void UDFGameplayAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 
 	if (!CommitAbility(Handle, ActorInfo, ActivationInfo, nullptr))
 	{
+		if (ActorInfo && ActorInfo->IsNetAuthority() && ActorInfo->AvatarActor.IsValid())
+		{
+			if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(ActorInfo->AvatarActor.Get()))
+			{
+				PC->Client_NotifyAbilityActivationRejected(GetClass());
+			}
+		}
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}

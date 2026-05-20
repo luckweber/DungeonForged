@@ -30,6 +30,15 @@ UDFCameraShake_HeavyHit::UDFCameraShake_HeavyHit()
 	InitFF(LocOscillation.Y, 3.f, 25.f);
 }
 
+UDFCameraShake_ParrySuccess::UDFCameraShake_ParrySuccess()
+{
+	OscillationDuration = 0.12f;
+	OscillationBlendInTime = 0.f;
+	OscillationBlendOutTime = 0.04f;
+	InitFF(RotOscillation.Pitch, 3.f, 45.f);
+	InitFF(RotOscillation.Roll, 2.5f, 50.f);
+}
+
 UDFCameraShake_BossSlam::UDFCameraShake_BossSlam()
 {
 	OscillationDuration = 0.6f;

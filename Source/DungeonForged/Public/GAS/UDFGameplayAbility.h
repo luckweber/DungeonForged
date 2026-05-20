@@ -54,6 +54,14 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ability|DF|Boss")
 	bool bSourceObjectMustBeBoss = false;
 
+	/** When true, participates in optional global ability cooldown (B11). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ability|DF|Cooldown")
+	bool bUseGlobalAbilityCooldown = false;
+
+	/** 0 = use @c UDFCombatTuningData::GlobalAbilityGCD. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ability|DF|Cooldown", meta = (ClampMin = "0.0", EditCondition = "bUseGlobalAbilityCooldown"))
+	float GlobalAbilityGCDOverride = 0.f;
+
 	virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 		const FGameplayTagContainer* SourceTags = nullptr, const FGameplayTagContainer* TargetTags = nullptr,
 		FGameplayTagContainer* OptionalRelevantTags = nullptr) const override;

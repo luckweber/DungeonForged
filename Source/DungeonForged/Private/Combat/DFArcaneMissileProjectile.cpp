@@ -1,7 +1,9 @@
 // Source/DungeonForged/Private/Combat/DFArcaneMissileProjectile.cpp
 #include "Combat/DFArcaneMissileProjectile.h"
+#include "Combat/UDFProjectileHitTrackerComponent.h"
 #include "GAS/Abilities/Mage/UDFAbility_Mage_ArcaneBarrage.h"
 #include "AbilitySystemBlueprintLibrary.h"
+#include "FX/UDFCombatFeedbackLibrary.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "GAS/Effects/UGE_Damage_Magic.h"
@@ -24,6 +26,7 @@ ADFArcaneMissileProjectile::ADFArcaneMissileProjectile()
 	CollisionSphere->SetCollisionProfileName(TEXT("BlockAll"));
 	RootComponent = CollisionSphere;
 	CollisionSphere->OnComponentHit.AddDynamic(this, &ADFArcaneMissileProjectile::OnHit);
+	HitTracker = CreateDefaultSubobject<UDFProjectileHitTrackerComponent>(TEXT("HitTracker"));
 
 	ProjectileMove = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("ProjectileMove"));
 	ProjectileMove->bRotationFollowsVelocity = true;
@@ -60,6 +63,11 @@ void ADFArcaneMissileProjectile::OnHit(UPrimitiveComponent* HitComponent, AActor
 		}
 		return;
 	}
+	if (HitTracker && !HitTracker->TryRegisterHit(Other))
+	{
+		Destroy();
+		return;
+	}
 	APawn* const Inst = GetInstigator();
 	if (!IsValid(Inst) || !MagicDamageEffect)
 	{
@@ -83,7 +91,10 @@ void ADFArcaneMissileProjectile::OnHit(UPrimitiveComponent* HitComponent, AActor
 	if (Spec.IsValid() && Spec.Data && FDFGameplayTags::Data_Damage.IsValid())
 	{
 		Spec.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Damage, Sbc);
+		UDFCombatFeedbackLibrary::MarkSpecCombatFeedbackCentralized(*Spec.Data.Get());
 		SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data, TargetASC);
+		UDFCombatFeedbackLibrary::DispatchProjectileHitConfirmed(
+			this, Inst, Other, Hit, FMath::Abs(Sbc), 0.f, FDFGameplayTags::Effect_Element_Arcane);
 	}
 	if (HitNiagara)
 	{

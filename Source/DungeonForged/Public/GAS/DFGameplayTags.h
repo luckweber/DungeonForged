@@ -158,6 +158,12 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag State_Combat_Telegraph_Active;
 	/** Cancel window is open on the avatar — heavy attack / dodge can interrupt the current swing. */
 	static FGameplayTag State_Combat_CancelWindow_Open;
+	/** Commit frames: cancel window notify is ignored while this tag is active. */
+	static FGameplayTag State_Combat_NoCancelFrames;
+	/** Generic ability-to-ability cancel window (FrostBolt → ArcaneBarrage, etc.). */
+	static FGameplayTag State_Combat_AbilityCancelWindow_Open;
+	/** Victim below finisher threshold — player may commit finisher ability. */
+	static FGameplayTag State_Combat_FinisherReady;
 	/** Parry window is open on a vulnerable attacker — strike now to trigger parry/stagger. */
 	static FGameplayTag State_Combat_ParryWindow_Open;
 	/** Stun / most CC: UTargetTagRequirementsGameplayEffectComponent should ignore targets with this tag. */
@@ -204,10 +210,17 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Event_Combat_Parry_Triggered;
 	/** Accumulated damage in the stagger window exceeded Poise — break/stagger reaction. */
 	static FGameplayTag Event_Combat_Stagger_Triggered;
+	static FGameplayTag Event_Combat_HitConfirm;
+	static FGameplayTag Event_Combat_Finisher_Available;
+	/** Primary attack during an active finisher chain (multi-hit QTE). */
+	static FGameplayTag Event_Combat_Finisher_Input;
+	static FGameplayTag Event_Combat_Finisher_Completed;
 	static FGameplayTag Event_Ability_Kill;
 	static FGameplayTag Event_Passive_Rogue_BleedApplied;
 
 	//~ Effect
+	/** Combat text is spawned via @c UDFCombatFeedbackLibrary — skip duplicate in AttributeSet. */
+	static FGameplayTag Effect_CombatFeedbackCentralized;
 	static FGameplayTag Effect_Damage_Physical;
 	static FGameplayTag Effect_Damage_Magic;
 	static FGameplayTag Effect_Damage_True;
@@ -261,6 +274,28 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Damage_Source_Slash;
 	static FGameplayTag Damage_Source_Blunt;
 	static FGameplayTag Damage_Source_Pierce;
+
+	//~ Impact feedback (band × damage source for VFX/SFX dispatch)
+	static FGameplayTag Impact;
+	static FGameplayTag Impact_Light;
+	static FGameplayTag Impact_Heavy;
+	static FGameplayTag Impact_Critical;
+	static FGameplayTag Impact_Knockback;
+	static FGameplayTag Impact_Light_Slash;
+	static FGameplayTag Impact_Light_Blunt;
+	static FGameplayTag Impact_Light_Pierce;
+	static FGameplayTag Impact_Heavy_Slash;
+	static FGameplayTag Impact_Heavy_Blunt;
+	static FGameplayTag Impact_Heavy_Pierce;
+	static FGameplayTag Impact_Critical_Slash;
+	static FGameplayTag Impact_Critical_Blunt;
+	static FGameplayTag Impact_Critical_Pierce;
+	static FGameplayTag Impact_Knockback_Slash;
+	static FGameplayTag Impact_Knockback_Blunt;
+	static FGameplayTag Impact_Knockback_Pierce;
+
+	/** Asset tag on crowd-control gameplay effects (stun/freeze/slow) for StatusResist scaling. */
+	static FGameplayTag Effect_CrowdControl;
 
 	//~ Data (SetByCaller)
 	static FGameplayTag Data_Damage;

@@ -56,4 +56,7 @@ protected:
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<UProjectileMovementComponent> Move;
+
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<class UDFProjectileHitTrackerComponent> HitTracker;
 };

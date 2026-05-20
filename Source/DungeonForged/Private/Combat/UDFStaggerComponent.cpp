@@ -18,7 +18,8 @@ DEFINE_LOG_CATEGORY_STATIC(LogDFStagger, Log, All);
 
 UDFStaggerComponent::UDFStaggerComponent()
 {
-	PrimaryComponentTick.bCanEverTick = false;
+	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.bStartWithTickEnabled = true;
 }
 
 void UDFStaggerComponent::BeginPlay()
@@ -89,6 +90,39 @@ void UDFStaggerComponent::ResetAccumulator()
 	RecentHits.Reset();
 }
 
+void UDFStaggerComponent::SetNextPoiseDamageMultiplier(const float Multiplier)
+{
+	NextPoiseDamageMultiplier = FMath::Max(0.f, Multiplier);
+}
+
+float UDFStaggerComponent::ResolvePoiseMultiplierForTags(const FGameplayTagContainer& AttackTags) const
+{
+	float Best = 1.f;
+	for (const TPair<FGameplayTag, float>& Pair : PoiseDamageMultipliers)
+	{
+		if (Pair.Key.IsValid() && AttackTags.HasTag(Pair.Key))
+		{
+			Best = FMath::Max(Best, Pair.Value);
+		}
+	}
+	return Best;
+}
+
+void UDFStaggerComponent::TickComponent(const float DeltaTime, const ELevelTick TickType,
+	FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	if (PoiseRegenPerSecond <= KINDA_SMALL_NUMBER || RecentHits.IsEmpty())
+	{
+		return;
+	}
+	for (FStaggerHit& H : RecentHits)
+	{
+		H.Damage = FMath::Max(0.f, H.Damage - PoiseRegenPerSecond * DeltaTime);
+	}
+	RecentHits.RemoveAll([](const FStaggerHit& H) { return H.Damage <= KINDA_SMALL_NUMBER; });
+}
+
 void UDFStaggerComponent::PruneOldEntries()
 {
 	const UWorld* const World = GetWorld();
@@ -108,7 +142,23 @@ void UDFStaggerComponent::HandleHealthChange(const FOnAttributeChangeData& Data)
 	{
 		return; // heal or no-op
 	}
-	const float Damage = -Delta; // positive
+	const float DamageRaw = -Delta;
+	if (DamageRaw <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+	const UWorld* const World = GetWorld();
+	const double Now = World ? World->GetTimeSeconds() : 0.0;
+	if (Now < StaggerDRExpireTime && ActiveStaggerDR < 1.f)
+	{
+		// DR active
+	}
+	else
+	{
+		ActiveStaggerDR = 1.f;
+	}
+	float Damage = DamageRaw * NextPoiseDamageMultiplier * ActiveStaggerDR;
+	NextPoiseDamageMultiplier = 1.f;
 	if (Damage <= KINDA_SMALL_NUMBER)
 	{
 		return;
@@ -127,12 +177,10 @@ void UDFStaggerComponent::HandleHealthChange(const FOnAttributeChangeData& Data)
 		return;
 	}
 
-	const UWorld* const World = GetWorld();
 	if (!World)
 	{
 		return;
 	}
-	const double Now = World->GetTimeSeconds();
 	RecentHits.Add({Damage, Now});
 	PruneOldEntries();
 
@@ -167,6 +215,8 @@ void UDFStaggerComponent::TriggerStagger(const float Overshoot)
 	}
 	const UWorld* const World = GetWorld();
 	LastStaggerTime = World ? World->GetTimeSeconds() : 0.0;
+	ActiveStaggerDR = FMath::Clamp(StaggerDamageReduction, 0.f, 1.f);
+	StaggerDRExpireTime = LastStaggerTime + StaggerDRWindowSeconds;
 	RecentHits.Reset();
 
 	if (StaggerGameplayEffect)

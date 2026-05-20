@@ -1,5 +1,8 @@
 // Source/DungeonForged/Private/Combat/UDFMeleeTraceComponent.cpp
 #include "Combat/UDFMeleeTraceComponent.h"
+#include "Data/UDFCombatTuningData.h"
+#include "DFAssetManager.h"
+#include "GameplayTagsManager.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotifies/AnimNotify.h"
 #include "Combat/AN/AN_TraceEnd.h"
@@ -27,7 +30,13 @@
 #include "EngineUtils.h"
 #include "DungeonForgedModule.h"
 #include "FX/UDFCameraShakeFunctionLibrary.h"
-#include "FX/UDFHitStopSubsystem.h"
+#include "FX/UDFCombatFeedbackLibrary.h"
+#include "Combat/UDFCombatEventsLibrary.h"
+#include "Combat/UDFStaggerComponent.h"
+#include "Combat/UDFWeaponTrailPoolComponent.h"
+#include "Data/UDFCombatTuningData.h"
+#include "DFAssetManager.h"
+#include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 
 #if !UE_BUILD_SHIPPING
@@ -913,6 +922,18 @@ void UDFMeleeTraceComponent::StartTrace()
 	}
 	HitActorsThisSwing.Empty();
 	bTracing = true;
+	bHasPreviousTraceSegment = false;
+	if (const UDFCombatTuningData* const Tuning = UDFAssetManager::Get().GetCombatTuningData())
+	{
+		TraceSubStepCount = FMath::Clamp(Tuning->DefaultMeleeTraceSubSteps, 1, 8);
+	}
+	if (AActor* const OwnerActor = GetOwner())
+	{
+		if (UDFWeaponTrailPoolComponent* const Trail = OwnerActor->FindComponentByClass<UDFWeaponTrailPoolComponent>())
+		{
+			Trail->ActivateTrail();
+		}
+	}
 	const float Dmg = bUseOverrideBaseDamage ? OverrideBaseDamage : BaseDamage;
 	const float Kb = bUseOverrideKnockback ? OverrideBaseKnockback : BaseKnockback;
 	bUseOverrideBaseDamage = false;
@@ -1060,6 +1081,14 @@ void UDFMeleeTraceComponent::EndTrace()
 	}
 #endif
 #endif
+	if (AActor* const OwnerActor = GetOwner())
+	{
+		if (UDFWeaponTrailPoolComponent* const Trail = OwnerActor->FindComponentByClass<UDFWeaponTrailPoolComponent>())
+		{
+			Trail->DeactivateTrail();
+		}
+	}
+	bHasPreviousTraceSegment = false;
 	bHasLastTraceSegment = false;
 	bTracing = false;
 	ClearHeavySwing();
@@ -1160,6 +1189,7 @@ FGameplayEffectSpecHandle UDFMeleeTraceComponent::BuildDamageSpec(const float Ba
 		{
 			Out.Data->AddDynamicAssetTag(ActiveMeleeDamageSourceTag);
 		}
+		UDFCombatFeedbackLibrary::MarkSpecCombatFeedbackCentralized(*Out.Data.Get());
 	}
 	return Out;
 }
@@ -1394,10 +1424,31 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 			UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(
 				Target, FDFGameplayTags::Event_Combat_Parry_Triggered, Payload);
 		}
+		if (const APawn* const InstPawn = Cast<APawn>(Owner))
+		{
+			if (APlayerController* const InstPC = Cast<APlayerController>(InstPawn->GetController()))
+			{
+				if (InstPC->IsLocalController())
+				{
+					UDFCameraShakeFunctionLibrary::PlayParrySuccessOnOwner(this, InstPC);
+				}
+			}
+		}
 	}
 
 	const float Health = TargetASC->GetNumericAttribute(UDFAttributeSet::GetHealthAttribute());
 	const float MaxH = TargetASC->GetNumericAttribute(UDFAttributeSet::GetMaxHealthAttribute());
+
+	FGameplayTagContainer AttackTags;
+	if (SpecHandle.Data)
+	{
+		AttackTags = SpecHandle.Data->GetDynamicAssetTags();
+	}
+	if (UDFStaggerComponent* const Stagger = Target->FindComponentByClass<UDFStaggerComponent>())
+	{
+		Stagger->SetNextPoiseDamageMultiplier(Stagger->ResolvePoiseMultiplierForTags(AttackTags));
+	}
+
 	if (MaxH > KINDA_SMALL_NUMBER && (Health / MaxH) < FinishingHealthFractionThreshold
 		&& FinishingBlowGameplayEffect
 		&& FinishingSetByCallerTag.IsValid())
@@ -1437,6 +1488,8 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 	}
 #endif
 
+	const bool bAppliedDamage = Applied.IsValid() || bInstantGE;
+
 	FVector ImpactPoint = FVector::ZeroVector;
 	FVector ImpactNormal = FVector::UpVector;
 	if (OptionalHit && OptionalHit->bBlockingHit)
@@ -1444,8 +1497,16 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 		ImpactPoint = OptionalHit->ImpactPoint;
 		ImpactNormal = OptionalHit->ImpactNormal;
 	}
-	if (UDFHitReactionComponent* Hit = Target->FindComponentByClass<UDFHitReactionComponent>())
+
+	if (bAppliedDamage && DmgMagnitude > KINDA_SMALL_NUMBER)
 	{
+		const FVector ImpactLoc = !ImpactPoint.IsNearlyZero()
+			? ImpactPoint
+			: Target->GetActorLocation();
+		const FVector ImpactDir = Owner->GetActorLocation() - Target->GetActorLocation();
+		PlayImpactCosmeticsAt(ImpactLoc, ImpactDir);
+		UDFCombatStateLibrary::NotifyCombatActivity(Owner, Owner);
+
 		FVector ToTarget = Target->GetActorLocation() - Owner->GetActorLocation();
 		ToTarget.Z = 0.f;
 		ToTarget.Normalize();
@@ -1461,55 +1522,241 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 				}
 			}
 		}
-		Hit->OnHitReceived(DmgMagnitude, KbMagnitude, ToTarget, Owner, ImpactPoint, ImpactNormal, DamageSourceTag);
-	}
-
-	const bool bAppliedDamage = Applied.IsValid() || bInstantGE;
-	if (bAppliedDamage && DmgMagnitude > KINDA_SMALL_NUMBER)
-	{
-		const FVector ImpactLoc = !ImpactPoint.IsNearlyZero()
-			? ImpactPoint
-			: Target->GetActorLocation();
-		const FVector ImpactDir = Owner->GetActorLocation() - Target->GetActorLocation();
-		PlayImpactCosmeticsAt(ImpactLoc, ImpactDir);
-		UDFCombatStateLibrary::NotifyCombatActivity(Owner, Owner);
-	}
-	if (bAppliedDamage && DmgMagnitude > KINDA_SMALL_NUMBER && Owner->HasAuthority())
-	{
 		const bool bCrit = FDFGameplayTags::Data_CriticalHit.IsValid()
 			&& SpecHandle.Data->GetSetByCallerMagnitude(FDFGameplayTags::Data_CriticalHit, false, 0.f) > 0.5f;
-		if (UWorld* const World = GetWorld())
+
+		FDFHitConfirmedContext HitCtx;
+		HitCtx.Instigator = Owner;
+		HitCtx.Victim = Target;
+		HitCtx.Location = ImpactLoc;
+		HitCtx.Normal = ImpactNormal;
+		HitCtx.HitDirection2D = ToTarget;
+		HitCtx.Magnitude = DmgMagnitude;
+		HitCtx.KnockbackMagnitude = KbMagnitude;
+		HitCtx.MaxHealth = MaxH;
+		HitCtx.DamagePercent = MaxH > KINDA_SMALL_NUMBER ? (DmgMagnitude / MaxH) : 0.f;
+		HitCtx.bIsCrit = bCrit;
+		HitCtx.DamageSourceTag = DamageSourceTag;
+		if (DamageSourceTag.IsValid())
 		{
-			if (UDFHitStopSubsystem* const HitStop = World->GetSubsystem<UDFHitStopSubsystem>())
-			{
-				if (bCrit)
-				{
-					HitStop->CriticalHit(Owner);
-				}
-				else if (DmgMagnitude >= 30.f || KbMagnitude > 100.f)
-				{
-					HitStop->HeavyHit(Owner);
-				}
-				else
-				{
-					HitStop->LightHit(Owner);
-				}
-			}
+			HitCtx.Tags.AddTag(DamageSourceTag);
 		}
-		if (ADFPlayerCharacter* const Player = Cast<ADFPlayerCharacter>(Owner))
+		HitCtx.Band = UDFCombatFeedbackLibrary::ResolveFeedbackBand(
+			DmgMagnitude, MaxH, bCrit, KbMagnitude > 100.f);
+		if (OptionalHit)
 		{
-			if (APlayerController* const PC = Player->GetController<APlayerController>())
-			{
-				if (bCrit)
-				{
-					UDFCameraShakeFunctionLibrary::PlayHeavyHitOnOwner(this, PC);
-				}
-				else
-				{
-					UDFCameraShakeFunctionLibrary::PlayLightHitOnOwner(this, PC);
-				}
-			}
+			HitCtx.HitBoneName = OptionalHit->BoneName;
 		}
+		UDFCombatFeedbackLibrary::DispatchOnHitConfirmed(this, HitCtx);
+
+		if (MaxH > KINDA_SMALL_NUMBER && (Health / MaxH) < FinishingHealthFractionThreshold)
+		{
+			UDFCombatEventsLibrary::NotifyFinisherTargetAvailable(this, Owner, Target);
+		}
+	}
+}
+
+EDFMeleeTraceShape UDFMeleeTraceComponent::ResolveMeleeTraceShape(
+	const FGameplayTagContainer& WeaponTags,
+	const bool bUseItemOverride,
+	const EDFMeleeTraceShape ItemOverrideShape,
+	const UDFCombatTuningData* TuningData)
+{
+	if (bUseItemOverride)
+	{
+		return ItemOverrideShape;
+	}
+	if (!TuningData || TuningData->TraceShapeByWeaponTag.IsEmpty() || WeaponTags.IsEmpty())
+	{
+		return EDFMeleeTraceShape::Sphere;
+	}
+	EDFMeleeTraceShape BestShape = EDFMeleeTraceShape::Sphere;
+	int32 BestDepth = -1;
+	const UGameplayTagsManager& TagManager = UGameplayTagsManager::Get();
+	for (const TPair<FGameplayTag, EDFMeleeTraceShape>& Pair : TuningData->TraceShapeByWeaponTag)
+	{
+		if (!Pair.Key.IsValid() || !WeaponTags.HasTag(Pair.Key))
+		{
+			continue;
+		}
+		const TSharedPtr<FGameplayTagNode> Node = TagManager.FindTagNode(Pair.Key);
+		const int32 Depth = Node.IsValid() ? Node->GetSingleTagContainer().Num() : Pair.Key.ToString().Len();
+		if (Depth > BestDepth)
+		{
+			BestDepth = Depth;
+			BestShape = Pair.Value;
+		}
+	}
+	return BestShape;
+}
+
+void UDFMeleeTraceComponent::MarkSpecForCentralizedCombatFeedback(FGameplayEffectSpec& Spec)
+{
+	UDFCombatFeedbackLibrary::MarkSpecCombatFeedbackCentralized(Spec);
+}
+
+void UDFMeleeTraceComponent::ApplyWeaponTraceProfile(
+	const FGameplayTagContainer& WeaponTags,
+	const bool bUseItemOverride,
+	const EDFMeleeTraceShape ItemOverrideShape)
+{
+	const UDFCombatTuningData* const Tuning = UDFAssetManager::Get().GetCombatTuningData();
+	ActiveTraceShape = ResolveMeleeTraceShape(WeaponTags, bUseItemOverride, ItemOverrideShape, Tuning);
+}
+
+FCollisionShape UDFMeleeTraceComponent::BuildTraceShape(
+	const FVector& SegmentStart, const FVector& SegmentEnd, const float Radius) const
+{
+	if (ActiveTraceShape == EDFMeleeTraceShape::Capsule)
+	{
+		const float HalfHeight = FMath::Max(Radius, FVector::Dist(SegmentStart, SegmentEnd) * 0.5f);
+		return FCollisionShape::MakeCapsule(Radius, HalfHeight);
+	}
+	return FCollisionShape::MakeSphere(Radius);
+}
+
+bool UDFMeleeTraceComponent::ResolveTraceZoneSegment(const FDFMeleeTraceZone& Zone, FVector& OutStart, FVector& OutEnd) const
+{
+	if (Zone.StartSocket.IsNone() || Zone.EndSocket.IsNone())
+	{
+		return false;
+	}
+	if (USkeletalMeshComponent* const Mesh = GetResolvedTraceMesh())
+	{
+		if (Mesh->DoesSocketExist(Zone.StartSocket) && Mesh->DoesSocketExist(Zone.EndSocket))
+		{
+			OutStart = Mesh->GetSocketLocation(Zone.StartSocket);
+			OutEnd = Mesh->GetSocketLocation(Zone.EndSocket);
+			return true;
+		}
+	}
+	return false;
+}
+
+void UDFMeleeTraceComponent::SweepSegment(
+	const FVector& SegmentStart,
+	const FVector& SegmentEnd,
+	UWorld* const World,
+	AActor* const Owner,
+	const bool bApplyDamage,
+	const float RadiusOverride)
+{
+	if (!World || !Owner)
+	{
+		return;
+	}
+	const float EffectiveRadius = RadiusOverride > 0.f ? RadiusOverride : GetEffectiveTraceRadius();
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(DF_MeleeTrace), false, Owner);
+	Params.bReturnPhysicalMaterial = true;
+	Params.bTraceComplex = true;
+	Params.AddIgnoredActor(Owner);
+	const FCollisionObjectQueryParams ObjParams = BuildMeleeTraceObjectQuery();
+
+	auto DoSweep = [&](const FVector& A, const FVector& B, const float Radius)
+	{
+		TArray<FHitResult> Hits;
+		const FCollisionShape Shape = BuildTraceShape(A, B, Radius);
+		const bool bHit = World->SweepMultiByObjectType(
+			Hits, A, B, FQuat::Identity, ObjParams, Shape, Params);
+		const int32 HitsBefore = HitActorsThisSwing.Num();
+		if (bHit && bApplyDamage)
+		{
+			ProcessHitResults(Hits, World);
+		}
+		if (bApplyDamage && HitActorsThisSwing.Num() == HitsBefore)
+		{
+			const FVector Mid = (A + B) * 0.5f;
+			const float FallbackRadius = FMath::Max(Radius + 15.f, FVector::Dist(A, B) * 0.35f);
+			TryMeleeOverlapFallback(World, Owner, Mid, FallbackRadius);
+		}
+	};
+
+	if (ActiveTraceShape == EDFMeleeTraceShape::Cone)
+	{
+		const float Dist = FVector::Dist(SegmentStart, SegmentEnd);
+		const FVector Dir = Dist > KINDA_SMALL_NUMBER
+			? (SegmentEnd - SegmentStart).GetSafeNormal()
+			: Owner->GetActorForwardVector();
+		for (int32 i = 0; i < 3; ++i)
+		{
+			const float T = static_cast<float>(i) * 0.5f;
+			const FVector A = SegmentStart + Dir * (Dist * T);
+			const FVector B = A + Dir * FMath::Max(10.f, Dist * 0.34f);
+			const float R = EffectiveRadius * FMath::Lerp(0.75f, 1.25f, T);
+			DoSweep(A, B, R);
+		}
+	}
+	else
+	{
+		DoSweep(SegmentStart, SegmentEnd, EffectiveRadius);
+	}
+}
+
+void UDFMeleeTraceComponent::PerformTraceBetween(
+	const FVector& SegmentStart,
+	const FVector& SegmentEnd,
+	UWorld* const World,
+	const bool bApplyDamage)
+{
+	AActor* const Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+	SweepSegment(SegmentStart, SegmentEnd, World, Owner, bApplyDamage);
+	for (const FDFMeleeTraceZone& Zone : ExtraTraceZones)
+	{
+		FVector ZStart = FVector::ZeroVector;
+		FVector ZEnd = FVector::ZeroVector;
+		if (ResolveTraceZoneSegment(Zone, ZStart, ZEnd))
+		{
+			const float ZoneRadius = GetEffectiveTraceRadius() * Zone.RadiusScale + Zone.RadiusOffset;
+			SweepSegment(ZStart, ZEnd, World, Owner, bApplyDamage, ZoneRadius);
+		}
+	}
+}
+
+void UDFMeleeTraceComponent::RunClientPredictedHitFeel(
+	const FVector& SegmentStart,
+	const FVector& SegmentEnd,
+	UWorld* const World) const
+{
+	if (!bClientPredictHitFeel || IsRunningDedicatedServer() || !World)
+	{
+		return;
+	}
+	const AActor* const Owner = GetOwner();
+	const APawn* const OwnerPawn = Cast<APawn>(Owner);
+	if (!Owner || !OwnerPawn || !OwnerPawn->IsLocallyControlled())
+	{
+		return;
+	}
+	const float Radius = GetEffectiveTraceRadius();
+	TArray<FOverlapResult> Overlaps;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(DF_MeleePredictFeel), false, Owner);
+	const FVector Mid = (SegmentStart + SegmentEnd) * 0.5f;
+	if (!World->OverlapMultiByObjectType(
+		Overlaps, Mid, FQuat::Identity, BuildMeleeTraceObjectQuery(), FCollisionShape::MakeSphere(Radius), Params))
+	{
+		return;
+	}
+	for (const FOverlapResult& O : Overlaps)
+	{
+		AActor* const A = O.GetActor();
+		if (!A || A == Owner || !UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(A))
+		{
+			continue;
+		}
+		FDFHitConfirmedContext Ctx;
+		Ctx.Instigator = const_cast<AActor*>(Owner);
+		Ctx.Victim = A;
+		Ctx.Location = A->GetActorLocation();
+		Ctx.Magnitude = CachedDamageSpec.IsValid() && DamageTag.IsValid()
+			? CachedDamageSpec.Data->GetSetByCallerMagnitude(DamageTag, false, BaseDamage)
+			: BaseDamage;
+		Ctx.Band = EDFHitFeedbackBand::Light;
+		UDFCombatFeedbackLibrary::DispatchAttackerHitFeel(const_cast<UDFMeleeTraceComponent*>(this), Ctx);
+		break;
 	}
 }
 
@@ -1548,62 +1795,35 @@ void UDFMeleeTraceComponent::TickTrace(float /*DeltaTime*/)
 	}
 #endif
 
-	if (!bAuthorityTrace)
+	const int32 SubSteps = FMath::Clamp(TraceSubStepCount, 1, 8);
+	const auto RunStep = [&](const FVector& A, const FVector& B)
 	{
-		return;
-	}
-
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(DF_MeleeTrace), false, Owner);
-	Params.bReturnPhysicalMaterial = true;
-	Params.bTraceComplex = true;
-	Params.AddIgnoredActor(Owner);
-
-	FCollisionShape Shape = FCollisionShape::MakeSphere(EffectiveRadius);
-	TArray<FHitResult> Hits;
-	const FCollisionObjectQueryParams ObjParams = BuildMeleeTraceObjectQuery();
-	const bool bHit = World->SweepMultiByObjectType(
-		Hits, TraceStart, TraceEnd, FQuat::Identity, ObjParams, Shape, Params);
-
-#if !UE_BUILD_SHIPPING
-	if (ShouldLogMeleeTraceDetail() && (DF_ShouldLogMeleeTracePerTick() || !bHit))
-	{
-		UE_LOG(LogDungeonForged, Log,
-			TEXT("[MeleeTrace|Sweep] raw=%d auth=%d seg=%.1fcm r=%.1f %s->%s"),
-			Hits.Num(),
-			bAuthorityTrace ? 1 : 0,
-			FVector::Dist(TraceStart, TraceEnd),
-			EffectiveRadius,
-			*TraceStart.ToCompactString(),
-			*TraceEnd.ToCompactString());
-		for (int32 i = 0; i < Hits.Num() && i < 6; ++i)
+		if (bAuthorityTrace)
 		{
-			const FHitResult& H = Hits[i];
-			UE_LOG(LogDungeonForged, Log,
-				TEXT("  raw[%d] actor=%s comp=%s obj=%s"),
-				i,
-				*GetNameSafe(H.GetActor()),
-				H.GetComponent() ? *H.GetComponent()->GetName() : TEXT("?"),
-				H.GetComponent() ? DF_ObjectTypeStr(H.GetComponent()->GetCollisionObjectType()) : TEXT("?"));
+			PerformTraceBetween(A, B, World, true);
+		}
+		else
+		{
+			RunClientPredictedHitFeel(A, B, World);
+		}
+	};
+
+	if (bHasPreviousTraceSegment && SubSteps > 1)
+	{
+		for (int32 Step = 1; Step <= SubSteps; ++Step)
+		{
+			const float Alpha = static_cast<float>(Step) / static_cast<float>(SubSteps);
+			RunStep(
+				FMath::Lerp(PreviousTraceStartWS, TraceStart, Alpha),
+				FMath::Lerp(PreviousTraceEndWS, TraceEnd, Alpha));
 		}
 	}
-#endif
-
-	const int32 HitsBefore = HitActorsThisSwing.Num();
-	if (bHit)
+	else
 	{
-		ProcessHitResults(Hits, World);
+		RunStep(TraceStart, TraceEnd);
 	}
 
-	if (HitActorsThisSwing.Num() == HitsBefore)
-	{
-		const FVector Mid = (TraceStart + TraceEnd) * 0.5f;
-		const float FallbackRadius = FMath::Max(EffectiveRadius + 15.f, FVector::Dist(TraceStart, TraceEnd) * 0.35f);
-#if !UE_BUILD_SHIPPING
-		if (ShouldLogMeleeTraceDetail())
-		{
-			UE_LOG(LogDungeonForged, Log, TEXT("[MeleeTrace|Sweep] no valid hits — trying overlap fallback"));
-		}
-#endif
-		TryMeleeOverlapFallback(World, Owner, Mid, FallbackRadius);
-	}
+	PreviousTraceStartWS = TraceStart;
+	PreviousTraceEndWS = TraceEnd;
+	bHasPreviousTraceSegment = true;
 }

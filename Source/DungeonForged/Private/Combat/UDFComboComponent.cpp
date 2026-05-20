@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/Combat/UDFComboComponent.cpp
 #include "Combat/UDFComboComponent.h"
+#include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
@@ -12,12 +13,15 @@
 #include "Engine/World.h"
 #include "Equipment/DFEquipmentTypes.h"
 #include "Equipment/UDFEquipmentComponent.h"
+#include "FX/UDFHitStopSubsystem.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "GameplayTagContainer.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Data/UDFCombatTuningData.h"
 #include "DFAssetManager.h"
+#include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
 #include "DungeonForgedModule.h"
 
@@ -47,6 +51,147 @@ void UDFComboComponent::ClearLockedComboStepAfterActivation(const int32 Activate
 	LockedComboActivationStep = -1;
 	PendingComboActivationStep = -1;
 	bComboChainAdvancePending = false;
+}
+
+void UDFComboComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME_CONDITION(UDFComboComponent, bComboChainAdvancePending, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UDFComboComponent, LockedComboActivationStep, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UDFComboComponent, bComboHeavyFinisherPending, COND_OwnerOnly);
+}
+
+bool UDFComboComponent::IsInputBufferExpired(const float ExpireGameTime) const
+{
+	if (ExpireGameTime < 0.f)
+	{
+		return true;
+	}
+	UWorld* const W = GetWorld();
+	if (!W)
+	{
+		return true;
+	}
+	if (UDFHitStopSubsystem* const HS = W->GetSubsystem<UDFHitStopSubsystem>())
+	{
+		if (HS->IsHitStopActive())
+		{
+			return false;
+		}
+	}
+	return W->GetTimeSeconds() > ExpireGameTime;
+}
+
+void UDFComboComponent::ArmComboWindowTimer()
+{
+	UWorld* const W = GetWorld();
+	if (!W)
+	{
+		return;
+	}
+	ComboWindowExpireTime = W->GetTimeSeconds() + ComboWindowDuration;
+	W->GetTimerManager().SetTimer(
+		ComboWindowTimer, this, &UDFComboComponent::OnComboWindowTimerExpired, ComboWindowDuration, false);
+}
+
+void UDFComboComponent::NotifyOwnerHitConfirmed(const float ExtensionSeconds)
+{
+	if (!bComboWindowActive)
+	{
+		return;
+	}
+	UWorld* const W = GetWorld();
+	if (!W)
+	{
+		return;
+	}
+	const float Ext = ExtensionSeconds >= 0.f ? ExtensionSeconds : ComboRefreshOnHitExtension;
+	const float NewExpire = W->GetTimeSeconds() + Ext;
+	if (NewExpire > ComboWindowExpireTime)
+	{
+		ComboWindowExpireTime = NewExpire;
+		const float Remaining = FMath::Max(0.01f, ComboWindowExpireTime - W->GetTimeSeconds());
+		W->GetTimerManager().SetTimer(
+			ComboWindowTimer, this, &UDFComboComponent::OnComboWindowTimerExpired, Remaining, false);
+		UE_LOG(LogDFFeel, Verbose, TEXT("[Combo] Refresh on-hit +%.2fs"), Ext);
+	}
+}
+
+void UDFComboComponent::SetAbilityCancelWindow(const FGameplayTagContainer& AllowedCancelTags)
+{
+	bAbilityCancelWindowActive = true;
+	AllowedAbilityCancelTags = AllowedCancelTags;
+}
+
+void UDFComboComponent::ClearAbilityCancelWindow()
+{
+	bAbilityCancelWindowActive = false;
+	AllowedAbilityCancelTags.Reset();
+}
+
+bool UDFComboComponent::IsAbilityCancellable(const FGameplayTagContainer& AbilityTags) const
+{
+	if (!bAbilityCancelWindowActive || AllowedAbilityCancelTags.IsEmpty() || AbilityTags.IsEmpty())
+	{
+		return false;
+	}
+	return AbilityTags.HasAny(AllowedAbilityCancelTags);
+}
+
+float UDFComboComponent::ResolveChainBlendInForStep(const int32 Step) const
+{
+	if (ComboSteps.IsValidIndex(Step) && ComboSteps[Step].ChainBlendInTime >= 0.f)
+	{
+		return ComboSteps[Step].ChainBlendInTime;
+	}
+	return ComboChainMontageBlendInTime;
+}
+
+bool UDFComboComponent::TryHandleFinisherPrimaryInput()
+{
+	AActor* const Owner = GetOwner();
+	if (!Owner)
+	{
+		return false;
+	}
+	ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(Owner);
+	UAbilitySystemComponent* const ASC = PC ? PC->GetAbilitySystemComponent() : nullptr;
+	if (!ASC)
+	{
+		return false;
+	}
+	if (FDFGameplayTags::Ability_Warrior_Execute.IsValid())
+	{
+		for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+		{
+			if (!Spec.IsActive() || !Spec.Ability)
+			{
+				continue;
+			}
+			if (!Spec.Ability->AbilityTags.HasTag(FDFGameplayTags::Ability_Warrior_Execute))
+			{
+				continue;
+			}
+			if (FDFGameplayTags::Event_Combat_Finisher_Input.IsValid())
+			{
+				FGameplayEventData Payload;
+				Payload.EventTag = FDFGameplayTags::Event_Combat_Finisher_Input;
+				Payload.Instigator = Owner;
+				UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(
+					Owner, FDFGameplayTags::Event_Combat_Finisher_Input, Payload);
+				return true;
+			}
+		}
+	}
+	if (FDFGameplayTags::State_Combat_FinisherReady.IsValid()
+		&& ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Combat_FinisherReady)
+		&& FDFGameplayTags::Ability_Warrior_Execute.IsValid())
+	{
+		FGameplayTagContainer Tags;
+		Tags.AddTag(FDFGameplayTags::Ability_Warrior_Execute);
+		return ASC->TryActivateAbilitiesByTag(Tags, true);
+	}
+	return false;
 }
 
 void UDFComboComponent::Server_ChainMeleeComboStep_Implementation(const int32 Step)
@@ -248,6 +393,10 @@ void UDFComboComponent::TryAdvanceComboBranchFromHold()
 
 void UDFComboComponent::OnPrimaryAttackPressed()
 {
+	if (TryHandleFinisherPrimaryInput())
+	{
+		return;
+	}
 	if (bComboWindowActive)
 	{
 		bComboInputBuffered = true;
@@ -325,6 +474,10 @@ void UDFComboComponent::OnPrimaryAttackReleased()
 
 void UDFComboComponent::OnAttackInput()
 {
+	if (TryHandleFinisherPrimaryInput())
+	{
+		return;
+	}
 	if (bComboWindowActive)
 	{
 		BufferComboInputAndTryAdvance();
@@ -615,17 +768,34 @@ void UDFComboComponent::AdvanceCombo()
 	if (CurrentComboStep + 1 < EffectiveMax)
 	{
 		bComboWindowActive = true;
-		if (W)
-		{
-			W->GetTimerManager().SetTimer(
-				ComboWindowTimer, this, &UDFComboComponent::OnComboWindowTimerExpired, ComboWindowDuration, false);
-		}
+		ArmComboWindowTimer();
 	}
 }
 
 void UDFComboComponent::OnComboWindowTimerExpired()
 {
+	UWorld* const W = GetWorld();
+	if (W)
+	{
+		if (UDFHitStopSubsystem* const HS = W->GetSubsystem<UDFHitStopSubsystem>())
+		{
+			if (HS->IsHitStopActive())
+			{
+				W->GetTimerManager().SetTimer(
+					ComboWindowTimer, this, &UDFComboComponent::OnComboWindowTimerExpired, 0.02f, false);
+				return;
+			}
+		}
+		if (W->GetTimeSeconds() < ComboWindowExpireTime)
+		{
+			const float Remaining = FMath::Max(0.01f, ComboWindowExpireTime - W->GetTimeSeconds());
+			W->GetTimerManager().SetTimer(
+				ComboWindowTimer, this, &UDFComboComponent::OnComboWindowTimerExpired, Remaining, false);
+			return;
+		}
+	}
 	bComboWindowActive = false;
+	ComboWindowExpireTime = -1.f;
 }
 
 void UDFComboComponent::ResetCombo()
@@ -671,6 +841,7 @@ void UDFComboComponent::ResetCombo()
 	ComboBranchPressTime = -1.f;
 	bComboHeavyFinisherPending = false;
 	bPendingChargeReleaseMontage = false;
+	ComboWindowExpireTime = -1.f;
 	StopChargeWindupMontage();
 }
 
@@ -729,22 +900,37 @@ UAnimMontage* UDFComboComponent::ResolveDirectionalComboMontage(const int32 Step
 	{
 		return ComboMontages.IsValidIndex(Step) ? ComboMontages[Step].Get() : nullptr;
 	}
-	const FVector WorldVel = Owner->GetVelocity();
-	if (WorldVel.SizeSquared2D() < DirectionalInputThreshold * DirectionalInputThreshold)
+
+	FVector LocalInput = FVector::ZeroVector;
+	if (const ACharacter* const Char = Cast<ACharacter>(Owner))
 	{
-		// Neutral / forward-ish: use default array.
+		if (const UCharacterMovementComponent* const CMC = Char->GetCharacterMovement())
+		{
+			LocalInput = Char->GetActorTransform().InverseTransformVectorNoScale(CMC->GetLastInputVector());
+		}
+	}
+	if (LocalInput.SizeSquared2D() < DirectionalInputThreshold * DirectionalInputThreshold)
+	{
+		const FVector WorldVel = Owner->GetVelocity();
+		if (WorldVel.SizeSquared2D() >= DirectionalInputThreshold * DirectionalInputThreshold)
+		{
+			LocalInput = Owner->GetActorTransform().InverseTransformVectorNoScale(WorldVel);
+		}
+	}
+
+	if (LocalInput.SizeSquared2D() < DirectionalInputThreshold * DirectionalInputThreshold)
+	{
 		return ComboMontages.IsValidIndex(Step) ? ComboMontages[Step].Get() : nullptr;
 	}
-	const FVector LocalVel = Owner->GetActorTransform().InverseTransformVectorNoScale(WorldVel);
 	const float Threshold = DirectionalInputThreshold;
-	if (LocalVel.X < -Threshold)
+	if (LocalInput.X < -Threshold)
 	{
 		if (BackwardComboMontages.IsValidIndex(Step) && BackwardComboMontages[Step])
 		{
 			return BackwardComboMontages[Step].Get();
 		}
 	}
-	else if (FMath::Abs(LocalVel.Y) > Threshold && FMath::Abs(LocalVel.Y) > LocalVel.X)
+	else if (FMath::Abs(LocalInput.Y) > Threshold && FMath::Abs(LocalInput.Y) > FMath::Abs(LocalInput.X))
 	{
 		if (SideComboMontages.IsValidIndex(Step) && SideComboMontages[Step])
 		{
@@ -1072,12 +1258,9 @@ void UDFComboComponent::HandleMontageEndedInternal(UAnimMontage* EndedMontage, b
 	ResetCombo();
 	if (bBufferedSwing)
 	{
-		if (UWorld* const W = GetWorld())
+		if (!IsInputBufferExpired(BufferExpire))
 		{
-			if (W->GetTimeSeconds() <= BufferExpire)
-			{
-				OnAttackInput();
-			}
+			OnAttackInput();
 		}
 	}
 }

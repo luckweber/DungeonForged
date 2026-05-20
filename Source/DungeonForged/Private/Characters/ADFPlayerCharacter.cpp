@@ -14,6 +14,8 @@
 #include "Camera/UDFCameraComponent.h"
 #include "Camera/UDFLockOnComponent.h"
 #include "Combat/UDFCombatStateLibrary.h"
+#include "FX/UDFCombatFeedbackLibrary.h"
+#include "Combat/UDFCombatSpectacleSubsystem.h"
 #include "Combat/UDFStaminaExhaustionComponent.h"
 #include "GAS/Effects/UGE_StaminaRegen.h"
 #include "Combat/UDFComboComponent.h"
@@ -311,6 +313,11 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 			MeleeTrace->ActiveMeleeDamageSourceTag = FGameplayTag::EmptyTag;
 		}
 
+		MeleeTrace->ApplyWeaponTraceProfile(
+			WRow.WeaponTags,
+			WRow.bOverrideMeleeTraceShape,
+			WRow.WeaponMeleeTraceShape);
+
 		if (WRow.WeaponMeleeBaseDamage > KINDA_SMALL_NUMBER)
 		{
 			MeleeTrace->BaseDamage = WRow.WeaponMeleeBaseDamage;
@@ -391,6 +398,7 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 		{
 			MeleeTrace->ActiveMeleeDamageSourceTag = FGameplayTag::EmptyTag;
 		}
+		MeleeTrace->ActiveTraceShape = EDFMeleeTraceShape::Sphere;
 		// Directional fallbacks may still exist for unarmed combos in class data.
 		Combo->BackwardComboMontages = ClassRow
 			? ClassRow->ArmedBackwardMeleeComboMontagesFallback
@@ -1215,6 +1223,51 @@ void ADFPlayerCharacter::Client_HitFeedback_Implementation(
 		OnDamageTakenForUI.Broadcast(SourceLoc, FMath::Clamp(DamagePercent, 0.05f, 1.f));
 	}
 	UDFCombatStateLibrary::NotifyCombatActivity(this, this);
+}
+
+void ADFPlayerCharacter::Client_OnAttackHitConfirmed_Implementation(const FDFHitConfirmedContext& Context)
+{
+	if (IsRunningDedicatedServer())
+	{
+		return;
+	}
+	UDFCombatFeedbackLibrary::DispatchAttackerHitFeel(this, Context);
+}
+
+void ADFPlayerCharacter::Client_PlayCombatSpectacle_Implementation(const bool bRoomClear)
+{
+	if (IsRunningDedicatedServer())
+	{
+		return;
+	}
+	if (UWorld* const W = GetWorld())
+	{
+		if (UDFCombatSpectacleSubsystem* const Spec = W->GetSubsystem<UDFCombatSpectacleSubsystem>())
+		{
+			if (bRoomClear)
+			{
+				Spec->PlayRoomClearSpectacle();
+			}
+			else
+			{
+				Spec->PlayLastKillSpectacle(nullptr);
+			}
+		}
+	}
+}
+
+void ADFPlayerCharacter::Client_NotifyAbilityActivationRejected_Implementation(
+	const TSubclassOf<UGameplayAbility> AbilityClass)
+{
+	(void)AbilityClass;
+	if (IsRunningDedicatedServer() || !IsLocallyControlled())
+	{
+		return;
+	}
+	if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponent())
+	{
+		ASC->CurrentMontageStop(0.12f);
+	}
 }
 
 void ADFPlayerCharacter::Multicast_PlayMeleeCosmeticCue_Implementation(

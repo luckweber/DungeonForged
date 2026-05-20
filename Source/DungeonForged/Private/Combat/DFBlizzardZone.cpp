@@ -2,6 +2,7 @@
 #include "Combat/DFBlizzardZone.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "Characters/ADFEnemyBase.h"
+#include "FX/UDFCombatFeedbackLibrary.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "GAS/Effects/UGE_Damage_Magic.h"
@@ -102,6 +103,12 @@ void ADFBlizzardZone::OnBlizzardTick()
 		{
 			Dmg.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Damage, Sbc);
 			SourceASC->ApplyGameplayEffectSpecToTarget(*Dmg.Data, TASC);
+			FHitResult Hit;
+			Hit.ImpactPoint = A->GetActorLocation();
+			Hit.ImpactNormal = FVector::UpVector;
+			Hit.bBlockingHit = true;
+			UDFCombatFeedbackLibrary::DispatchProjectileHitConfirmed(
+				this, Inst, A, Hit, FMath::Abs(Sbc), 0.f, FDFGameplayTags::Effect_Element_Ice);
 		}
 		if (DoTFrostEffect)
 		{

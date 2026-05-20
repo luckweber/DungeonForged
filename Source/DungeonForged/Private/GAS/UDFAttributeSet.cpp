@@ -9,6 +9,7 @@
 #include "GAS/Effects/UGE_Buff_Shield.h"
 #include "GAS/Effects/UGE_Cooldown_Universal_SecondWind.h"
 #include "GAS/UDFPassivesGASEvents.h"
+#include "Combat/UDFCombatEventsLibrary.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "GameplayEffectTypes.h"
@@ -54,6 +55,12 @@ void TrySpawnDFCombatText(UDFAttributeSet& Self, FGameplayEffectModCallbackData 
 	{
 		if (Mag < -KINDA_SMALL_NUMBER)
 		{
+			const FGameplayTagContainer& DynamicTags = Data.EffectSpec.GetDynamicAssetTags();
+			if (FDFGameplayTags::Effect_CombatFeedbackCentralized.IsValid()
+				&& DynamicTags.HasTag(FDFGameplayTags::Effect_CombatFeedbackCentralized))
+			{
+				return;
+			}
 			const float D = -Mag;
 			const bool bCrit = FDFGameplayTags::Data_CriticalHit.IsValid()
 				&& Data.EffectSpec.GetSetByCallerMagnitude(
@@ -121,6 +128,11 @@ UDFAttributeSet::UDFAttributeSet()
 	InitCritMultiplier(2.0f);
 	InitCooldownReduction(0.f);
 	InitSpellDamageAmp(0.f);
+	InitStatusResist(0.f);
+	InitLifesteal(0.f);
+	InitSpellVamp(0.f);
+	InitDodgeChance(0.f);
+	InitBlockChance(0.f);
 	InitMovementSpeedMultiplier(1.f);
 	InitSprintStaminaDrain(20.f);
 }
@@ -145,6 +157,11 @@ void UDFAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, CritMultiplier, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, CooldownReduction, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, SpellDamageAmp, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, StatusResist, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, Lifesteal, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, SpellVamp, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, DodgeChance, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, BlockChance, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, MovementSpeedMultiplier, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UDFAttributeSet, SprintStaminaDrain, COND_None, REPNOTIFY_Always);
 }
@@ -217,6 +234,15 @@ void UDFAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 	{
 		NewValue = FMath::Clamp(NewValue, 0.f, 3.f);
 	}
+	else if (Attribute == GetStatusResistAttribute())
+	{
+		NewValue = FMath::Clamp(NewValue, 0.f, 0.85f);
+	}
+	else if (Attribute == GetLifestealAttribute() || Attribute == GetSpellVampAttribute()
+		|| Attribute == GetDodgeChanceAttribute() || Attribute == GetBlockChanceAttribute())
+	{
+		NewValue = FMath::Clamp(NewValue, 0.f, 0.75f);
+	}
 	else if (Attribute == GetMovementSpeedMultiplierAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.1f);
@@ -276,6 +302,7 @@ void UDFAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 		if (UAbilitySystemComponent* const ASC = GetOwningAbilitySystemComponent())
 		{
 			const float Mag = Data.EvaluatedData.Magnitude;
+			static const FGameplayTagContainer GEmpty;
 			if (Mag < 0.f)
 			{
 				if (ASC->GetOwner())
@@ -285,7 +312,38 @@ void UDFAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 						Enemy->RegisterDamageFromContext(Data.EffectSpec.GetContext());
 					}
 				}
-				UDFPassivesGASEvents::DispatchHitReceived(ASC, Data.EffectSpec, -Mag);
+				const float Dmg = -Mag;
+				UDFPassivesGASEvents::DispatchHitReceived(ASC, Data.EffectSpec, Dmg);
+
+				if (UAbilitySystemComponent* const SourceASC = Data.EffectSpec.GetContext().GetInstigatorAbilitySystemComponent())
+				{
+					const FGameplayTagContainer& AssetTags = Data.EffectSpec.Def
+						? Data.EffectSpec.Def->GetAssetTags() : GEmpty;
+					const bool bMagic = AssetTags.HasTag(FDFGameplayTags::Effect_Damage_Magic);
+					const float HealPct = bMagic
+						? FMath::Clamp(SourceASC->GetNumericAttribute(GetSpellVampAttribute()), 0.f, 0.75f)
+						: FMath::Clamp(SourceASC->GetNumericAttribute(GetLifestealAttribute()), 0.f, 0.75f);
+					if (HealPct > KINDA_SMALL_NUMBER && SourceASC->GetOwner() && SourceASC->GetOwner()->HasAuthority())
+					{
+						const float Heal = Dmg * HealPct;
+						if (Heal > KINDA_SMALL_NUMBER)
+						{
+							SourceASC->ApplyModToAttribute(GetHealthAttribute(), EGameplayModOp::Additive, Heal);
+						}
+					}
+					if (SourceASC->GetOwner() && SourceASC->GetOwner()->HasAuthority())
+					{
+						FDFDamageDealtContext DmgCtx;
+						DmgCtx.Source = Data.EffectSpec.GetContext().GetInstigator();
+						DmgCtx.Victim = ASC->GetOwner();
+						DmgCtx.Magnitude = Dmg;
+						DmgCtx.bIsCrit = FDFGameplayTags::Data_CriticalHit.IsValid()
+							&& Data.EffectSpec.GetSetByCallerMagnitude(FDFGameplayTags::Data_CriticalHit, false, 0.f) > 0.5f;
+						DmgCtx.bWasLethal = ASC->GetNumericAttribute(GetHealthAttribute()) <= KINDA_SMALL_NUMBER;
+						DmgCtx.Tags = AssetTags;
+						UDFCombatEventsLibrary::BroadcastDamageDealt(DmgCtx);
+					}
+				}
 			}
 			if (Mag < 0.f && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_ManaShieldActive))
 			{
@@ -483,6 +541,26 @@ void UDFAttributeSet::OnRep_CooldownReduction(const FGameplayAttributeData& OldV
 void UDFAttributeSet::OnRep_SpellDamageAmp(const FGameplayAttributeData& OldValue)
 {
 	GAMEPLAYATTRIBUTE_REPNOTIFY(UDFAttributeSet, SpellDamageAmp, OldValue);
+}
+void UDFAttributeSet::OnRep_StatusResist(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UDFAttributeSet, StatusResist, OldValue);
+}
+void UDFAttributeSet::OnRep_Lifesteal(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UDFAttributeSet, Lifesteal, OldValue);
+}
+void UDFAttributeSet::OnRep_SpellVamp(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UDFAttributeSet, SpellVamp, OldValue);
+}
+void UDFAttributeSet::OnRep_DodgeChance(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UDFAttributeSet, DodgeChance, OldValue);
+}
+void UDFAttributeSet::OnRep_BlockChance(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UDFAttributeSet, BlockChance, OldValue);
 }
 void UDFAttributeSet::OnRep_MovementSpeedMultiplier(const FGameplayAttributeData& OldValue)
 {

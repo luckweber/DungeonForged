@@ -1,6 +1,8 @@
 // Source/DungeonForged/Private/Combat/DFFrostBoltProjectile.cpp
 #include "Combat/DFFrostBoltProjectile.h"
+#include "Combat/UDFProjectileHitTrackerComponent.h"
 #include "AbilitySystemBlueprintLibrary.h"
+#include "FX/UDFCombatFeedbackLibrary.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "GAS/Effects/UGE_CrowdControl_Freeze.h"
@@ -26,6 +28,7 @@ ADFFrostBoltProjectile::ADFFrostBoltProjectile()
 	CollisionSphere->SetCanEverAffectNavigation(false);
 	RootComponent = CollisionSphere;
 	CollisionSphere->OnComponentHit.AddDynamic(this, &ADFFrostBoltProjectile::OnHit);
+	HitTracker = CreateDefaultSubobject<UDFProjectileHitTrackerComponent>(TEXT("HitTracker"));
 
 	ProjectileMove = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("ProjectileMove"));
 	ProjectileMove->bRotationFollowsVelocity = true;
@@ -63,6 +66,11 @@ void ADFFrostBoltProjectile::OnHit(UPrimitiveComponent* HitComponent, AActor* Ot
 		}
 		return;
 	}
+	if (HitTracker && !HitTracker->TryRegisterHit(Other))
+	{
+		Destroy();
+		return;
+	}
 	ApplyFrostTo(Other, Hit);
 	Destroy();
 }
@@ -93,7 +101,10 @@ void ADFFrostBoltProjectile::ApplyFrostTo(AActor* Target, const FHitResult& InHi
 		{
 			Spec.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Damage, Sbc);
 		}
+		UDFCombatFeedbackLibrary::MarkSpecCombatFeedbackCentralized(*Spec.Data.Get());
 		SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data, TargetASC);
+		UDFCombatFeedbackLibrary::DispatchProjectileHitConfirmed(
+			this, Inst, Target, InHit, Sbc, 0.f, FDFGameplayTags::Effect_Element_Ice);
 	}
 	const bool bHasFrostDoT = FDFGameplayTags::Effect_DoT_Frost.IsValid() && TargetASC->HasMatchingGameplayTag(FDFGameplayTags::Effect_DoT_Frost);
 	if (bHasFrostDoT && FreezeEffect)

@@ -126,4 +126,7 @@ protected:
 	/** Clamps UserArmOffset so (BlendedStateArm + UserArmOffset) lies in [MinZoom,MaxZoom]. */
 	void ClampUserArmOffset();
 	FVector GetTargetSocketOffsetForState() const;
+
+	/** Aim point for lock-on with airborne Z correction (B10). */
+	FVector ResolveLockOnAimPoint(const AActor* Target, const APawn* Viewer) const;
 };

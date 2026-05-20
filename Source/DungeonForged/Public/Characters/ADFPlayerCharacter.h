@@ -226,6 +226,18 @@ public:
 	UFUNCTION(Client, Unreliable)
 	void Client_HitFeedback(EDFHitFeedbackBand Band, float DamagePercent, AActor* InstigatorActor);
 
+	/** Attacker-only feel on remote clients (hit-stop + shake + impact VFX from tuning data). */
+	UFUNCTION(Client, Unreliable)
+	void Client_OnAttackHitConfirmed(const FDFHitConfirmedContext& Context);
+
+	/** Local combat spectacle (last kill / room clear). */
+	UFUNCTION(Client, Unreliable)
+	void Client_PlayCombatSpectacle(bool bRoomClear);
+
+	/** Server rejected a predicted ability activation — stop local montage (G7/N3). */
+	UFUNCTION(Client, Unreliable)
+	void Client_NotifyAbilityActivationRejected(TSubclassOf<class UGameplayAbility> AbilityClass);
+
 	/** Server-triggered swing/impact FX for melee (same pattern as ADFEnemyBase::Multicast_PlayEnemyCosmeticCue). */
 	UFUNCTION(NetMulticast, Unreliable, Category = "DF|Combat|FX")
 	void Multicast_PlayMeleeCosmeticCue(

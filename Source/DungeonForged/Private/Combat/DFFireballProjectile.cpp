@@ -1,8 +1,10 @@
 // Source/DungeonForged/Private/Combat/DFFireballProjectile.cpp
 #include "Combat/DFFireballProjectile.h"
+#include "Combat/UDFProjectileHitTrackerComponent.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
+#include "FX/UDFCombatFeedbackLibrary.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Components/SphereComponent.h"
@@ -26,6 +28,7 @@ ADFFireballProjectile::ADFFireballProjectile()
 	CollisionSphere->SetGenerateOverlapEvents(false);
 	RootComponent = CollisionSphere;
 	CollisionSphere->OnComponentHit.AddDynamic(this, &ADFFireballProjectile::OnHit);
+	HitTracker = CreateDefaultSubobject<UDFProjectileHitTrackerComponent>(TEXT("HitTracker"));
 
 	ProjectileMove = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("ProjectileMove"));
 	ProjectileMove->bRotationFollowsVelocity = true;
@@ -51,6 +54,11 @@ void ADFFireballProjectile::OnHit(UPrimitiveComponent* HitComponent, AActor* Oth
 		{
 			Destroy();
 		}
+		return;
+	}
+	if (HitTracker && !HitTracker->TryRegisterHit(Other))
+	{
+		Destroy();
 		return;
 	}
 	ApplyFireDamageTo(Other, Hit);
@@ -95,7 +103,14 @@ void ADFFireballProjectile::ApplyFireDamageTo(AActor* Target, const FHitResult& 
 		{
 			Spec.Data->SetSetByCallerMagnitude(DataTag, SetByCallerMagnitude);
 		}
+		if (FDFGameplayTags::Effect_Element_Fire.IsValid())
+		{
+			Spec.Data->AddDynamicAssetTag(FDFGameplayTags::Effect_Element_Fire);
+		}
+		UDFCombatFeedbackLibrary::MarkSpecCombatFeedbackCentralized(*Spec.Data.Get());
 		SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data, TargetASC);
+		UDFCombatFeedbackLibrary::DispatchProjectileHitConfirmed(
+			this, Inst, Target, Hit, SetByCallerMagnitude, 0.f, FDFGameplayTags::Effect_Element_Fire);
 	}
 	if (FireDoTEffect)
 	{

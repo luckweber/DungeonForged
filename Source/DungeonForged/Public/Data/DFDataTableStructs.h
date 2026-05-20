@@ -11,6 +11,7 @@
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimInstance.h"
+#include "Combat/DFMeleeTraceTypes.h"
 #include "NiagaraSystem.h"
 #include "GAS/UDFGameplayAbility.h"
 #include "Equipment/DFEquipmentTypes.h"
@@ -174,6 +175,14 @@ struct DUNGEONFORGED_API FDFComboStep
 	/** Played instead of @c LightMontage when the player holds primary during the combo window (heavy finisher branch). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
 	TObjectPtr<UAnimMontage> HeavyBranchMontage = nullptr;
+
+	/** Per-step chain blend-in (seconds). Negative = use @c UDFComboComponent::ComboChainMontageBlendInTime. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo", meta = (ClampMin = "-1.0"))
+	float ChainBlendInTime = -1.f;
+
+	/** Per-step chain blend-out (seconds). Negative = use component default. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo", meta = (ClampMin = "-1.0"))
+	float ChainBlendOutTime = -1.f;
 };
 
 /** Item definition row (e.g. DT_Items). */
@@ -270,6 +279,13 @@ struct DUNGEONFORGED_API FDFItemTableRow : public FTableRowBase
 	/** Overrides UDFMeleeTraceComponent::BaseDamage while equipped; leave 0 to use character defaults. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat", meta = (ClampMin = "0.0"))
 	float WeaponMeleeBaseDamage = 0.f;
+
+	/** When true, @c WeaponMeleeTraceShape overrides tuning-data weapon-tag lookup (B2). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat|Trace")
+	bool bOverrideMeleeTraceShape = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat|Trace", meta = (EditCondition = "bOverrideMeleeTraceShape"))
+	EDFMeleeTraceShape WeaponMeleeTraceShape = EDFMeleeTraceShape::Sphere;
 
 	/** Overrides melee damage gameplay effect subclass while equipped; null = revert to pawn defaults. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat")

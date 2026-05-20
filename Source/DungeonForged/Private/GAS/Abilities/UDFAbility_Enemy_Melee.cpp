@@ -19,6 +19,7 @@
 #include "Animation/AnimMontage.h"
 #include "Combat/DFCombatDebug.h"
 #include "DrawDebugHelpers.h"
+#include "FX/UDFCombatFeedbackLibrary.h"
 #include "DungeonForgedModule.h"
 #include "Engine/Engine.h"
 #include "Engine/OverlapResult.h"
@@ -470,14 +471,15 @@ void UDFAbility_Enemy_Melee::ApplyDamageToOverlappingTargets()
 				}
 				SourceASC->ApplyGameplayEffectSpecToTarget(*S.Data.Get(), TASC);
 				ApplyBonusOnHitEffects(SourceASC, TASC, Ctx);
-				if (UDFHitReactionComponent* const Hit = A->FindComponentByClass<UDFHitReactionComponent>())
-				{
-					FVector HitDir = A->GetActorLocation() - Char->GetActorLocation();
-					HitDir.Z = 0.f;
-					HitDir.Normalize();
-					const FVector HitLocation = A->GetActorLocation();
-					Hit->OnHitReceived(Dmg, 0.f, HitDir, Char, HitLocation, -HitDir.GetSafeNormal(), DamageSourceTag);
-				}
+				FVector HitDir = A->GetActorLocation() - Char->GetActorLocation();
+				HitDir.Z = 0.f;
+				HitDir.Normalize();
+				FHitResult HitResult;
+				HitResult.ImpactPoint = A->GetActorLocation();
+				HitResult.ImpactNormal = -HitDir.GetSafeNormal();
+				HitResult.bBlockingHit = true;
+				UDFCombatFeedbackLibrary::DispatchProjectileHitConfirmed(
+					this, Char, A, HitResult, Dmg, 0.f, DamageSourceTag);
 				PlayImpactCosmetics(Char, A->GetActorLocation(), Char->GetActorLocation() - A->GetActorLocation());
 				DamagedTargets.Add(A);
 			}

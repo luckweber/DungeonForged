@@ -41,6 +41,11 @@ void UANS_DFCancelWindow::NotifyBegin(USkeletalMeshComponent* const MeshComp,
 	{
 		return;
 	}
+	if (FDFGameplayTags::State_Combat_NoCancelFrames.IsValid()
+		&& ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Combat_NoCancelFrames))
+	{
+		return;
+	}
 	if (FDFGameplayTags::State_Combat_CancelWindow_Open.IsValid())
 	{
 		ASC->AddLooseGameplayTag(FDFGameplayTags::State_Combat_CancelWindow_Open);

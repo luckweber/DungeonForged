@@ -42,6 +42,28 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Stagger", meta = (ClampMin = "0.0"))
 	float StaggerCooldown = 4.5f;
 
+	/** Poise damage absorbed per second from the sliding window (B6). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Stagger", meta = (ClampMin = "0.0"))
+	float PoiseRegenPerSecond = 0.f;
+
+	/** After stagger, poise damage is multiplied by this for @c StaggerDRWindowSeconds (B5). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Stagger", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float StaggerDamageReduction = 0.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Stagger", meta = (ClampMin = "0.0"))
+	float StaggerDRWindowSeconds = 2.f;
+
+	/** Per-attack-tag poise damage multipliers (e.g. Charge = 3.0). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Stagger", meta = (Categories = "Ability"))
+	TMap<FGameplayTag, float> PoiseDamageMultipliers;
+
+	/** Set before applying damage so the next health drop uses this poise multiplier (B5). */
+	UFUNCTION(BlueprintCallable, Category = "DF|Stagger")
+	void SetNextPoiseDamageMultiplier(float Multiplier);
+
+	UFUNCTION(BlueprintCallable, Category = "DF|Stagger")
+	float ResolvePoiseMultiplierForTags(const FGameplayTagContainer& AttackTags) const;
+
 	/** GE applied on stagger trigger (typically @c UGE_Debuff_Stun). */
 	UPROPERTY(EditAnywhere, Category = "DF|Stagger|GAS")
 	TSubclassOf<UGameplayEffect> StaggerGameplayEffect;
@@ -76,6 +98,7 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 	void BindToAbilitySystem();
 	void HandleHealthChange(const FOnAttributeChangeData& Data);
@@ -91,6 +114,9 @@ private:
 
 	TArray<FStaggerHit> RecentHits;
 	double LastStaggerTime = -1.0;
+	float NextPoiseDamageMultiplier = 1.f;
+	float ActiveStaggerDR = 1.f;
+	double StaggerDRExpireTime = 0.0;
 	FDelegateHandle HealthChangeHandle;
 	TWeakObjectPtr<UAbilitySystemComponent> BoundASC;
 };

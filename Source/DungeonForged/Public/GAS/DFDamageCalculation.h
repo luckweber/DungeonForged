@@ -25,4 +25,6 @@ protected:
 	FGameplayEffectAttributeCaptureDefinition CritChanceCapture;
 	FGameplayEffectAttributeCaptureDefinition CritMultCapture;
 	FGameplayEffectAttributeCaptureDefinition SpellDamageAmpCapture;
+	FGameplayEffectAttributeCaptureDefinition DodgeChanceCapture;
+	FGameplayEffectAttributeCaptureDefinition BlockChanceCapture;
 };

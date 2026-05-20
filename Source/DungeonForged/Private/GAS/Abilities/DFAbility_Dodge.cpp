@@ -3,7 +3,9 @@
 
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
+#include "Characters/ADFPlayerCharacter.h"
 #include "Characters/UDFCharacterMovementComponent.h"
+#include "FX/UDFScreenEffectsComponent.h"
 #include "GAS/DFGameplayTags.h"
 #include "GameFramework/Character.h"
 
@@ -57,6 +59,14 @@ void UDFAbility_Dodge::ActivateAbility(
 	CMC->PerformDodge(DodgeDir);
 
 	const float D = FMath::Max(0.01f, CMC->DodgeDuration);
+
+	if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(Char))
+	{
+		if (PC->IsLocallyControlled() && PC->ScreenEffects)
+		{
+			PC->ScreenEffects->ApplyDodgeJuice(D);
+		}
+	}
 
 	if (DodgeMontage)
 	{

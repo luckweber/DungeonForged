@@ -25,6 +25,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|FX|Camera", meta = (WorldContext = "WorldContextObject"))
 	static void PlayBossSlamOnOwner(const UObject* WorldContextObject, APlayerController* PC);
 
+	/** Short staccato shake when a parry window is successfully punished (F4). */
+	UFUNCTION(BlueprintCallable, Category = "DF|FX|Camera", meta = (WorldContext = "WorldContextObject"))
+	static void PlayParrySuccessOnOwner(const UObject* WorldContextObject, APlayerController* PC);
+
 	/**
 	 * Radial falloff: scale matches UGameplayStatics::PlayWorldCameraShake (inner/outer in world units).
 	 */

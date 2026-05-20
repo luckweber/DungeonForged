@@ -44,6 +44,9 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "DF|Components")
 	TObjectPtr<UProjectileMovementComponent> ProjectileMove = nullptr;
 
+	UPROPERTY(VisibleAnywhere, Category = "DF|Components")
+	TObjectPtr<class UDFProjectileHitTrackerComponent> HitTracker = nullptr;
+
 protected:
 	virtual void BeginPlay() override;
 	UFUNCTION()

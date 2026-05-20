@@ -4,6 +4,7 @@
 #include "CoreMinimal.h"
 #include "Engine/EngineTypes.h"
 #include "Components/ActorComponent.h"
+#include "Combat/DFMeleeTraceTypes.h"
 #include "GameplayEffectTypes.h"
 #include "GameplayTagContainer.h"
 #include "UDFMeleeTraceComponent.generated.h"
@@ -64,6 +65,22 @@ public:
 	/** Swept sphere radius (cm). */
 	UPROPERTY(EditAnywhere, Category = "Combat|Trace", meta = (ClampMin = "0.0"))
 	float TraceRadius = 20.f;
+
+	/** Sub-steps between previous and current socket sample (B1). */
+	UPROPERTY(EditAnywhere, Category = "Combat|Trace", meta = (ClampMin = "1", ClampMax = "8"))
+	int32 TraceSubStepCount = 3;
+
+	/** Active sweep shape for this component (B2). */
+	UPROPERTY(EditAnywhere, Category = "Combat|Trace")
+	EDFMeleeTraceShape ActiveTraceShape = EDFMeleeTraceShape::Sphere;
+
+	/** Optional extra zones (shoulder/tip) swept each tick (B3). */
+	UPROPERTY(EditAnywhere, Category = "Combat|Trace")
+	TArray<FDFMeleeTraceZone> ExtraTraceZones;
+
+	/** Local-only predicted hit feel without applying damage (B9). */
+	UPROPERTY(EditAnywhere, Category = "Combat|Net")
+	bool bClientPredictHitFeel = true;
 
 	/**
 	 * If socket mid-point is farther than this from the owner, sockets are treated as stale
@@ -238,6 +255,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Debug")
 	FString GetMeleeTraceDiagnosticString() const;
 
+	/** Applies trace shape from item row + tuning weapon-tag map (B2). */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Trace")
+	void ApplyWeaponTraceProfile(const FGameplayTagContainer& WeaponTags, bool bUseItemOverride, EDFMeleeTraceShape ItemOverrideShape);
+
+	static EDFMeleeTraceShape ResolveMeleeTraceShape(
+		const FGameplayTagContainer& WeaponTags,
+		bool bUseItemOverride,
+		EDFMeleeTraceShape ItemOverrideShape,
+		const class UDFCombatTuningData* TuningData);
+
+	/** Marks outgoing specs so AttributeSet skips duplicate combat text (A1). */
+	static void MarkSpecForCentralizedCombatFeedback(FGameplayEffectSpec& Spec);
+
 protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void BeginPlay() override;
@@ -247,6 +277,13 @@ protected:
 
 	void ProcessHitResults(TArray<FHitResult>& Hits, UWorld* World);
 	bool TryMeleeOverlapFallback(UWorld* World, AActor* Owner, const FVector& Center, float Radius);
+
+	void PerformTraceBetween(const FVector& SegmentStart, const FVector& SegmentEnd, UWorld* World, bool bApplyDamage);
+	void RunClientPredictedHitFeel(const FVector& SegmentStart, const FVector& SegmentEnd, UWorld* World) const;
+	bool ResolveTraceZoneSegment(const FDFMeleeTraceZone& Zone, FVector& OutStart, FVector& OutEnd) const;
+	FCollisionShape BuildTraceShape(const FVector& SegmentStart, const FVector& SegmentEnd, float Radius) const;
+	void SweepSegment(const FVector& SegmentStart, const FVector& SegmentEnd, UWorld* World, AActor* Owner,
+		bool bApplyDamage, float RadiusOverride = -1.f);
 
 	FCollisionObjectQueryParams BuildMeleeTraceObjectQuery() const;
 	/** Returns false when no valid segment could be built. */
@@ -272,6 +309,10 @@ protected:
 	FVector LastTraceStartWS = FVector::ZeroVector;
 	FVector LastTraceEndWS = FVector::ZeroVector;
 	bool bHasLastTraceSegment = false;
+
+	FVector PreviousTraceStartWS = FVector::ZeroVector;
+	FVector PreviousTraceEndWS = FVector::ZeroVector;
+	bool bHasPreviousTraceSegment = false;
 
 	bool bLastTraceUsedFallbackSegment = false;
 

@@ -1,6 +1,9 @@
 // Source/DungeonForged/Private/Camera/UDFCameraComponent.cpp
 
 #include "Camera/UDFCameraComponent.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 
@@ -112,6 +115,34 @@ FVector UDFCameraComponent::GetTargetSocketOffsetForState() const
 	return DefaultSocketOffset;
 }
 
+FVector UDFCameraComponent::ResolveLockOnAimPoint(const AActor* Target, const APawn* Viewer) const
+{
+	if (!IsValid(Target))
+	{
+		return FVector::ZeroVector;
+	}
+	FVector Aim = Target->GetActorLocation();
+	if (const ACharacter* const Char = Cast<ACharacter>(Target))
+	{
+		if (const USkeletalMeshComponent* const Mesh = Char->GetMesh())
+		{
+			Aim = Mesh->GetComponentLocation() + FVector(0.f, 0.f, Mesh->Bounds.BoxExtent.Z * 0.65f);
+		}
+		if (const UCharacterMovementComponent* const CMC = Char->GetCharacterMovement())
+		{
+			if (!CMC->IsMovingOnGround())
+			{
+				Aim.Z += 45.f;
+			}
+		}
+	}
+	else if (Viewer)
+	{
+		Aim.Z = FMath::Max(Aim.Z, Viewer->GetActorLocation().Z + Viewer->BaseEyeHeight * 0.35f);
+	}
+	return Aim;
+}
+
 void UDFCameraComponent::OnZoomInput(float AxisValue)
 {
 	if (FMath::IsNearlyZero(AxisValue))
@@ -189,7 +220,7 @@ void UDFCameraComponent::UpdateLockOnRotation(float DeltaTime)
 		return;
 	}
 	const FVector From = OwnerPawn->GetPawnViewLocation();
-	const FVector To = Target->GetActorLocation() + FVector(0.f, 0.f, OwnerPawn->BaseEyeHeight * 0.5f);
+	const FVector To = ResolveLockOnAimPoint(Target, OwnerPawn);
 	const FRotator LookAt = (To - From).Rotation();
 
 	FRotator Control = PC->GetControlRotation();

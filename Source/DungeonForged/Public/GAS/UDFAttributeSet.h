@@ -115,6 +115,27 @@ public:
 	FGameplayAttributeData SpellDamageAmp;
 	ATTRIBUTE_ACCESSORS(UDFAttributeSet, SpellDamageAmp)
 
+	/** Diminishing returns on CC duration (0 = full duration, 0.5 = half duration). */
+	UPROPERTY(BlueprintReadOnly, Category = "DF|Attributes|Secondary", ReplicatedUsing = OnRep_StatusResist)
+	FGameplayAttributeData StatusResist;
+	ATTRIBUTE_ACCESSORS(UDFAttributeSet, StatusResist)
+
+	UPROPERTY(BlueprintReadOnly, Category = "DF|Attributes|Secondary", ReplicatedUsing = OnRep_Lifesteal)
+	FGameplayAttributeData Lifesteal;
+	ATTRIBUTE_ACCESSORS(UDFAttributeSet, Lifesteal)
+
+	UPROPERTY(BlueprintReadOnly, Category = "DF|Attributes|Secondary", ReplicatedUsing = OnRep_SpellVamp)
+	FGameplayAttributeData SpellVamp;
+	ATTRIBUTE_ACCESSORS(UDFAttributeSet, SpellVamp)
+
+	UPROPERTY(BlueprintReadOnly, Category = "DF|Attributes|Secondary", ReplicatedUsing = OnRep_DodgeChance)
+	FGameplayAttributeData DodgeChance;
+	ATTRIBUTE_ACCESSORS(UDFAttributeSet, DodgeChance)
+
+	UPROPERTY(BlueprintReadOnly, Category = "DF|Attributes|Secondary", ReplicatedUsing = OnRep_BlockChance)
+	FGameplayAttributeData BlockChance;
+	ATTRIBUTE_ACCESSORS(UDFAttributeSet, BlockChance)
+
 	UPROPERTY(BlueprintReadOnly, Category = "DF|Attributes|Movement", ReplicatedUsing = OnRep_MovementSpeedMultiplier)
 	FGameplayAttributeData MovementSpeedMultiplier;
 	ATTRIBUTE_ACCESSORS(UDFAttributeSet, MovementSpeedMultiplier)
@@ -163,6 +184,16 @@ protected:
 	void OnRep_CooldownReduction(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
 	void OnRep_SpellDamageAmp(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_StatusResist(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_Lifesteal(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_SpellVamp(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_DodgeChance(const FGameplayAttributeData& OldValue);
+	UFUNCTION()
+	void OnRep_BlockChance(const FGameplayAttributeData& OldValue);
 	UFUNCTION()
 	void OnRep_MovementSpeedMultiplier(const FGameplayAttributeData& OldValue);
 	UFUNCTION()

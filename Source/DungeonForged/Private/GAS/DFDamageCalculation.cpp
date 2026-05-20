@@ -16,6 +16,8 @@ UDFDamageCalculation::UDFDamageCalculation()
 	, CritChanceCapture(UDFAttributeSet::GetCritChanceAttribute(), EGameplayEffectAttributeCaptureSource::Source, true)
 	, CritMultCapture(UDFAttributeSet::GetCritMultiplierAttribute(), EGameplayEffectAttributeCaptureSource::Source, true)
 	, SpellDamageAmpCapture(UDFAttributeSet::GetSpellDamageAmpAttribute(), EGameplayEffectAttributeCaptureSource::Source, true)
+	, DodgeChanceCapture(UDFAttributeSet::GetDodgeChanceAttribute(), EGameplayEffectAttributeCaptureSource::Target, true)
+	, BlockChanceCapture(UDFAttributeSet::GetBlockChanceAttribute(), EGameplayEffectAttributeCaptureSource::Target, true)
 {
 	RelevantAttributesToCapture.Add(IntelligenceCapture);
 	RelevantAttributesToCapture.Add(StrengthCapture);
@@ -24,6 +26,8 @@ UDFDamageCalculation::UDFDamageCalculation()
 	RelevantAttributesToCapture.Add(CritChanceCapture);
 	RelevantAttributesToCapture.Add(CritMultCapture);
 	RelevantAttributesToCapture.Add(SpellDamageAmpCapture);
+	RelevantAttributesToCapture.Add(DodgeChanceCapture);
+	RelevantAttributesToCapture.Add(BlockChanceCapture);
 }
 
 void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExecutionParameters& ExecutionParams,
@@ -61,6 +65,18 @@ void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExe
 	float SpellAmp = 0.f;
 	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(SpellDamageAmpCapture, EvalParams, SpellAmp);
 
+	float Dodge = 0.f;
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(DodgeChanceCapture, EvalParams, Dodge);
+
+	float Block = 0.f;
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(BlockChanceCapture, EvalParams, Block);
+
+	const float DodgeEff = FMath::Clamp(Dodge, 0.f, 0.75f);
+	if (DodgeEff > KINDA_SMALL_NUMBER && FMath::FRand() < DodgeEff)
+	{
+		return;
+	}
+
 	const FGameplayTag DataDamageTag = FDFGameplayTags::ResolveDataDamageTag();
 	const float SetByCallerBase = DataDamageTag.IsValid()
 		? Spec.GetSetByCallerMagnitude(DataDamageTag, false, 0.f)
@@ -88,6 +104,12 @@ void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExe
 		PreMitigation = (SetByCallerBase + Intel * 0.5f) * (1.f - FMath::Clamp(MR, 0.f, 100.f) / 100.f);
 	}
 	PreMitigation = FMath::Max(0.f, PreMitigation);
+
+	if (FDFGameplayTags::State_Combat_Block.IsValid()
+		&& TargetASC->HasMatchingGameplayTag(FDFGameplayTags::State_Combat_Block))
+	{
+		PreMitigation *= (1.f - FMath::Clamp(Block, 0.f, 0.75f));
+	}
 
 	if (FDFGameplayTags::State_BossVulnerable.IsValid()
 		&& TargetASC->HasMatchingGameplayTag(FDFGameplayTags::State_BossVulnerable))

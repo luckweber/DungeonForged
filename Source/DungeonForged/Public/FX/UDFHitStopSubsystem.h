@@ -2,6 +2,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "FX/UDFCombatFeedbackTypes.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "UDFHitStopSubsystem.generated.h"
 
@@ -20,6 +21,22 @@ public:
 	virtual TStatId GetStatId() const override;
 	virtual void Tick(float DeltaTime) override;
 	virtual void Deinitialize() override;
+
+	/** Global time dilation "hit stop" with optional actor exclusion (CustomTimeDilation = 1/EffectiveGlobal). */
+	UFUNCTION(BlueprintPure, Category = "DF|FX|HitStop")
+	bool IsHitStopActive() const { return bInHitStop; }
+
+	/** Alias used by combo buffer pause (C2). */
+	UFUNCTION(BlueprintPure, Category = "DF|FX|HitStop")
+	bool IsCurrentlyDilated() const { return bInHitStop; }
+
+	/** Wall-clock seconds remaining in the active hit-stop window (F9 sync). */
+	UFUNCTION(BlueprintPure, Category = "DF|FX|HitStop")
+	float GetHitStopRemainingSeconds() const;
+
+	/** Scales duration within the band using @a MagnitudeFactor (0.5–1.5 typical). */
+	UFUNCTION(BlueprintCallable, Category = "DF|FX|HitStop")
+	void PlayBand(EDFHitFeedbackBand Band, AActor* ExcludeActor = nullptr, float MagnitudeFactor = 1.f);
 
 	/** @param TimeDilation Global time dilation; values near 0 are clamped for engine/tickability. */
 	UFUNCTION(BlueprintCallable, Category = "DF|FX|HitStop")

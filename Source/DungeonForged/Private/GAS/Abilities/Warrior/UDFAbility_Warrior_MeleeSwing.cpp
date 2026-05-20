@@ -155,7 +155,7 @@ void UDFAbility_Warrior_MeleeSwing::ActivateAbility(const FGameplayAbilitySpecHa
 	}
 
 	const bool bChainSwing = ComboStep > 0;
-	const float ChainBlendIn = Combo ? Combo->ComboChainMontageBlendInTime : 0.08f;
+	const float ChainBlendIn = Combo ? Combo->ResolveChainBlendInForStep(ComboStep) : 0.08f;
 
 	UAnimInstance* AnimInst = nullptr;
 	if (ACharacter* const Char = Cast<ACharacter>(GetAvatarActorFromActorInfo()))

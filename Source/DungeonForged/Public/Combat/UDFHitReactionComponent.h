@@ -116,6 +116,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Combat|VFX|DamageSource", meta = (Categories = "Damage.Source"))
 	TMap<FGameplayTag, TObjectPtr<UNiagaraSystem>> DamageSourceHitImpactNiagara;
 
+	/** Optional per-bone hit montage overrides (B4). */
+	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|BodyPart")
+	TMap<FName, TObjectPtr<UAnimMontage>> BoneHitMontages;
+
 	UFUNCTION(BlueprintCallable, Category = "Combat|HitReaction")
 	void OnHitReceived(
 		float DamageAmount,
@@ -124,7 +128,8 @@ public:
 		AActor* Instigator,
 		FVector HitLocation = FVector::ZeroVector,
 		FVector HitNormal = FVector::UpVector,
-		FGameplayTag DamageSourceTag = FGameplayTag());
+		FGameplayTag DamageSourceTag = FGameplayTag(),
+		FName HitBoneName = NAME_None);
 
 	UFUNCTION(BlueprintCallable, Category = "Combat|HitReaction")
 	void PlayHitReaction(UAnimMontage* Montage, float PlayRate = 1.f);
@@ -144,7 +149,8 @@ protected:
 		bool bIsKnockback,
 		const FVector& HitDirection2D,
 		AActor* Instigator,
-		FGameplayTag DamageSourceTag) const;
+		FGameplayTag DamageSourceTag,
+		FName HitBoneName = NAME_None) const;
 
 	static UAnimMontage* PickDirectionalMontage(
 		const ACharacter* Victim,

@@ -7,6 +7,8 @@
 #include "UI/Minimap/ADFMinimapRoom.h"
 #include "Characters/ADFPlayerState.h"
 #include "Characters/ADFEnemyBase.h"
+#include "Characters/ADFPlayerCharacter.h"
+#include "Combat/UDFCombatStateLibrary.h"
 #include "UI/UDFAbilitySelectionSubsystem.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
@@ -653,7 +655,25 @@ void UDFDungeonManager::OnEnemyKilled(AActor* Enemy)
 		return;
 	}
 	OnRunEnemyKilled.Broadcast(Enemy);
+	const bool bWasLastEnemy = (EnemiesRemaining <= 1);
 	UnregisterEnemy(Enemy);
+	if (bWasLastEnemy)
+	{
+		UDFCombatStateLibrary::NotifyRoomCleared(GetWorld(), false);
+		if (UWorld* const W = GetWorld())
+		{
+			for (FConstPlayerControllerIterator It = W->GetPlayerControllerIterator(); It; ++It)
+			{
+				if (APlayerController* const PC = It->Get())
+				{
+					if (ADFPlayerCharacter* const Ch = Cast<ADFPlayerCharacter>(PC->GetPawn()))
+					{
+						Ch->Client_PlayCombatSpectacle(false);
+					}
+				}
+			}
+		}
+	}
 	if (EnemiesRemaining <= 0)
 	{
 		PerformFloorCleared();
@@ -681,6 +701,20 @@ void UDFDungeonManager::PerformFloorCleared()
 	bFloorCleared = true;
 	OnFloorCleared_OpenExitAndLoot_Implementation();
 	OnFloorCleared.Broadcast();
+	UDFCombatStateLibrary::NotifyRoomCleared(GetWorld(), true);
+	if (UWorld* const W = GetWorld())
+	{
+		for (FConstPlayerControllerIterator It = W->GetPlayerControllerIterator(); It; ++It)
+		{
+			if (APlayerController* const PC = It->Get())
+			{
+				if (ADFPlayerCharacter* const Ch = Cast<ADFPlayerCharacter>(PC->GetPawn()))
+				{
+					Ch->Client_PlayCombatSpectacle(true);
+				}
+			}
+		}
+	}
 
 	// Server-only: roll 1-of-3 and send the same set to all clients. Empty pool → next floor, no UI.
 	if (UWorld* const W = GetWorld())

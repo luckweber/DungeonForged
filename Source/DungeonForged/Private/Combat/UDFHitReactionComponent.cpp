@@ -34,7 +34,8 @@ void UDFHitReactionComponent::OnHitReceived(
 	AActor* const Instigator,
 	const FVector HitLocation,
 	const FVector HitNormal,
-	const FGameplayTag DamageSourceTag)
+	const FGameplayTag DamageSourceTag,
+	const FName HitBoneName)
 {
 	if (!GetOwner() || !GetOwner()->HasAuthority())
 	{
@@ -68,7 +69,7 @@ void UDFHitReactionComponent::OnHitReceived(
 		}
 	}
 
-	if (UAnimMontage* const ReactionMontage = ResolveHitMontage(DamageAmount, bIsKnockback, Dir, Instigator, DamageSourceTag))
+	if (UAnimMontage* const ReactionMontage = ResolveHitMontage(DamageAmount, bIsKnockback, Dir, Instigator, DamageSourceTag, HitBoneName))
 	{
 		PlayHitReaction(ReactionMontage, 1.f);
 	}
@@ -191,8 +192,19 @@ UAnimMontage* UDFHitReactionComponent::ResolveHitMontage(
 	const bool bIsKnockback,
 	const FVector& HitDirection2D,
 	AActor* const Instigator,
-	const FGameplayTag DamageSourceTag) const
+	const FGameplayTag DamageSourceTag,
+	const FName HitBoneName) const
 {
+	if (HitBoneName != NAME_None)
+	{
+		if (const TObjectPtr<UAnimMontage>* const BoneMontage = BoneHitMontages.Find(HitBoneName))
+		{
+			if (*BoneMontage)
+			{
+				return BoneMontage->Get();
+			}
+		}
+	}
 	if (DamageSourceTag.IsValid())
 	{
 		if (const TObjectPtr<UAnimMontage>* const Found = DamageSourceHitMontages.Find(DamageSourceTag))

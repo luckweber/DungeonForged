@@ -53,6 +53,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|FX|Screen|Combat")
 	void ApplyHitFromCombat(EDFHitFeedbackBand Band, float DamagePercent, AActor* InstigatorActor, APlayerController* PC);
 
+	UFUNCTION(BlueprintCallable, Category = "DF|FX|Screen|Dodge")
+	void ApplyDodgeJuice(float Duration = 0.35f);
+
+	UFUNCTION(BlueprintCallable, Category = "DF|FX|Screen|Spectacle")
+	void ApplyKillSpectacle();
+
+	UFUNCTION(BlueprintCallable, Category = "DF|FX|Screen|Spectacle")
+	void ApplyRoomClearSpectacle();
+
 	UFUNCTION(BlueprintCallable, Category = "DF|FX|Screen")
 	void FlashScreen(FLinearColor Color, float Duration, float Intensity);
 
@@ -107,4 +116,18 @@ protected:
 	float HealEffectDuration = 0.5f;
 
 	float BaseFOV = 90.f;
+
+	bool bDodgeFOVActive = false;
+	float DodgeFOVElapsed = 0.f;
+	float DodgeFOVDuration = 0.35f;
+
+	float SpectacleBloomBoost = 0.f;
+	float SpectacleBloomTimeRemaining = 0.f;
+	float SpectacleFOVTarget = 0.f;
+	bool bSpectacleFOVActive = false;
+	float SpectacleFOVElapsed = 0.f;
+	float SpectacleFOVDuration = 0.f;
+
+	float HitVignetteTimeRemaining = 0.f;
+	float HitVignetteDuration = 0.f;
 };

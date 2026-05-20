@@ -30,6 +30,14 @@ public:
 };
 
 UCLASS()
+class DUNGEONFORGED_API UDFCameraShake_ParrySuccess : public ULegacyCameraShake
+{
+	GENERATED_BODY()
+public:
+	UDFCameraShake_ParrySuccess();
+};
+
+UCLASS()
 class DUNGEONFORGED_API UDFCameraShake_Explosion : public ULegacyCameraShake
 {
 	GENERATED_BODY()

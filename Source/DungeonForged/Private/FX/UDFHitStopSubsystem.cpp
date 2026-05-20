@@ -2,6 +2,7 @@
 #include "FX/UDFHitStopSubsystem.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "FX/UDFCombatFeedbackTypes.h"
 #include "GameFramework/Actor.h"
 #include "HAL/PlatformTime.h"
 #include "Kismet/GameplayStatics.h"
@@ -40,6 +41,34 @@ void UDFHitStopSubsystem::Deinitialize()
 {
 	EndHitStop();
 	Super::Deinitialize();
+}
+
+void UDFHitStopSubsystem::PlayBand(
+	const EDFHitFeedbackBand Band,
+	AActor* const ExcludeActor,
+	const float MagnitudeFactor)
+{
+	float Duration = 0.06f;
+	float Dilation = 0.05f;
+	switch (Band)
+	{
+	case EDFHitFeedbackBand::Heavy:
+		Duration = 0.10f;
+		Dilation = 0.02f;
+		break;
+	case EDFHitFeedbackBand::Critical:
+		Duration = 0.14f;
+		Dilation = 0.01f;
+		break;
+	case EDFHitFeedbackBand::Knockback:
+		Duration = 0.20f;
+		Dilation = 0.0f;
+		break;
+	default:
+		break;
+	}
+	const float Factor = FMath::Clamp(MagnitudeFactor, 0.5f, 1.5f);
+	TriggerHitStop(Duration * Factor, Dilation, ExcludeActor);
 }
 
 void UDFHitStopSubsystem::SetExcludedActorDilation(AActor* const ExcludeActor, const float GlobalDilation)
@@ -117,4 +146,13 @@ void UDFHitStopSubsystem::EndHitStop()
 		UGameplayStatics::SetGlobalTimeDilation(W, 1.f);
 	}
 	bInHitStop = false;
+}
+
+float UDFHitStopSubsystem::GetHitStopRemainingSeconds() const
+{
+	if (!bInHitStop)
+	{
+		return 0.f;
+	}
+	return static_cast<float>(FMath::Max(0.0, HitStopEndRealTime - FPlatformTime::Seconds()));
 }

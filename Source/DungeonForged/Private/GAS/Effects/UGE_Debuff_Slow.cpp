@@ -3,7 +3,9 @@
 #include "GAS/DFGameplayTags.h"
 #include "GAS/Effects/UDFMMC_SlowMagnitude.h"
 #include "GAS/UDFAttributeSet.h"
+#include "GAS/UDFGEComponent_StatusResistDuration.h"
 #include "GameplayEffect.h"
+#include "GameplayEffectComponents/AssetTagsGameplayEffectComponent.h"
 #include "GameplayEffectComponents/TargetTagsGameplayEffectComponent.h"
 
 UGE_Debuff_Slow::UGE_Debuff_Slow()
@@ -26,8 +28,14 @@ UGE_Debuff_Slow::UGE_Debuff_Slow()
 
 void UGE_Debuff_Slow::ConfigureEffectCDO()
 {
+	UAssetTagsGameplayEffectComponent& AssetTags = FindOrAddComponent<UAssetTagsGameplayEffectComponent>();
+	FInheritedTagContainer AssetTagChanges;
+	AssetTagChanges.AddTag(FDFGameplayTags::Effect_CrowdControl);
+	AssetTags.SetAndApplyAssetTagChanges(AssetTagChanges);
+
 	UTargetTagsGameplayEffectComponent& Grant = FindOrAddComponent<UTargetTagsGameplayEffectComponent>();
 	FInheritedTagContainer Gr;
 	Gr.AddTag(FDFGameplayTags::Effect_Debuff_Slow);
 	Grant.SetAndApplyTargetTagChanges(Gr);
+	FindOrAddComponent<UDFGEComponent_StatusResistDuration>();
 }

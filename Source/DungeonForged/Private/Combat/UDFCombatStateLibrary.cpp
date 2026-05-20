@@ -40,6 +40,20 @@ void RemoveCombatTag(AActor* Actor)
 }
 } // namespace
 
+static FOnDFRoomCleared GOnDFRoomCleared;
+
+FOnDFRoomCleared& UDFCombatStateLibrary::GetOnRoomClearedDelegate()
+{
+	return GOnDFRoomCleared;
+}
+
+void UDFCombatStateLibrary::NotifyRoomCleared(UObject* const WorldContextObject, const bool bFloorCleared)
+{
+	(void)WorldContextObject;
+	(void)bFloorCleared;
+	GOnDFRoomCleared.Broadcast();
+}
+
 float UDFCombatStateLibrary::GetCombatExitDelay(const UObject* WorldContextObject)
 {
 	(void)WorldContextObject;

@@ -4,6 +4,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Data/DFDataTableStructs.h"
+#include "GameplayTagContainer.h"
 #include "UDFComboComponent.generated.h"
 
 class UAnimMontage;
@@ -35,14 +36,14 @@ public:
 	bool bComboWindowActive = false;
 
 	/** True while the next combo step GA is activating (prevents ResetCombo on the previous swing end). */
-	UPROPERTY(BlueprintReadOnly, Category = "Combat|Combo")
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Combat|Combo")
 	bool bComboChainAdvancePending = false;
 
 	/**
 	 * Step locked for the next GA activation (survives ResetCombo / PrimeMeleeSwing / OnMontageEnd races).
 	 * -1 = use @c CurrentComboStep.
 	 */
-	UPROPERTY(BlueprintReadOnly, Category = "Combat|Combo")
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Combat|Combo")
 	int32 LockedComboActivationStep = -1;
 
 	/** @deprecated display / server sync mirror; use @c LockedComboActivationStep for activation. */
@@ -81,7 +82,7 @@ public:
 	TObjectPtr<UAnimMontage> HeavyChargeReleaseMontage;
 
 	/** True when the next combo step should use @c FDFComboStep::HeavyBranchMontage instead of light. */
-	UPROPERTY(BlueprintReadOnly, Category = "Combat|Combo")
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Combat|Combo")
 	bool bComboHeavyFinisherPending = false;
 
 	/**
@@ -133,7 +134,11 @@ public:
 
 	/** Queues a light attack if pressed during the last moments of a swing montage. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo", meta = (ClampMin = "0.0"))
-	float AttackInputBufferDuration = 0.15f;
+	float AttackInputBufferDuration = 0.20f;
+
+	/** Extends an open combo window when a melee swing confirms a hit (seconds). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo", meta = (ClampMin = "0.0"))
+	float ComboRefreshOnHitExtension = 0.30f;
 
 	/** If null, uses equipped-weapon override or first combo montage. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Heavy")
@@ -229,10 +234,36 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
 	int32 GetEffectiveMaxComboSteps() const;
 
+	/** Extends the active combo window after a confirmed hit (defaults to @c ComboRefreshOnHitExtension). */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
+	void NotifyOwnerHitConfirmed(float ExtensionSeconds = -1.f);
+
+	/** Opens a tag-filtered window where other abilities may cancel in (see @c UANS_DFAbilityCancelWindow). */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Cancel")
+	void SetAbilityCancelWindow(const FGameplayTagContainer& AllowedCancelTags);
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Cancel")
+	void ClearAbilityCancelWindow();
+
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Cancel")
+	bool IsAbilityCancelWindowActive() const { return bAbilityCancelWindowActive; }
+
+	/** True when @a AbilityTags overlap @c AllowedAbilityCancelTags during an open cancel window. */
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Cancel")
+	bool IsAbilityCancellable(const FGameplayTagContainer& AbilityTags) const;
+
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
+	float ResolveChainBlendInForStep(int32 Step) const;
+
+	/** Sends finisher QTE input when Execute is active; tries Execute when FinisherReady. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Finisher")
+	bool TryHandleFinisherPrimaryInput();
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	UFUNCTION()
 	void OnComboWindowTimerExpired();
@@ -262,14 +293,19 @@ protected:
 	float ComboBranchPressTime = -1.f;
 	bool bSwingInputBuffered = false;
 	float SwingInputBufferExpireTime = -1.f;
+	float ComboWindowExpireTime = -1.f;
 	bool bPlayingChargeWindup = false;
 	bool bPendingChargeReleaseMontage = false;
+	bool bAbilityCancelWindowActive = false;
+	FGameplayTagContainer AllowedAbilityCancelTags;
 	void ApplyCombatTuningFromDataAsset();
 	void BufferComboInputAndTryAdvance();
 	void DrawCombatDebug() const;
 	void StartChargeWindupMontage();
 	void StopChargeWindupMontage();
 	void TryAdvanceComboBranchFromHold();
+	bool IsInputBufferExpired(float ExpireGameTime) const;
+	void ArmComboWindowTimer();
 	/** Stops the previous swing montage and clears end delegates before a GAS combo chain step. */
 	void PrepareForComboChainActivation();
 

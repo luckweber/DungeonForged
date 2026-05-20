@@ -40,6 +40,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DF|VFX")
 	TObjectPtr<class UNiagaraSystem> TrailNiagara = nullptr;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Components")
+	TObjectPtr<class UDFProjectileHitTrackerComponent> HitTracker = nullptr;
+
 	virtual void BeginPlay() override;
 
 protected:

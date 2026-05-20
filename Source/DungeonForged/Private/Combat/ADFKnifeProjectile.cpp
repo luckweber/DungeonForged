@@ -1,9 +1,11 @@
 // Source/DungeonForged/Private/Combat/ADFKnifeProjectile.cpp
 #include "Combat/ADFKnifeProjectile.h"
+#include "Combat/UDFProjectileHitTrackerComponent.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/DFRogueGAS.h"
 #include "GAS/Effects/UGE_Damage_Physical.h"
 #include "GAS/Effects/UGE_DoT_Poison.h"
+#include "FX/UDFCombatFeedbackLibrary.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "Components/SphereComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
@@ -31,6 +33,7 @@ ADFKnifeProjectile::ADFKnifeProjectile()
 	Move->bIsHomingProjectile = false;
 	Move->ProjectileGravityScale = 0.f;
 	Collision->OnComponentHit.AddDynamic(this, &ADFKnifeProjectile::OnHit);
+	HitTracker = CreateDefaultSubobject<UDFProjectileHitTrackerComponent>(TEXT("HitTracker"));
 	PhysicalDamageEffect = UGE_Damage_Physical::StaticClass();
 	PoisonEffect = UGE_DoT_Poison::StaticClass();
 }
@@ -69,8 +72,17 @@ void ADFKnifeProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* Other, UPri
 		}
 		return;
 	}
+	if (HitTracker && !HitTracker->TryRegisterHit(Other))
+	{
+		if (bDestroyOnHit)
+		{
+			Destroy();
+		}
+		return;
+	}
 	UAbilitySystemComponent* const Src = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Inst);
 	UAbilitySystemComponent* const Tgt = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Other);
+	float AppliedDamage = 0.f;
 	if (Src && Tgt && PhysicalDamageEffect)
 	{
 		const float Pre = DF_Rogue_CompensatePhysicalSetBy(Src, PhysicalHitDamage);
@@ -79,7 +91,13 @@ void ADFKnifeProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* Other, UPri
 		if (S.IsValid() && S.Data && FDFGameplayTags::Data_Damage.IsValid())
 		{
 			S.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Damage, Pre);
+			if (FDFGameplayTags::Damage_Source_Pierce.IsValid())
+			{
+				S.Data->AddDynamicAssetTag(FDFGameplayTags::Damage_Source_Pierce);
+			}
+			UDFCombatFeedbackLibrary::MarkSpecCombatFeedbackCentralized(*S.Data.Get());
 			Src->ApplyGameplayEffectSpecToTarget(*S.Data, Tgt);
+			AppliedDamage = Pre;
 		}
 	}
 	if (Src && Tgt && PoisonEffect && FDFGameplayTags::Data_Duration.IsValid() && FDFGameplayTags::Data_Damage.IsValid())
@@ -92,6 +110,17 @@ void ADFKnifeProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* Other, UPri
 			S.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Damage, FMath::Max(1.f, PoisonMagnitude));
 			Src->ApplyGameplayEffectSpecToTarget(*S.Data, Tgt);
 		}
+	}
+	if (AppliedDamage > KINDA_SMALL_NUMBER)
+	{
+		UDFCombatFeedbackLibrary::DispatchProjectileHitConfirmed(
+			this,
+			Inst,
+			Other,
+			Hit,
+			AppliedDamage,
+			0.f,
+			FDFGameplayTags::Damage_Source_Pierce);
 	}
 	if (UWorld* const W = GetWorld())
 	{

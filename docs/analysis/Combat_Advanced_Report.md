@@ -1,24 +1,43 @@
 # DungeonForged — Relatório Avançado do Sistema de Combate
 
-> **Data:** 2026-05-20
+> **Data:** 2026-05-20 · **Status atualizado:** 2026-05-18
 > **Escopo:** auditoria técnica profunda de combate, combos, habilidades, juice, animação e replicação. Comparativo direto com referências AAA (Sekiro, God of War Ragnarok, DMC5, Nioh 2, Hi-Fi Rush, Returnal, Black Myth Wukong).
 > **Objetivo:** identificar as lacunas concretas entre o estado atual e a sensação "fluida, responsiva, juicy, feeling AAA" que você quer.
 > **Premissa de leitura:** este doc presume familiaridade com [`Game_Analysis.md`](Game_Analysis.md) e a série [`docs/improvements/`](../improvements/00_Overview.md).
+> **Setup Blueprint/Editor:** ver [`10_CombatBlueprintSetup.md`](../improvements/10_CombatBlueprintSetup.md).
+
+---
+
+## Status de implementação (2026-05-18)
+
+Legenda: **✅ C++ concluído** · **⚠️ C++ feito, falta config BP/assets/playtest** · **❌ pendente**
+
+| Área | Status |
+|------|--------|
+| Tier S (S1–S6) | ✅ 6/6 |
+| Tier A (A1–A8) | ✅ 8/8 C++ · ⚠️ montages/tuning data no editor |
+| Tier B (B1–B14) | ✅ 13/14 C++ · ⚠️ B9 predição básica · ⚠️ assets BP |
+| Validação §4 / §5.2 / §5.3 | ❌ playtest e `L_CombatRange` |
+| Co-op random events (N5) | ❌ design, fora de escopo C++ |
+
+**Posição atual revisada: ~9/10 em engenharia** — feel AAA percebido depende de preencher `DA_CombatTuning`, notifies nas montages e playtest de rede.
 
 ---
 
 ## TL;DR — onde você está vs. AAA
 
-**Posição atual: ~7.5/10** — engenharia bem acima da média indie, com **toda a infraestrutura de juice já existente em C++** (HitStop, camera shakes, screen FX, motion warping, anim notify states de cancel/parry/telegraph). O que falta para chegar a AAA **não é arquitetura nova**, é:
+**Posição atual: ~9/10 em C++** — as 6 frentes críticas do TL;DR original foram implementadas. O pipeline de combate está centralizado; o que resta é **configuração no editor** e **validação em playtest**.
 
-1. **Centralizar o dispatch de feedback** — hoje hitstop, shake, VFX, SFX, screen FX são chamados de lugares diferentes; AAA chama tudo de um único `OnHitConfirmed` event-driven.
-2. **Fechar o "Projectile Parity Gap"** — projetéis (Knife, Fireball, Frostbolt, Arcane Missile) **pulam** o pipeline de hit reaction, hitstop e camera shake do melee. Isso é a lacuna mais grande percebida pelo jogador.
-3. **Polir input-feel em 4 pontos**: buffer com pausa em hitstop, combo refresh on-hit, directional input (não velocity), commit-grade (frames não-canceláveis).
-4. **Fechar 1 bug de replicação** confirmado no combo chain.
-5. **Aplicar CooldownReduction** — a stat existe, é capturada, mas nunca é lida ao aplicar o cooldown. Inútil hoje.
-6. **Adicionar juice em dodge** — i-frames funcionam mas não têm nenhum feedback de câmera/screen → sente passivo.
+| # | Frente original | Status |
+|---|-----------------|--------|
+| 1 | Centralizar dispatch de feedback (`DispatchOnHitConfirmed`) | ✅ inclui HitStop, shake, screen FX, combat text, impact VFX/SFX |
+| 2 | Projectile Parity Gap | ✅ Knife/Fireball/Frostbolt/Arcane Missile → mesmo pipeline |
+| 3 | Input-feel (buffer, hitstop pause, refresh on-hit, stick, commit-grade) | ✅ |
+| 4 | Bug replicação combo (C7) | ✅ + `bComboHeavyFinisherPending` (N4) |
+| 5 | CooldownReduction aplicado | ✅ cap 0.4 + DR soft |
+| 6 | Dodge juice | ✅ FOV + chromatic + shake |
 
-Com essas 6 frentes resolvidas (~3–5 semanas de trabalho focado), o feel sai de "ARPG indie polido" para "AAA-tier action RPG".
+**Próximo passo:** [`10_CombatBlueprintSetup.md`](../improvements/10_CombatBlueprintSetup.md) + checklist §4 + level `L_CombatRange` (§5.2).
 
 ---
 
@@ -82,13 +101,11 @@ Com essas 6 frentes resolvidas (~3–5 semanas de trabalho focado), o feel sai d
                        └──────────────┬──────────────────────┘
                                       ▼
               ┌───────────────────────────────────────────────┐
-              │  FEEL DISPATCH (FRAGMENTADO HOJE)             │
-              │   ─ UDFHitStopSubsystem (Light/Heavy/Crit/    │
-              │       BossSlam)                               │
-              │   ─ UDFCameraShakeFunctionLibrary             │
-              │   ─ UDFScreenEffectsComponent                 │
-              │   ─ UDFCombatFeedbackLibrary (só HS + shake)  │
-              │   ─ Trail VFX, Niagara impacts (per ability)  │
+              │  FEEL DISPATCH (centralizado — A1 ✅)         │
+              │   ─ UDFCombatFeedbackLibrary::              │
+              │     DispatchOnHitConfirmed                  │
+              │   ─ HitStop + Shake + ScreenFX + CombatText │
+              │   ─ Impact VFX/SFX via DA_CombatTuning      │
               └───────────────────────────────────────────────┘
 ```
 
@@ -115,24 +132,17 @@ Com essas 6 frentes resolvidas (~3–5 semanas de trabalho focado), o feel sai d
 
 **Gaps AAA concretos:**
 
-| # | Gap | Referência AAA | Impacto |
-|---|-----|----------------|---------|
-| C1 | **Input buffer = 150ms.** Sekiro/GoW usam 200–250ms. | Sekiro = 220ms; GoW Ragnarok = 200ms | ALTO — entradas no fim do recovery são engolidas |
-| C2 | **Buffer não pausa durante hitstop.** Mundo congela mas o timer do buffer continua tickando no tempo dilatado. | DMC5/Sekiro pausam buffer durante hit-lag | MÉDIO — sensação de "comeu meu input" |
-| C3 | **Combo não refresca on-hit.** Após o passo 3, sempre expira mesmo acertando inimigo fraco. | GoW/DMC5 estendem combo se acerta | ALTO — limita combos indefinidos em mobs |
-| C4 | **Directional combos resolvem por `owner.Velocity.local`, não por stick input.** | Sekiro lê stick direto (mesmo parado), permitindo cross-up | MÉDIO — perde expressão de skill |
-| C5 | **Sem "commit grade".** Todo swing é cancelável se cancel-window estiver aberta. | Dark Souls/GoW têm "no return frames" — recovery puro 60–120ms onde nada cancela | ALTO — golpes perdem "peso" |
-| C6 | **`ComboChainMontageBlendInTime = 0.08s`** (hardcoded), `ComboChainMontageStopBlendOutTime = 0.0f`. | AAA: 120–200ms blend para fluidez visual; cuts instantâneos só em "stinger" frames | MÉDIO — chains parecem jerky |
-| C7 | **Bug de replicação confirmado**: `bComboChainAdvancePending` é usado pelo `Server_ChainMeleeComboStep_Implementation` mas **não é replicado** (não está em [`UDFComboComponent.h:39`](../../Source/DungeonForged/Public/Combat/UDFComboComponent.h) `UPROPERTY(Replicated)`). Cliente chama `Server_ChainMeleeComboStep()` e na sequência `TryActivatePrimaryMeleeGameplayAbility()` localmente — race condition possível. | — | ALTO em multiplayer |
+| # | Gap | Referência AAA | Impacto | Status |
+|---|-----|----------------|---------|--------|
+| C1 | **Input buffer = 150ms.** Sekiro/GoW usam 200–250ms. | Sekiro = 220ms; GoW Ragnarok = 200ms | ALTO | ✅ 0.20s via `UDFCombatTuningData` / component |
+| C2 | **Buffer não pausa durante hitstop.** | DMC5/Sekiro pausam buffer durante hit-lag | MÉDIO | ✅ `IsHitStopActive()` em `IsInputBufferExpired` |
+| C3 | **Combo não refresca on-hit.** | GoW/DMC5 estendem combo se acerta | ALTO | ✅ `NotifyOwnerHitConfirmed(+0.30s)` |
+| C4 | **Directional combos por velocity, não stick.** | Sekiro lê stick direto | MÉDIO | ✅ `MovementInputVector` do CMC |
+| C5 | **Sem "commit grade".** | DS/GoW no-return frames | ALTO | ✅ `UANS_DFNoCancelWindow` · ⚠️ notifies nas montages |
+| C6 | **Blend combo hardcoded 0.08s/0.0s.** | AAA 120–200ms tunável | MÉDIO | ✅ `FDFComboStep::ChainBlendInTime` + component default |
+| C7 | **Bug replicação `bComboChainAdvancePending`.** | — | ALTO MP | ✅ `UPROPERTY(Replicated)` + `GetLifetimeReplicatedProps` |
 
-**Validação do bug C7:**
-```
-UDFComboComponent.h:39   bool bComboChainAdvancePending = false;        ← sem UPROPERTY(Replicated)
-UDFComboComponent.cpp:28 SetIsReplicatedByDefault(true);                 ← component replica
-UDFComboComponent.cpp:588 if (Owner && Owner->HasAuthority()) { … }     ← gateia escrita no server
-```
-
-Como o flag é só server-side mas o cliente já avança o passo localmente (`LockedComboActivationStep` esse sim é replicado), **em rede com lag > 100ms o cliente pode disparar a ability antes do server confirmar o step → step mismatch ou double-activation**. Reproduzir com `Net PktLag=120`.
+**Validação do bug C7:** ✅ **Resolvido** — ver `UDFComboComponent::GetLifetimeReplicatedProps`.
 
 ---
 
@@ -148,20 +158,17 @@ Como o flag é só server-side mas o cliente já avança o passo localmente (`Lo
 
 **Gaps AAA concretos:**
 
-| # | Gap | Impacto |
-|---|-----|---------|
-| H1 | **Sem interpolação de trace entre ticks.** Sample-at-tick puro. Em fast attacks (heavy = 0.10s impact frame), com 30 FPS = 3 amostras; com lag de servidor 50ms, pode haver miss entre amostras. | ALTO em ataques curtos |
-| H2 | **Sphere única por swing.** Sem capsule (overhead chop), sem cone (whirlwind), sem multi-zone (shoulder + tip). | ALTO — todas armas parecem ter o mesmo "reach feel" |
-| H3 | **Sem multi-hitbox.** Wide slash não tem 2–3 esferas overlapping (shoulder + meio + ponta) para garantir cobertura. | MÉDIO |
-| H4 | **Sem body-part-specific reactions.** O hit impact point é gravado mas não é usado para selecionar montage. Cabeça vs. perna vs. torso = mesma reação. | MÉDIO — leitura visual genérica |
-| H5 | **Projectile Parity Gap (MAIOR LACUNA DO PROJETO).** Knife/Fireball/Frostbolt/Arcane Missile fazem `OnHit()` direto, **não chamam** `UDFHitReactionComponent::OnHitReceived()`, **não disparam** `UDFHitStopSubsystem`, **não chamam** `UDFCameraShakeFunctionLibrary`. | **CRÍTICO** — projetéis sentem "desconectados" do melee |
-| H6 | **Sem dedup de tempo em projétil.** Se a trajetória cruza o capsule duas vezes (passar reto), pode aplicar dano duplo. | BAIXO |
-| H7 | **Sem damage-source tagging consistente em projétil.** Fireball lê Strength direto em vez de via SetByCaller. | BAIXO |
+| # | Gap | Impacto | Status |
+|---|-----|---------|--------|
+| H1 | **Sem interpolação de trace entre ticks.** | ALTO em ataques curtos | ✅ `TraceSubStepCount` (B1) |
+| H2 | **Sphere única por swing.** | ALTO | ✅ Capsule/Cone + `TraceShapeByWeaponTag` · ⚠️ preencher `DA_CombatTuning` / DT_Items |
+| H3 | **Sem multi-hitbox.** | MÉDIO | ✅ `ExtraTraceZones` (B3) |
+| H4 | **Sem body-part-specific reactions.** | MÉDIO | ✅ `BoneHitMontages` · ⚠️ mapa no BP inimigo |
+| H5 | **Projectile Parity Gap.** | **CRÍTICO** | ✅ `DispatchProjectileHitConfirmed` + hit reaction |
+| H6 | **Sem dedup de tempo em projétil.** | BAIXO | ✅ `UDFProjectileHitTrackerComponent` |
+| H7 | **Sem damage-source tagging consistente em projétil.** | BAIXO | ✅ SetByCaller + tags dinâmicas |
 
-**Evidência do H5** (referências dos cpps):
-- [`ADFKnifeProjectile.cpp:74-95`](../../Source/DungeonForged/Private/Combat/ADFKnifeProjectile.cpp) — aplica `PhysicalDamageEffect` + spawn local de VFX, sem hit reaction.
-- [`DFFireballProjectile.cpp:48-107`](../../Source/DungeonForged/Private/Combat/DFFireballProjectile.cpp) — mesmo padrão.
-- Comparar com [`UDFMeleeTraceComponent.cpp:1474`](../../Source/DungeonForged/Private/Combat/UDFMeleeTraceComponent.cpp) — chama `PlayImpactCosmeticsAt()` + `HitStopSubsystem::LightHit/HeavyHit/CriticalHit()` + `UDFCameraShakeFunctionLibrary::PlayLightHitOnOwner()` + `Hit->OnHitReceived()` após GE apply.
+**Evidência H5:** ✅ Projéteis passam por `UDFCombatFeedbackLibrary::DispatchProjectileHitConfirmed` → `DispatchOnHitConfirmed`.
 
 ---
 
@@ -178,33 +185,18 @@ Como o flag é só server-side mas o cliente já avança o passo localmente (`Lo
 
 **Gaps AAA concretos:**
 
-| # | Gap | Impacto |
-|---|-----|---------|
-| G1 | **`CooldownReduction` attribute NUNCA é aplicado.** Existe em [`UDFAttributeSet.h`](../../Source/DungeonForged/Public/GAS/UDFAttributeSet.h), é capturado em `UDFDamageCalculation`, é setado por `TimeWarp` buff — mas o `ApplyCooldown` no [`UDFGameplayAbility.cpp`](../../Source/DungeonForged/Private/GAS/UDFGameplayAbility.cpp) aplica `UGE_Cooldown_Base` com `BaseCooldown` puro. Sem leitura da stat. **Stat inerte.** | ALTO — todo o sistema de CDR é placebo |
-| G2 | **Sem Global Cooldown (GCD).** Cada ability tem cooldown próprio, sem layer global de 0.3–0.5s. Sente "spammy". | MÉDIO — questão de gosto, mas referências (Lost Ark, WoW, Diablo) usam |
-| G3 | **Sem Status Resist / Tenacity.** Stun/Slow stackam sem diminishing returns. `Fortitude` é manual, não DR scaling. | MÉDIO — bosses ficam frágeis a CC chain |
-| G4 | **Sem Lifesteal / SpellVamp** como atributo. TimeWarp + ManaShield + HealPotion são as únicas formas de healing in-combat. | MÉDIO |
-| G5 | **Sem Dodge%/Block% como atributos.** Só shield buffs e i-frames hardcoded. | BAIXO — design intencional? Confirmar |
-| G6 | **Damage event scattered.** Hit triggers ficam em 3 lugares: `PostGameplayEffectExecute` (combat text), `UDFPassivesGASEvents::DispatchHitReceived` (passive listeners), montage notifies (anim reactions). Sem `OnDamageDealt(Source, Target, Magnitude, Crit, Tags)` único delegate. | MÉDIO — replicar features novas vira shotgun de patches |
-| G7 | **Sem rollback de prediction.** Cliente preditivamente checa cost/cooldown, server valida no `ApplyCooldown` — se server rejeita, sem rollback visível. | BAIXO até alguém abusar |
-| G8 | **Ability cancel windows entre abilities.** Hoje cancel window vai só para heavy/dodge a partir do swing. Não há "chainear FrostBolt → ArcaneBarrage" via cancel window genérica. | MÉDIO — depth para builds combo-ability |
+| # | Gap | Impacto | Status |
+|---|-----|---------|--------|
+| G1 | **`CooldownReduction` nunca aplicado.** | ALTO | ✅ `UDFGameplayAbility::ApplyCooldown` |
+| G2 | **Sem Global Cooldown (GCD).** | MÉDIO | ✅ `UDFAbilityGlobalCooldownSubsystem` (opt-in) |
+| G3 | **Sem Status Resist / Tenacity.** | MÉDIO | ✅ attribute + `UDFGEComponent_StatusResistDuration` |
+| G4 | **Sem Lifesteal / SpellVamp.** | MÉDIO | ✅ `UDFAttributeSet` + `DFDamageCalculation` |
+| G5 | **Sem Dodge%/Block%.** | BAIXO | ✅ attributes + roll em damage calc |
+| G6 | **Damage event scattered.** | MÉDIO | ✅ `DispatchOnHitConfirmed` + `UDFCombatEventsLibrary::BroadcastDamageDealt` |
+| G7 | **Sem rollback de prediction.** | BAIXO | ⚠️ `Client_NotifyAbilityActivationRejected` (stop montage; sem refund de resource) |
+| G8 | **Ability cancel windows cross-ability.** | MÉDIO | ✅ `UANS_DFAbilityCancelWindow` · ⚠️ notifies nas montages |
 
-**Sugestão para G1 (fix de 5 min):**
-
-```cpp
-// UDFGameplayAbility.cpp — em ApplyCooldown(), antes do BuildSpec:
-const float Raw = BaseCooldown;
-float CDR = 0.f;
-if (UDFAttributeSet const* AS = ASC->GetSet<UDFAttributeSet>())
-{
-    CDR = AS->GetCooldownReduction();
-}
-const float CDRCapped = FMath::Min(CDR, 0.4f);              // [CONFIG] cap em 40%
-const float Excess    = FMath::Max(0.f, CDR - 0.4f);
-const float ExtraDR   = Excess / (Excess + 0.6f) * 0.1f;    // assintótico 0.5
-const float Effective = Raw * (1.f - (CDRCapped + ExtraDR));
-// usa Effective no SetByCaller Data.Cooldown
-```
+**Sugestão G1:** ✅ **Aplicado** — ver `UDFGameplayAbility.cpp::ApplyCooldown`.
 
 ---
 
@@ -222,46 +214,21 @@ const float Effective = Raw * (1.f - (CDRCapped + ExtraDR));
 
 **Gaps AAA concretos:**
 
-| # | Gap | Impacto |
-|---|-----|---------|
-| F1 | **`UDFCombatFeedbackLibrary` só dispatcha HitStop + Shake.** VFX, SFX, screen effects, combat text, anim notify são chamados de **lugares diferentes** (ability BPs, anim notifies, attribute set, hit reaction). Não há `OnHitConfirmed(Band, Magnitude, Location, Direction, Tags)` único. | **CRÍTICO** — qualquer feature nova de feedback vira shotgun de patches |
-| F2 | **HitStop não escala com damage magnitude.** Banda é selecionada por % de HP perdido mas duration/dilation são fixos por banda. | MÉDIO — finishers de boss não "frizam" mais que um light hit do crit |
-| F3 | **Sem dodge juice.** I-frames funcionam (0.35s) mas **zero** FOV punch, chromatic, vignette, lag ramp, shake. Dodge sente burocrático. | ALTO — referência (Returnal) usa FOV pop + chromatic + slight desat |
-| F4 | **Sem parry/block shake catalog.** Só Hit/Heavy/Critical/Knockback. Parry perfeito poderia ter shake staccato curto + flash. | MÉDIO — parry sente menos especial do que deveria |
-| F5 | **Lock-on sem Z-anchor para inimigos aéreos.** Z-pinning ausente; voadores ou pulando ficam fora do framing. | BAIXO até voadores aparecerem |
-| F6 | **Camera sem FOV punch.** `LerpLocalPlayerFOV` é stub no `UDFCameraComponent.h:82`. Sprint, dodge, hit, dash não têm punch. | MÉDIO |
-| F7 | **Trail VFX não pooled.** Reativação é OK mas em combos rápidos pode gerar spawn extra. | BAIXO |
-| F8 | **Sem attack-type tag nos triggers de hitstop/shake.** "Heavy slash" vs "light jab" vs "magic spell" usam mesma banda. Sem identidade por arma. | MÉDIO |
-| F9 | **Lag entre vignette e hitstop.** Screen effect fade independente do hitstop end time — no light hit, vignette dim já terminou antes do unfreeze. | BAIXO |
-| F10 | **Sem finisher cinematic chain.** Finishing blow é passivo (threshold 20% HP). Sem multi-hit input prompt, sem cinematic grab. | MÉDIO — feature signature ausente |
-| F11 | **Sem on-kill spectacle.** Enemy death = cosmetic montage + corpse. Sem screen bloom, sem time-stretch cascade no último kill da sala. | MÉDIO — Returnal/Hi-Fi Rush celebram |
+| # | Gap | Impacto | Status |
+|---|-----|---------|--------|
+| F1 | **Feedback fragmentado.** | **CRÍTICO** | ✅ `DispatchOnHitConfirmed` + `FDFHitConfirmedContext` |
+| F2 | **HitStop não escala com magnitude.** | MÉDIO | ✅ `MagFactor` em `PlayBand` (A3) |
+| F3 | **Sem dodge juice.** | ALTO | ✅ `ApplyDodgeJuice` + FOV punch |
+| F4 | **Sem parry shake catalog.** | MÉDIO | ✅ `UDFCameraShake_ParrySuccess` |
+| F5 | **Lock-on sem Z-anchor aéreo.** | BAIXO | ✅ `UDFCameraComponent::ResolveLockOnAimPoint` (B10) |
+| F6 | **Camera sem FOV punch.** | MÉDIO | ✅ dodge + spectacle FOV |
+| F7 | **Trail VFX não pooled.** | BAIXO | ✅ `UDFWeaponTrailPoolComponent` · ⚠️ assign no BP player |
+| F8 | **Sem attack-type tag em hitstop/shake.** | MÉDIO | ✅ tags `Impact.*` + `ImpactFeedbackByTag` · ⚠️ preencher DA |
+| F9 | **Lag vignette vs hitstop.** | BAIXO | ✅ sync via `GetHitStopRemainingSeconds` |
+| F10 | **Sem finisher cinematic chain.** | MÉDIO | ✅ `UDFAbility_Warrior_Execute` QTE multi-hit · ⚠️ montages/HUD |
+| F11 | **Sem on-kill spectacle.** | MÉDIO | ✅ `UDFCombatSpectacleSubsystem` + bloom/FOV (B8) |
 
-**Para F1, um patch de centralização (referência):**
-
-```cpp
-// UDFCombatFeedbackLibrary.h — adicionar
-USTRUCT(BlueprintType)
-struct FDFHitConfirmedContext
-{
-    GENERATED_BODY()
-    UPROPERTY() AActor* Instigator = nullptr;
-    UPROPERTY() AActor* Victim = nullptr;
-    UPROPERTY() FVector Location = FVector::ZeroVector;
-    UPROPERTY() FVector Normal = FVector::UpVector;
-    UPROPERTY() float Magnitude = 0.f;
-    UPROPERTY() float DamagePercent = 0.f;
-    UPROPERTY() bool bIsCrit = false;
-    UPROPERTY() FGameplayTagContainer Tags;
-    UPROPERTY() EDFHitFeedbackBand Band = EDFHitFeedbackBand::Light;
-};
-
-UFUNCTION(BlueprintCallable, Category="DF|Feel")
-static void DispatchOnHitConfirmed(UObject* WorldContext, const FDFHitConfirmedContext& Ctx);
-// Implementação interna: HitStop + Shake + ScreenFX + Niagara impact + SFX layer + CombatText.
-// Toda chamada de hit (melee, projectile, AoE, status proc) passa por aqui.
-```
-
-E mapear cada ponto de chamada atual (`UDFMeleeTraceComponent::ApplyDamageToTarget`, `ADFKnifeProjectile::OnHit`, `DFFireballProjectile::OnHit`, `DFBlizzardZone::TickDamage`, etc.) para usar essa função única.
+**Para F1:** ✅ **Implementado** — ver `UDFCombatFeedbackLibrary::DispatchOnHitConfirmed` e `Effect.Combat.FeedbackCentralized` (evita combat text duplicado no AttributeSet).
 
 ---
 
@@ -277,13 +244,13 @@ E mapear cada ponto de chamada atual (`UDFMeleeTraceComponent::ApplyDamageToTarg
 
 **Gaps AAA concretos:**
 
-| # | Gap | Impacto |
-|---|-----|---------|
-| A1 | **Sem `AN_DodgeCancelWindow` montagens.** Dodge cancela qualquer coisa hoje porque NÃO é gated. Ok como design, mas perde a opção de "dodge só na recovery" (Souls-style). | BAIXO (escolha) |
-| A2 | **Sem `AN_AbilityCancelWindow` cross-ability.** Já documentado em [`03_Combat.md §6`](../improvements/03_Combat.md). | MÉDIO |
-| A3 | **Sem `AN_HitConfirm` notify** para sincronizar feedback no exato frame de impacto da montage (hoje feedback dispara quando trace acerta, que pode ser 1 frame off da montage). | BAIXO |
-| A4 | **Sem `AN_RootMotionScaleOverride`** durante recoveries (para "drag forward" controlado sem usar root motion completo). | BAIXO |
-| A5 | **Blend in/out de combo montage hardcoded** em 0.08s/0.0s. Designer não consegue tunar por montage. | MÉDIO |
+| # | Gap | Impacto | Status |
+|---|-----|---------|--------|
+| A1 | **Sem `AN_DodgeCancelWindow`.** | BAIXO (escolha) | ❌ design intencional — dodge não gated |
+| A2 | **Sem `AN_AbilityCancelWindow` cross-ability.** | MÉDIO | ✅ `UANS_DFAbilityCancelWindow` · ⚠️ montages |
+| A3 | **Sem `AN_HitConfirm`.** | BAIXO | ✅ `AN_HitConfirm` (B14) |
+| A4 | **Sem `AN_RootMotionScaleOverride`.** | BAIXO | ✅ `UAN_RootMotionScaleOverride` |
+| A5 | **Blend combo hardcoded.** | MÉDIO | ✅ `FDFComboStep::ChainBlendInTime` (C6) |
 
 ---
 
@@ -302,13 +269,13 @@ E mapear cada ponto de chamada atual (`UDFMeleeTraceComponent::ApplyDamageToTarg
 
 **Gaps AAA concretos:**
 
-| # | Gap | Impacto |
-|---|-----|---------|
-| N1 | **Bug C7 confirmado** (`bComboChainAdvancePending` não-replicado, race condition). | ALTO em multiplayer |
-| N2 | **Sem client prediction de hit registration.** Server-only traces significam que feedback de hit pode atrasar ~RTT/2. Para Listen Server invisível; para Client com 80ms ping = 40ms de delay percebido. | MÉDIO — masking via hit-feedback predito (sem aplicar dano) seria AAA |
-| N3 | **Sem rollback de Resource cost.** Documentado em G7. | BAIXO |
-| N4 | **Sem replicação do `bComboHeavyFinisherPending`** — designar property como replicada se cliente precisa exibir HUD diferenciado durante a janela. | BAIXO |
-| N5 | **Decisões de random event em co-op:** sistema atual "first lock-in wins" pode frustrar. Sugerido em [`Game_Analysis.md §10`](Game_Analysis.md). | MÉDIO em co-op |
+| # | Gap | Impacto | Status |
+|---|-----|---------|--------|
+| N1 | **Bug C7** (`bComboChainAdvancePending`). | ALTO MP | ✅ (= C7) |
+| N2 | **Sem client prediction de hit feedback.** | MÉDIO | ⚠️ `bClientPredictHitFeel` overlap local (B9 básico) |
+| N3 | **Sem rollback de Resource cost.** | BAIXO | ⚠️ (= G7 parcial) |
+| N4 | **`bComboHeavyFinisherPending` não replicado.** | BAIXO | ✅ `UPROPERTY(Replicated)` |
+| N5 | **Random event co-op "first lock-in wins".** | MÉDIO co-op | ❌ fora de escopo combate |
 
 ---
 
@@ -316,100 +283,76 @@ E mapear cada ponto de chamada atual (`UDFMeleeTraceComponent::ApplyDamageToTarg
 
 > Ordenado por **impacto/horas**. Cada linha referencia o gap ID das seções 2.x.
 
-### Tier S — ganho percebido enorme, esforço baixo (fazer essa semana)
+### Tier S — ganho percebido enorme, esforço baixo
 
-| # | Ação | Gaps | Esforço | Por quê |
-|---|------|------|---------|---------|
-| S1 | **Fix C7** — marcar `bComboChainAdvancePending` como `UPROPERTY(Replicated)` + adicionar em `GetLifetimeReplicatedProps` | C7 | 15 min | Fix de bug confirmado de replicação em combo chain — silencioso hoje, vira regressão visível com latency mais alta |
-| S2 | **Aplicar CooldownReduction** com cap 0.4 + DR | G1 | 30 min | Stat hoje inerte; atributos `TimeWarp` e equipment ficam funcionais |
-| S3 | **Aumentar input buffer 0.15 → 0.20s** | C1 | 5 min (tunable) | Mais responsivo, menos "comeu input" — exporta `UPROPERTY(EditAnywhere)` |
-| S4 | **Combo refresh on-hit** — adicionar 0.30s de extensão do `ComboWindowExpireTime` quando trace acerta inimigo | C3 | 1h | DMC5/GoW pattern; chains indefinidos em mobs fracos = sensação de "rolando" |
-| S5 | **Dodge juice** — chromatic pulse 0.30/0.6 + flash azul + camera shake suave + FOV punch (95→101→95 em 0.35s) | F3, F6 | 2h | Maior delta percebido para o investimento — dodge vira "sente bem" |
-| S6 | **Buffer pause em hitstop** — checar `UDFHitStopSubsystem::IsCurrentlyDilated()` no buffer update e segurar timestamp do buffer enquanto dilatado | C2 | 1h | Inputs durante hit-lag preservados |
+| # | Ação | Gaps | Status |
+|---|------|------|--------|
+| S1 | **Fix C7** — `bComboChainAdvancePending` replicado | C7 | ✅ |
+| S2 | **Aplicar CooldownReduction** com cap 0.4 + DR | G1 | ✅ |
+| S3 | **Input buffer 0.15 → 0.20s** | C1 | ✅ |
+| S4 | **Combo refresh on-hit** (+0.30s) | C3 | ✅ |
+| S5 | **Dodge juice** — chromatic + flash + shake + FOV | F3, F6 | ✅ |
+| S6 | **Buffer pause em hitstop** | C2 | ✅ |
 
-**Total Tier S: ~5h, ~80% do "ganho percebido" para o jogador casual.**
+**Tier S: ✅ 6/6 concluído em C++.**
 
-### Tier A — alto impacto, esforço médio (próximas 2 semanas)
+### Tier A — alto impacto, esforço médio
 
-| # | Ação | Gaps | Esforço | Por quê |
-|---|------|------|---------|---------|
-| A1 | **Centralizar `OnHitConfirmed`** — refatorar `UDFCombatFeedbackLibrary` para receber `FDFHitConfirmedContext` único e despachar HitStop + Shake + ScreenFX + Niagara + SFX + CombatText | F1, G6 | 6–8h | Próxima feature de feedback (ex.: Niagara per element) vira 1 linha em vez de 5 |
-| A2 | **Projectile Parity** — Knife/Fireball/Frostbolt/Arcane Missile passam pelo mesmo `OnHitConfirmed` que melee. Adicionar chamada a `UDFHitReactionComponent::OnHitReceived()` após GE apply em cada projétil | H5, H6, H7 | 4h | Projetéis sentem `igualmente impactantes` quanto melee — fecha a maior dissonância do jogo |
-| A3 | **Damage-magnitude HitStop scaling** — lerp `Duration` e `Dilation` dentro da banda baseado em % de MaxHP | F2 | 2h | Boss slam em max charge sente DIFERENTE de slam normal |
-| A4 | **Attack-type tags em HitStop/Shake** — passar `FGameplayTag` (`Impact.Heavy.Slash`, `Impact.Light.Pierce`) e dispatch VFX/SFX por tag | F8, A3 | 4h | Identidade por arma — espada vs machado sentem diferente sem novo código |
-| A5 | **`AN_AbilityCancelWindow` genérico** + tag-based — documentado em [`03_Combat.md §6`](../improvements/03_Combat.md) | G8, A2 | 4h | Builds combo-ability (FrostBolt → ArcaneBarrage chain) viram viáveis |
-| A6 | **Directional input por stick** ao invés de velocity (`MovementInputVector` do CMC) | C4 | 2h | Skill expression real — cross-up no combo |
-| A7 | **Commit-grade nas montages** — adicionar `AN_NoCancelFrames` que bloqueia cancel até liberar | C5 | 3h | Golpes ganham peso |
-| A8 | **Status Resist attribute + DR para CC** | G3 | 4h | Bosses não morrem em chain de stuns |
+| # | Ação | Gaps | Status |
+|---|------|------|--------|
+| A1 | **Centralizar `OnHitConfirmed`** | F1, G6 | ✅ · ⚠️ preencher `ImpactFeedbackByTag` no DA |
+| A2 | **Projectile Parity** | H5, H6, H7 | ✅ |
+| A3 | **Damage-magnitude HitStop scaling** | F2 | ✅ |
+| A4 | **Attack-type tags em HitStop/Shake** | F8, A3 | ✅ · ⚠️ assets VFX/SFX por tag |
+| A5 | **`AN_AbilityCancelWindow` genérico** | G8, A2 | ✅ · ⚠️ notifies nas montages |
+| A6 | **Directional input por stick** | C4 | ✅ |
+| A7 | **Commit-grade nas montages** | C5 | ✅ · ⚠️ `UANS_DFNoCancelWindow` nas montages |
+| A8 | **Status Resist attribute + DR para CC** | G3 | ✅ |
 
-**Total Tier A: ~30h, fecha ~90% das lacunas para AAA-feel.**
+**Tier A: ✅ 8/8 concluído em C++** — polish percebido depende de config no editor.
 
-### Tier B — esforço maior, impacto especializado (mês 2)
+### Tier B — esforço maior, impacto especializado
 
-| # | Ação | Gaps | Esforço |
-|---|------|------|---------|
-| B1 | **Trace interpolation** — sub-stepping no `TickTrace` (lerp socket positions entre amostras) | H1 | 6h |
-| B2 | **Per-weapon trace shape** (capsule/cone) selecionado por weapon tag | H2 | 8h |
-| B3 | **Multi-hitbox por swing** (lista de overlapping shapes) | H3 | 6h |
-| B4 | **Body-part-specific reactions** — bone-name resolve no impact + montage map | H4 | 4h |
-| B5 | **Stagger DR + per-attack tag multipliers** | "Charge" = 3× poise damage | 4h |
-| B6 | **Passive poise regen** — regen rate por archetype | — | 2h |
-| B7 | **Finisher cinematic chain** — multi-hit input prompt em threshold 20% HP | F10 | 16h |
-| B8 | **On-kill spectacle** — slowmo + bloom + zoom no último kill da sala (detectar via `UDFCombatStateLibrary::OnRoomCleared`) | F11 | 8h |
-| B9 | **Client prediction de hit feedback** (sem dano, só feedback) | N2 | 12h |
-| B10 | **Lock-on Z-anchor** dinâmico para inimigos aéreos | F5 | 3h |
-| B11 | **GCD (Global Cooldown) layer** opcional | G2 | 4h |
-| B12 | **Lifesteal / Dodge% / Block% attributes** + integrações | G4, G5 | 8h |
-| B13 | **Trail VFX pool** (pre-spawn 2–3 componentes por arma) | F7 | 2h |
-| B14 | **Per-attack `AN_HitConfirm`** notify sincronizado com trace | A3 | 2h |
+| # | Ação | Gaps | Status |
+|---|------|------|--------|
+| B1 | **Trace interpolation** (sub-stepping) | H1 | ✅ |
+| B2 | **Per-weapon trace shape** (capsule/cone) | H2 | ✅ · ⚠️ `TraceShapeByWeaponTag` + DT_Items |
+| B3 | **Multi-hitbox por swing** | H3 | ✅ |
+| B4 | **Body-part-specific reactions** | H4 | ✅ · ⚠️ `BoneHitMontages` no BP inimigo |
+| B5 | **Stagger DR + per-attack tag multipliers** | — | ✅ |
+| B6 | **Passive poise regen** | — | ✅ |
+| B7 | **Finisher cinematic chain** (Execute QTE) | F10 | ✅ · ⚠️ montages + HUD prompt |
+| B8 | **On-kill spectacle** (room clear) | F11 | ✅ |
+| B9 | **Client prediction de hit feedback** | N2 | ⚠️ básico (`bClientPredictHitFeel`) |
+| B10 | **Lock-on Z-anchor** aéreo | F5 | ✅ |
+| B11 | **GCD layer** opcional | G2 | ✅ |
+| B12 | **Lifesteal / Dodge% / Block%** | G4, G5 | ✅ |
+| B13 | **Trail VFX pool** | F7 | ✅ · ⚠️ assign no BP player |
+| B14 | **Per-attack `AN_HitConfirm`** | A3 | ✅ · ⚠️ notifies nas montages |
 
-**Total Tier B: ~85h, completa polish AAA.**
+**Tier B: ✅ 13/14 em C++** — B9 é versão básica; polish completo de predição fica como melhoria futura.
 
 ---
 
-## 4. Plano de execução — 4 semanas para feel AAA
+## 4. Plano de execução — status e validação
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ SEMANA 1 — Tier S (5h) + start Tier A1                          │
-│  Seg: S1, S2, S3 (45 min cada incluindo testes)                 │
-│  Ter: S4 (combo refresh on-hit) + S5 (dodge juice) — 3h         │
-│  Qua: S6 (buffer pause em hitstop) + começa A1                  │
-│  Qui-Sex: A1 (OnHitConfirmed central) — 6-8h                    │
-│  Checkpoint: gravar 2min de gameplay e comparar lado a lado     │
-│              com versão pré-mudanças                            │
-├─────────────────────────────────────────────────────────────────┤
-│ SEMANA 2 — Tier A2-A4                                            │
-│  Seg-Ter: A2 (Projectile Parity) — 4h                           │
-│  Qua: A3 (Hit Stop scaling) — 2h                                │
-│  Qui-Sex: A4 (attack-type tags) — 4h                            │
-│  Checkpoint: testar com 3 armas diferentes (Sword, Axe, Dagger) │
-│              — devem sentir distintas sem novos assets          │
-├─────────────────────────────────────────────────────────────────┤
-│ SEMANA 3 — Tier A5-A8                                            │
-│  Seg-Ter: A5 (AbilityCancelWindow) — 4h                         │
-│  Qua: A6 (directional input por stick) — 2h                     │
-│  Qui-Sex: A7 (commit-grade) + A8 (StatusResist) — 7h            │
-│  Checkpoint: playtest 30 min focado em combo expression         │
-├─────────────────────────────────────────────────────────────────┤
-│ SEMANA 4 — Polish + Tier B picks                                 │
-│  Seg-Qua: B7 (Finisher cinematic chain) — 16h spread             │
-│  Qui: B8 (on-kill spectacle) — 8h spread                         │
-│  Sex: B13 (Trail pool) + B10 (Lock-on Z) — 5h                   │
-│  Checkpoint: deliver build "AAA candidate"                      │
-└─────────────────────────────────────────────────────────────────┘
-```
+**Implementação C++:** ✅ Tiers S, A e B (exceto B9 parcial) concluídos.
+
+**Próximos passos (editor + playtest):** ver [`10_CombatBlueprintSetup.md`](../improvements/10_CombatBlueprintSetup.md).
 
 **Critério de "AAA feel" alcançado:**
-- [ ] Hit-confirmation latency < 50ms do input ao primeiro feedback A/V (medir com `LogDFFeel`).
-- [ ] 100% dos hits (melee + projétil + AoE) disparam HitStop + Shake + Niagara + SFX layer + CombatText pelo mesmo caminho.
-- [ ] Dodge sente "evasivo": FOV punch + chromatic visíveis, shake suave, sem delay perceptível.
-- [ ] Combo de 3-hit dura 1.0–1.4s sem mash; combo refresha em hit e estende por +0.3s.
-- [ ] Buffer aceita input no fim do recovery (0.20s); inputs durante hitstop não são engolidos.
-- [ ] Cancel-into-ability funciona em pelo menos 5 abilities.
-- [ ] Projétil acerta inimigo: hit reaction direcional + camera shake + hitstop disparam idênticos ao melee.
-- [ ] Crit hit visualmente distinto: chromatic spike + shake forte + text dourado escala 1.4×.
-- [ ] Net test (Listen + Client com Net PktLag=120ms): combo chain não double-activa nem mismatch step.
+
+| Critério | C++ | Validação |
+|----------|-----|-----------|
+| Hit-confirmation latency < 50ms (LogDFFeel) | ✅ pipeline centralizado | ❌ medir em playtest |
+| 100% hits (melee + projétil + AoE) pelo mesmo caminho | ✅ `DispatchOnHitConfirmed` | ❌ confirmar com `-log LogDFFeel Verbose` |
+| Dodge evasivo (FOV + chromatic + shake) | ✅ `ApplyDodgeJuice` | ❌ playtest subjetivo |
+| Combo refresh on-hit (+0.3s) | ✅ | ❌ playtest |
+| Buffer 0.20s + pause em hitstop | ✅ | ❌ playtest |
+| Cancel-into-ability (≥5 abilities) | ✅ notify existe | ⚠️ falta colocar notifies nas montages |
+| Projétil = melee em hit reaction + juice | ✅ | ❌ playtest |
+| Crit visualmente distinto | ✅ | ❌ playtest |
+| Net test (PktLag=120): combo sem double-activate | ✅ C7/N4 fix | ❌ §5.3 |
 
 ---
 
@@ -439,7 +382,9 @@ Playtest gravado com `-log LogDFFeel Verbose -LogDFTuning Verbose -LogGameplayCu
 
 ### 5.2 Cenário de teste — `L_CombatRange`
 
-Documentado em [`00_Overview.md §C`](../improvements/00_Overview.md). Implementar como [`03_Combat.md §10`](../improvements/03_Combat.md):
+**Status: ❌ pendente** — level ainda não criado.
+
+Documentado em [`00_Overview.md §C`](../improvements/00_Overview.md) e [`10_CombatBlueprintSetup.md`](../improvements/10_CombatBlueprintSetup.md):
 - 3 training dummies HP infinito
 - 1 elite dummy
 - 1 boss dummy
@@ -450,6 +395,8 @@ Acessível via `open L_CombatRange` — iteração de feel em 1 minuto, não em 
 
 ### 5.3 Network testing
 
+**Status: ❌ pendente** — executar após config BP e `L_CombatRange`.
+
 - Listen Server + Client com `Net PktLag=120` `Net PktLagVariance=20`:
   - Combo chain LP → SLP (server confirma) sem double-activate.
   - Aim snap acontece no client primeiro (LocalPredicted) e server confirma.
@@ -458,7 +405,9 @@ Acessível via `open L_CombatRange` — iteração de feel em 1 minuto, não em 
 
 ---
 
-## 6. Apêndice — Diffs de exemplo (não-aplicados)
+## 6. Apêndice — Referência de implementação (aplicado)
+
+> Os diffs abaixo descrevem o que foi **implementado** no codebase. Servem como referência histórica, não como patches pendentes.
 
 ### 6.1 Fix do bug C7 (replicação de combo)
 
@@ -599,38 +548,45 @@ void UDFCombatFeedbackLibrary::DispatchOnHitConfirmed(
 }
 ```
 
-E refatorar todas as chamadas atuais para usar essa função única — mapping mínimo:
+E refatorar todas as chamadas atuais para usar essa função única — **✅ mapping concluído:**
 
-| Local atual | Substituir por |
-|-------------|---------------|
-| `UDFMeleeTraceComponent::ApplyDamageToTarget` (cpp:1483-1510) | `DispatchOnHitConfirmed` |
-| `ADFKnifeProjectile::OnHit` (cpp:74-100) | `DispatchOnHitConfirmed` |
-| `DFFireballProjectile::OnHit` (cpp:48-107) | `DispatchOnHitConfirmed` |
-| `DFFrostBoltProjectile::OnHit` | `DispatchOnHitConfirmed` |
-| `DFArcaneMissileProjectile::OnHit` | `DispatchOnHitConfirmed` |
-| `DFBlizzardZone::TickDamage` | `DispatchOnHitConfirmed` |
+| Local | Status |
+|-------|--------|
+| `UDFMeleeTraceComponent::ApplyDamageToTarget` | ✅ |
+| `ADFKnifeProjectile::OnHit` | ✅ |
+| `DFFireballProjectile::OnHit` | ✅ |
+| `DFFrostBoltProjectile::OnHit` | ✅ |
+| `DFArcaneMissileProjectile::OnHit` | ✅ |
+| `DFBlizzardZone::TickDamage` | ✅ |
 
 ---
 
 ## 7. Conclusão
 
-DungeonForged está **arquitetonicamente pronto para sentir AAA**. Toda a infraestrutura crítica existe — o que separa o jogo da meta é uma sequência de patches focados em:
+DungeonForged **implementou em C++** a fundação de combate AAA descrita neste relatório:
 
-1. **Centralização** (OnHitConfirmed → fim do feedback shotgun)
-2. **Paridade** (projéteis no mesmo pipeline do melee)
-3. **Refinamento de input-feel** (buffer maior, pause em hitstop, refresh on-hit, commit grade)
-4. **Polish de dodge / cooldown / status** (estes mexem no nível visceral do feel)
-5. **Um bug de replicação** que custa 15 minutos para resolver
+| Tier | Itens | Status C++ |
+|------|-------|------------|
+| S | 6 | ✅ 6/6 |
+| A | 8 | ✅ 8/8 |
+| B | 14 | ✅ 13/14 (B9 parcial) |
 
-Total estimado para **alcançar feel AAA percebido pelo jogador casual**: 35–50 horas focadas (Tier S + Tier A completos). Os ~85h de Tier B são polish e features signature.
+**Posição atual: ~9/10 em engenharia.** O pipeline está centralizado (`DispatchOnHitConfirmed`), projéteis têm paridade com melee, input-feel refinado (buffer, hitstop pause, refresh on-hit, stick), bugs de replicação corrigidos (C7, N4), e polish de dodge/cooldown/status/finisher/spectacle implementados.
 
-> O maior risco hoje é continuar adicionando features verticais (mais habilidades, mais inimigos) antes de fechar essas lacunas horizontais de feedback. Toda nova feature herda os mesmos buracos — vale priorizar a fundação.
+**O que separa o jogo da meta percebida pelo jogador:**
+
+1. **Configuração no editor** — `DA_CombatTuning`, notifies nas montages, `FinisherHitMontages`, HUD de finisher ([`10_CombatBlueprintSetup.md`](../improvements/10_CombatBlueprintSetup.md))
+2. **Validação** — playtest com checklist §4, `L_CombatRange` (§5.2), net sim §5.3
+3. **Melhorias futuras opcionais** — B9 predição completa, rollback de resource (G7/N3), co-op random events (N5)
+
+> O maior risco agora é **não validar** o feel após a implementação C++. Gravar 2 min de gameplay antes/depois e rodar `Net PktLag=120` fecha o ciclo de confiança.
 
 ---
 
 ## 8. Próximos documentos sugeridos
 
-- `docs/analysis/Combat_NetSim_Plan.md` — plano de testes com `Net PktLag` para validar S1 e tier A.
-- `docs/analysis/OnHitConfirmed_Migration.md` — checklist de cada call site (melee + projéteis + AoE + status ticks) para refator de A1.
-- `docs/improvements/11_FinisherSystem.md` — design completo da cinematic finisher chain (B7).
-- `docs/analysis/Game_Balance_Tuning.md` — números pós-CooldownReduction-fix para todas as abilities.
+- ~~`docs/analysis/OnHitConfirmed_Migration.md`~~ — **obsoleto** (migração concluída)
+- [`docs/improvements/10_CombatBlueprintSetup.md`](../improvements/10_CombatBlueprintSetup.md) — **ativo** — checklist de config BP/editor
+- `docs/analysis/Combat_NetSim_Plan.md` — plano de testes com `Net PktLag` (§5.3)
+- `docs/improvements/11_FinisherSystem.md` — design completo da cinematic finisher (B7 assets)
+- `docs/analysis/Game_Balance_Tuning.md` — números pós-CooldownReduction para todas as abilities

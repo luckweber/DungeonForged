@@ -69,6 +69,21 @@ void UDFCameraShakeFunctionLibrary::PlayBossSlamOnOwner(
 	}
 }
 
+void UDFCameraShakeFunctionLibrary::PlayParrySuccessOnOwner(
+	const UObject* const WorldContextObject,
+	APlayerController* const PC)
+{
+	(void)WorldContextObject;
+	if (IsRunningDedicatedServer() || !PC)
+	{
+		return;
+	}
+	if (APlayerCameraManager* const PCM = PC->PlayerCameraManager)
+	{
+		PCM->StartCameraShake(UDFCameraShake_ParrySuccess::StaticClass(), DF_ShakeScale(WorldContextObject));
+	}
+}
+
 void UDFCameraShakeFunctionLibrary::PlayExplosionShakeAt(
 	const UObject* const WorldContextObject,
 	const FVector& Origin,

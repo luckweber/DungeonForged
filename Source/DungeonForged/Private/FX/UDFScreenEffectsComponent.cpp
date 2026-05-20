@@ -322,6 +322,68 @@ void UDFScreenEffectsComponent::TickComponent(
 			SetSaturationMult(1.f);
 		}
 	}
+	if (bDodgeFOVActive)
+	{
+		DodgeFOVElapsed += DeltaTime;
+		const float Alpha = DodgeFOVDuration > KINDA_SMALL_NUMBER
+			? FMath::Clamp(DodgeFOVElapsed / DodgeFOVDuration, 0.f, 1.f)
+			: 1.f;
+		LerpLocalPlayerFOV(BaseFOV, DeltaTime, 8.f);
+		if (Alpha >= 1.f)
+		{
+			bDodgeFOVActive = false;
+			if (ADFPlayerCharacter* const Ch = Cast<ADFPlayerCharacter>(GetOwner()))
+			{
+				if (Ch->FollowCamera)
+				{
+					Ch->FollowCamera->SetFieldOfView(BaseFOV);
+				}
+			}
+		}
+	}
+	if (HitVignetteTimeRemaining > 0.f)
+	{
+		HitVignetteTimeRemaining = FMath::Max(0.f, HitVignetteTimeRemaining - DeltaTime);
+		if (HitVignetteTimeRemaining <= 0.f)
+		{
+			SetVignette(0.f, FLinearColor::White, false);
+		}
+	}
+	if (SpectacleBloomTimeRemaining > 0.f)
+	{
+		SpectacleBloomTimeRemaining = FMath::Max(0.f, SpectacleBloomTimeRemaining - DeltaTime);
+		if (PostProcessComp)
+		{
+			const float Alpha = SpectacleBloomTimeRemaining / FMath::Max(0.0001f, 0.55f);
+			PostProcessComp->Settings.BloomIntensity = 1.f + SpectacleBloomBoost * Alpha;
+			if (SpectacleBloomTimeRemaining <= 0.f)
+			{
+				PostProcessComp->Settings.bOverride_BloomIntensity = false;
+				SpectacleBloomBoost = 0.f;
+			}
+		}
+	}
+	if (bSpectacleFOVActive)
+	{
+		SpectacleFOVElapsed += DeltaTime;
+		const float Alpha = SpectacleFOVDuration > KINDA_SMALL_NUMBER
+			? FMath::Clamp(SpectacleFOVElapsed / SpectacleFOVDuration, 0.f, 1.f)
+			: 1.f;
+		if (ADFPlayerCharacter* const Ch = Cast<ADFPlayerCharacter>(GetOwner()))
+		{
+			if (Ch->FollowCamera)
+			{
+				const float Target = Alpha < 0.5f
+					? FMath::Lerp(BaseFOV, SpectacleFOVTarget, Alpha * 2.f)
+					: FMath::Lerp(SpectacleFOVTarget, BaseFOV, (Alpha - 0.5f) * 2.f);
+				Ch->FollowCamera->SetFieldOfView(Target);
+			}
+		}
+		if (Alpha >= 1.f)
+		{
+			bSpectacleFOVActive = false;
+		}
+	}
 	if (bDeathInProgress)
 	{
 		DeathFXTime += DeltaTime;
@@ -392,6 +454,86 @@ void UDFScreenEffectsComponent::TeleportOrBlink()
 	ChromaticAberrationPulse(0.2f, 0.5f * S);
 }
 
+void UDFScreenEffectsComponent::ApplyDodgeJuice(const float Duration)
+{
+	const float S = DF_VfxScaleFromWorld(GetWorld());
+	const float D = FMath::Max(0.05f, Duration);
+	FlashScreen(FLinearColor(0.35f, 0.55f, 1.f, 1.f), 0.08f, 0.45f * S);
+	ChromaticAberrationPulse(D, 0.6f * S);
+	if (ADFPlayerCharacter* const Ch = Cast<ADFPlayerCharacter>(GetOwner()))
+	{
+		if (APlayerController* const PC = Ch->GetController<APlayerController>())
+		{
+			if (PC->IsLocalController())
+			{
+				UDFCameraShakeFunctionLibrary::PlayLightHitOnOwner(this, PC);
+			}
+		}
+		if (Ch->FollowCamera)
+		{
+			BaseFOV = Ch->FollowCamera->FieldOfView;
+			Ch->FollowCamera->SetFieldOfView(FMath::Min(BaseFOV + 6.f, 110.f));
+			bDodgeFOVActive = true;
+			DodgeFOVElapsed = 0.f;
+			DodgeFOVDuration = D;
+		}
+	}
+}
+
+void UDFScreenEffectsComponent::ApplyKillSpectacle()
+{
+	const float S = DF_VfxScaleFromWorld(GetWorld());
+	FlashScreen(FLinearColor(1.f, 0.85f, 0.4f, 1.f), 0.12f, 0.55f * S);
+	ChromaticAberrationPulse(0.25f, 0.75f * S);
+	SetSaturationMult(1.15f);
+	SpectacleBloomBoost = 0.8f * S;
+	SpectacleBloomTimeRemaining = 0.35f;
+	if (ADFPlayerCharacter* const Ch = Cast<ADFPlayerCharacter>(GetOwner()))
+	{
+		if (Ch->FollowCamera)
+		{
+			BaseFOV = Ch->FollowCamera->FieldOfView;
+			SpectacleFOVTarget = FMath::Min(BaseFOV + 8.f, 112.f);
+			bSpectacleFOVActive = true;
+			SpectacleFOVElapsed = 0.f;
+			SpectacleFOVDuration = 0.45f;
+		}
+	}
+	if (PostProcessComp)
+	{
+		PostProcessComp->Settings.bOverride_BloomIntensity = true;
+		PostProcessComp->Settings.BloomIntensity = 1.f + SpectacleBloomBoost;
+	}
+}
+
+void UDFScreenEffectsComponent::ApplyRoomClearSpectacle()
+{
+	const float S = DF_VfxScaleFromWorld(GetWorld());
+	FlashScreen(FLinearColor(0.9f, 0.95f, 1.f, 1.f), 0.2f, 0.35f * S);
+	ChromaticAberrationPulse(0.4f, 0.5f * S);
+	SetVignette(0.35f, FLinearColor(0.05f, 0.1f, 0.2f, 1.f));
+	HitVignetteTimeRemaining = 0.5f;
+	HitVignetteDuration = 0.5f;
+	SpectacleBloomBoost = 0.5f * S;
+	SpectacleBloomTimeRemaining = 0.55f;
+	if (ADFPlayerCharacter* const Ch = Cast<ADFPlayerCharacter>(GetOwner()))
+	{
+		if (Ch->FollowCamera)
+		{
+			BaseFOV = Ch->FollowCamera->FieldOfView;
+			SpectacleFOVTarget = FMath::Min(BaseFOV + 5.f, 108.f);
+			bSpectacleFOVActive = true;
+			SpectacleFOVElapsed = 0.f;
+			SpectacleFOVDuration = 0.55f;
+		}
+	}
+	if (PostProcessComp)
+	{
+		PostProcessComp->Settings.bOverride_BloomIntensity = true;
+		PostProcessComp->Settings.BloomIntensity = 1.f + SpectacleBloomBoost;
+	}
+}
+
 void UDFScreenEffectsComponent::ApplyHitFromCombat(
 	const EDFHitFeedbackBand Band,
 	const float DamagePercent,
@@ -399,24 +541,41 @@ void UDFScreenEffectsComponent::ApplyHitFromCombat(
 	APlayerController* const PC)
 {
 	const float S = DF_VfxScaleFromWorld(GetWorld());
+	float HitStopSync = 0.15f;
+	if (UWorld* const W = GetWorld())
+	{
+		if (const UDFHitStopSubsystem* const HS = W->GetSubsystem<UDFHitStopSubsystem>())
+		{
+			HitStopSync = FMath::Max(HitStopSync, HS->GetHitStopRemainingSeconds());
+		}
+	}
 	switch (Band)
 	{
 	case EDFHitFeedbackBand::Light:
 		UDFCameraShakeFunctionLibrary::PlayLightHitOnOwner(this, PC);
+		HitVignetteTimeRemaining = HitStopSync;
+		HitVignetteDuration = HitStopSync;
+		SetVignette(FMath::Clamp(DamagePercent * 0.35f, 0.08f, 0.35f), FLinearColor(0.5f, 0.f, 0.f, 1.f));
 		break;
 	case EDFHitFeedbackBand::Heavy:
 		DamageReceived(DamagePercent);
 		UDFCameraShakeFunctionLibrary::PlayHeavyHitOnOwner(this, PC);
+		HitVignetteTimeRemaining = HitStopSync;
+		HitVignetteDuration = HitStopSync;
 		break;
 	case EDFHitFeedbackBand::Critical:
 		DamageReceived(DamagePercent);
-		ChromaticAberrationPulse(0.3f, FMath::Min(1.f, DamagePercent * 2.f) * S);
+		ChromaticAberrationPulse(HitStopSync, FMath::Min(1.f, DamagePercent * 2.f) * S);
 		UDFCameraShakeFunctionLibrary::PlayHeavyHitOnOwner(this, PC);
+		HitVignetteTimeRemaining = HitStopSync;
+		HitVignetteDuration = HitStopSync;
 		break;
 	case EDFHitFeedbackBand::Knockback:
 		DamageReceived(DamagePercent);
-		ChromaticAberrationPulse(0.4f, FMath::Min(2.f, DamagePercent * 2.5f) * S);
+		ChromaticAberrationPulse(HitStopSync, FMath::Min(2.f, DamagePercent * 2.5f) * S);
 		UDFCameraShakeFunctionLibrary::PlayBossSlamOnOwner(this, PC);
+		HitVignetteTimeRemaining = HitStopSync;
+		HitVignetteDuration = HitStopSync;
 		break;
 	default: break;
 	}

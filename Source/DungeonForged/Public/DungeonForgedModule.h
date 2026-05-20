@@ -8,6 +8,7 @@
 /** Global game module log. Use in any .cpp that includes this header after DEFINE in DungeonForgedModule.cpp. */
 DECLARE_LOG_CATEGORY_EXTERN(LogDungeonForged, Log, All);
 DECLARE_LOG_CATEGORY_EXTERN(LogDFTuning, Log, All);
+DECLARE_LOG_CATEGORY_EXTERN(LogDFFeel, Log, All);
 
 /** Literal de formato apenas (sem TEXT()); a macro aplica TEXT ao literal. */
 #define DF_LOG(Verbosity, Format, ...) UE_LOG(LogDungeonForged, Verbosity, TEXT(Format), ##__VA_ARGS__)
