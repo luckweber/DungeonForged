@@ -150,11 +150,11 @@ public:
 
 	/** Blend-in when chaining to the next swing (runtime override via Montage_PlayWithBlendIn). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Combo|Animation", meta = (ClampMin = "0.0", ClampMax = "0.5"))
-	float ComboChainMontageBlendInTime = 0.08f;
+	float ComboChainMontageBlendInTime = 0.12f;
 
 	/** Blend-out when stopping the previous montage during a chain (0 = instant cut). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Combo|Animation", meta = (ClampMin = "0.0", ClampMax = "0.25"))
-	float ComboChainMontageStopBlendOutTime = 0.0f;
+	float ComboChainMontageStopBlendOutTime = 0.10f;
 
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
 	void OnAttackInput();

@@ -41,6 +41,7 @@ Sempre que possível, mantém:
 | 11 | [Silent Death Blueprint Setup](11_SilentDeathBlueprintSetup.md) | Morte player/inimigo, defeat screen | 📦 |
 | 12 | [AI Blueprint Setup](12_AIBlueprintSetup.md) | BT, blackboard, subtrees por archetype | 📦 |
 | 13 | [Settings Blueprint Setup](13_SettingsBlueprintSetup.md) | Options no Main Menu + Pause, keybinds, a11y | 📦 |
+| 14 | [AAA Combat System](14_AAA_CombatSystem.md) | Roadmap completo AA+ → AAA (blend curves, style rating, juggle, cancel hierarchy) | 🏆 |
 
 ---
 
