@@ -4,8 +4,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "TimerManager.h"
 
-void UDFLauncherComponent::ApplyLaunch(AActor* const Target, const FVector& LaunchVel,
-	const float TargetGravity, const float Hangtime)
+void UDFLauncherComponent::ApplyLaunch(AActor* Target, FVector LaunchVel, float TargetGravity, float Hangtime)
 {
 	ACharacter* const TargetChar = Cast<ACharacter>(Target);
 	if (!TargetChar)
@@ -52,7 +51,7 @@ void UDFLauncherComponent::RestoreTargetGravity(const TWeakObjectPtr<ACharacter>
 	}
 }
 
-void UDFLauncherComponent::ApplySelfLaunch(const FVector& SelfVel)
+void UDFLauncherComponent::ApplySelfLaunch(FVector SelfVel)
 {
 	ACharacter* const Char = Cast<ACharacter>(GetOwner());
 	if (!Char)

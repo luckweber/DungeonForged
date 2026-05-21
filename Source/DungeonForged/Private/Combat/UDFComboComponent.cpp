@@ -215,8 +215,8 @@ bool UDFComboComponent::IsAbilityCancellable(const FGameplayTagContainer& Abilit
 	{
 		if (Spec.IsActive() && Spec.Ability)
 		{
-			ActiveAbilityTags.AppendTags(Spec.Ability->GetAssetTags());
 			ActiveAbilityTags.AppendTags(Spec.Ability->AbilityTags);
+			ActiveAbilityTags.AppendTags(Spec.DynamicAbilityTags);
 		}
 	}
 

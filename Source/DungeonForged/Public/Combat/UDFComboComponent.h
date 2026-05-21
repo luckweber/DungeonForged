@@ -162,7 +162,7 @@ public:
 	float ComboChainMontageStopBlendOutTime = 0.10f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Combo|Animation")
-	TEnumAsByte<EAlphaBlendOption> ComboChainBlendOption = EAlphaBlendOption::HermiteCubic;
+	EAlphaBlendOption ComboChainBlendOption = EAlphaBlendOption::HermiteCubic;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Curve")
 	FName ComboWindowCurveName = TEXT("ComboWindow");
