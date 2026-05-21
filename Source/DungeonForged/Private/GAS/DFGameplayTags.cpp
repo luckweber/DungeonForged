@@ -175,6 +175,16 @@ FGameplayTag FDFGameplayTags::Weapon_Mace;
 FGameplayTag FDFGameplayTags::Weapon_Dagger;
 FGameplayTag FDFGameplayTags::Weapon_Spear;
 FGameplayTag FDFGameplayTags::Weapon_Staff;
+FGameplayTag FDFGameplayTags::Combat_Move_LightCombo_Step0;
+FGameplayTag FDFGameplayTags::Combat_Move_LightCombo_Step1;
+FGameplayTag FDFGameplayTags::Combat_Move_LightCombo_Step2;
+FGameplayTag FDFGameplayTags::Combat_Move_LightCombo_Step3;
+FGameplayTag FDFGameplayTags::Combat_Move_HeavyAttack;
+FGameplayTag FDFGameplayTags::Combat_Move_Parry;
+FGameplayTag FDFGameplayTags::Combat_Move_Dodge_Flawless;
+FGameplayTag FDFGameplayTags::Combat_Target_LowHealth;
+FGameplayTag FDFGameplayTags::State_Crouching;
+FGameplayTag FDFGameplayTags::State_Staggered;
 FGameplayTag FDFGameplayTags::Damage_Source;
 FGameplayTag FDFGameplayTags::Damage_Source_Slash;
 FGameplayTag FDFGameplayTags::Damage_Source_Blunt;
@@ -448,6 +458,17 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(Weapon_Dagger)(FName("Weapon.Dagger"), FString("Dagger / knife."));
 	DF_TAG(Weapon_Spear)(FName("Weapon.Spear"), FString("Spear / polearm."));
 	DF_TAG(Weapon_Staff)(FName("Weapon.Staff"), FString("Staff / wand."));
+
+	DF_TAG(Combat_Move_LightCombo_Step0)(FName("Combat.Move.LightCombo.Step0"), FString("Combo step 0 light."));
+	DF_TAG(Combat_Move_LightCombo_Step1)(FName("Combat.Move.LightCombo.Step1"), FString("Combo step 1 light."));
+	DF_TAG(Combat_Move_LightCombo_Step2)(FName("Combat.Move.LightCombo.Step2"), FString("Combo step 2 light."));
+	DF_TAG(Combat_Move_LightCombo_Step3)(FName("Combat.Move.LightCombo.Step3"), FString("Combo step 3 light."));
+	DF_TAG(Combat_Move_HeavyAttack)(FName("Combat.Move.HeavyAttack"), FString("Heavy attack."));
+	DF_TAG(Combat_Move_Parry)(FName("Combat.Move.Parry"), FString("Parry success."));
+	DF_TAG(Combat_Move_Dodge_Flawless)(FName("Combat.Move.Dodge.Flawless"), FString("Perfect dodge."));
+	DF_TAG(Combat_Target_LowHealth)(FName("Combat.Target.LowHealth"), FString("Target HP below finisher threshold."));
+	DF_TAG(State_Crouching)(FName("State.Crouching"), FString("Attacker is crouching."));
+	DF_TAG(State_Staggered)(FName("State.Staggered"), FString("Target is staggered."));
 
 	DF_TAG(Damage_Source)(FName("Damage.Source"), FString("Physical damage typing for hit reactions."));
 	DF_TAG(Damage_Source_Slash)(FName("Damage.Source.Slash"), FString("Slashing damage."));

@@ -163,18 +163,47 @@ struct DUNGEONFORGED_API FDFAttributeInitTableRow : public FTableRowBase
 	TSubclassOf<UGameplayEffect> StartupGameplayEffect;
 };
 
+/** Weighted montage variant with optional tag filters (AAA variety). */
+USTRUCT(BlueprintType)
+struct DUNGEONFORGED_API FDFComboVariant
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
+	TObjectPtr<UAnimMontage> Montage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float Weight = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
+	FGameplayTagContainer RequiredAttackerTags;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
+	FGameplayTagContainer RequiredTargetTags;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
+	FGameplayTagContainer BlockedAttackerTags;
+};
+
 /** One combo chain step: light swing plus optional heavy finisher branch montage. */
 USTRUCT(BlueprintType)
 struct DUNGEONFORGED_API FDFComboStep
 {
 	GENERATED_BODY()
 
+	/** Legacy single montage; used when @c LightVariants is empty. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
 	TObjectPtr<UAnimMontage> LightMontage = nullptr;
 
-	/** Played instead of @c LightMontage when the player holds primary during the combo window (heavy finisher branch). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
+	TArray<FDFComboVariant> LightVariants;
+
+	/** Played instead of light when the player holds primary during the combo window (heavy finisher branch). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
 	TObjectPtr<UAnimMontage> HeavyBranchMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
+	TArray<FDFComboVariant> HeavyBranchVariants;
 
 	/** Per-step chain blend-in (seconds). Negative = use @c UDFComboComponent::ComboChainMontageBlendInTime. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo", meta = (ClampMin = "-1.0"))
@@ -183,6 +212,27 @@ struct DUNGEONFORGED_API FDFComboStep
 	/** Per-step chain blend-out (seconds). Negative = use component default. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo", meta = (ClampMin = "-1.0"))
 	float ChainBlendOutTime = -1.f;
+
+	/** 255 = use @c UDFComboComponent::ComboChainBlendOption. Otherwise @c EAlphaBlendOption value. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo", meta = (ClampMin = "0", ClampMax = "255"))
+	uint8 ChainBlendOptionOverride = 255;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Launch")
+	bool bIsLauncher = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Launch", meta = (EditCondition = "bIsLauncher"))
+	FVector LaunchVelocity = FVector(0.f, 0.f, 700.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Launch", meta = (EditCondition = "bIsLauncher"))
+	FVector SelfLaunchVelocity = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Launch",
+		meta = (EditCondition = "bIsLauncher", ClampMin = "0.0", ClampMax = "1.0"))
+	float TargetGravityScale = 0.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Launch",
+		meta = (EditCondition = "bIsLauncher", ClampMin = "0.1"))
+	float HangtimeSeconds = 1.5f;
 };
 
 /** Item definition row (e.g. DT_Items). */

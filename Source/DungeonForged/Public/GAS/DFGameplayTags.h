@@ -273,6 +273,18 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Weapon_Spear;
 	static FGameplayTag Weapon_Staff;
 
+	//~ Style rating move ids
+	static FGameplayTag Combat_Move_LightCombo_Step0;
+	static FGameplayTag Combat_Move_LightCombo_Step1;
+	static FGameplayTag Combat_Move_LightCombo_Step2;
+	static FGameplayTag Combat_Move_LightCombo_Step3;
+	static FGameplayTag Combat_Move_HeavyAttack;
+	static FGameplayTag Combat_Move_Parry;
+	static FGameplayTag Combat_Move_Dodge_Flawless;
+	static FGameplayTag Combat_Target_LowHealth;
+	static FGameplayTag State_Crouching;
+	static FGameplayTag State_Staggered;
+
 	//~ Damage source (melee typing for hit reactions / GE dynamic tags)
 	static FGameplayTag Damage_Source;
 	static FGameplayTag Damage_Source_Slash;

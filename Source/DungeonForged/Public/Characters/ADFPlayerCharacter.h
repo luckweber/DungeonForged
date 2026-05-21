@@ -21,6 +21,9 @@ class UDFLockOnComponent;
 class UDFCameraComponent;
 class UDFComboComponent;
 class UDFComboPointsComponent;
+class UDFImpactFramingComponent;
+class UDFLauncherComponent;
+class UDFStyleRatingComponent;
 class UDFHitReactionComponent;
 class UDFInteractionComponent;
 class UDFMeleeTraceComponent;
@@ -89,6 +92,15 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	TObjectPtr<UDFComboComponent> Combo;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	TObjectPtr<UDFImpactFramingComponent> ImpactFraming;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	TObjectPtr<UDFLauncherComponent> Launcher;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	TObjectPtr<UDFStyleRatingComponent> StyleRating;
 
 	/** GAS: builder/finisher combo points (Rogue, etc.). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|GAS")

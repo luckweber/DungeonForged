@@ -11,6 +11,24 @@ class UNiagaraSystem;
 class USoundBase;
 
 USTRUCT(BlueprintType)
+struct DUNGEONFORGED_API FDFCancelRule
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cancel")
+	FGameplayTagContainer FromAbilityTags;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cancel")
+	FGameplayTagContainer AllowedTargetTags;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cancel")
+	bool bRequireHitConfirmed = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cancel")
+	bool bAllowOnWhiff = true;
+};
+
+USTRUCT(BlueprintType)
 struct FDFImpactFeedbackAssets
 {
 	GENERATED_BODY()
@@ -111,4 +129,8 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Finisher", meta = (ClampMin = "0.1"))
 	float FinisherInputWindowSec = 0.65f;
+
+	/** Directional cancel hierarchy (light→heavy, dodge always, etc.). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cancel")
+	TArray<FDFCancelRule> CancelRules;
 };

@@ -154,6 +154,22 @@
 
 ---
 
+## 14 — AAA Combat System
+
+| Item | Estado | Notas |
+|------|--------|-------|
+| Cross-fade HermiteCubic | ✅ | `UDFAnimCombatLibrary`, `ComboChainBlendOption`, per-step override |
+| Impact framing (rate scale) | ✅ | `UDFImpactFramingComponent` em `ADFPlayerCharacter` |
+| Style rating S/A/B/C | ✅ C++ | `UDFStyleRatingComponent`; falta `WBP_StyleRatingWidget` |
+| Variantes por step | ✅ | `FDFComboVariant`, `PickComboVariant` |
+| Juggle / launcher | ✅ C++ | `FDFComboStep` launch fields + `UDFLauncherComponent` |
+| Aerial combo steps | ✅ | `AerialComboSteps` + `IsOwnerAirborne` |
+| Cancel hierarchy | ✅ | `FDFCancelRule` em `UDFCombatTuningData`; preencher `DA_CombatTuning` |
+| Anim curve combo window | ✅ C++ | `bUseCurveInsteadOfNotify` + `ComboWindow` curve |
+| Combo rollback (net) | ✅ | `OnRep_LockedComboActivationStep`, `CurrentComboStep` replicated |
+
+---
+
 ## Próximos passos recomendados
 
 1. **`DA_CombatTuning`** — criar asset e apontar em `DFAssetManager` → `CombatTuningDataAsset`.

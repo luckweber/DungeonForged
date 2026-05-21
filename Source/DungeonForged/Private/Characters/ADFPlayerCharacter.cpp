@@ -22,6 +22,9 @@
 #include "GAS/Effects/UGE_StaminaRegen.h"
 #include "Combat/UDFComboComponent.h"
 #include "Combat/UDFComboPointsComponent.h"
+#include "Combat/UDFLauncherComponent.h"
+#include "Combat/UDFStyleRatingComponent.h"
+#include "FX/UDFImpactFramingComponent.h"
 #include "Combat/UDFHitReactionComponent.h"
 #include "Combat/UDFMeleeAimComponent.h"
 #include "Combat/UDFMeleeTraceComponent.h"
@@ -92,6 +95,9 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 	MeleeAim = CreateDefaultSubobject<UDFMeleeAimComponent>(TEXT("MeleeAim"));
 	MotionWarping = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarping"));
 	Combo = CreateDefaultSubobject<UDFComboComponent>(TEXT("Combo"));
+	ImpactFraming = CreateDefaultSubobject<UDFImpactFramingComponent>(TEXT("ImpactFraming"));
+	Launcher = CreateDefaultSubobject<UDFLauncherComponent>(TEXT("Launcher"));
+	StyleRating = CreateDefaultSubobject<UDFStyleRatingComponent>(TEXT("StyleRating"));
 	ComboPoints = CreateDefaultSubobject<UDFComboPointsComponent>(TEXT("ComboPoints"));
 	HitReaction = CreateDefaultSubobject<UDFHitReactionComponent>(TEXT("HitReaction"));
 	Interaction = CreateDefaultSubobject<UDFInteractionComponent>(TEXT("InteractionComponent"));

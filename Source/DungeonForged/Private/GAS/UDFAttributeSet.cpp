@@ -3,6 +3,8 @@
 #include "GAS/UDFAttributeSet.h"
 #include "Characters/ADFEnemyBase.h"
 #include "Characters/ADFPlayerCharacter.h"
+#include "Combat/UDFStyleRatingComponent.h"
+#include "Characters/ADFPlayerCharacter.h"
 #include "Engine/Engine.h"
 #include "GAS/DFGameplayTags.h"
 #include "UI/Combat/DFCombatTextTypes.h"
@@ -311,6 +313,13 @@ void UDFAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 					if (ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(ASC->GetOwner()))
 					{
 						Enemy->RegisterDamageFromContext(Data.EffectSpec.GetContext());
+					}
+					if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(ASC->GetOwner()))
+					{
+						if (UDFStyleRatingComponent* const Style = PC->FindComponentByClass<UDFStyleRatingComponent>())
+						{
+							Style->NotifyDamageReceived(-Mag);
+						}
 					}
 				}
 				const float Dmg = -Mag;

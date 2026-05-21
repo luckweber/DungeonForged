@@ -33,6 +33,10 @@
 #include "FX/UDFCombatFeedbackLibrary.h"
 #include "Combat/UDFCombatEventsLibrary.h"
 #include "Combat/UDFStaggerComponent.h"
+#include "Combat/UDFComboComponent.h"
+#include "Combat/UDFLauncherComponent.h"
+#include "Combat/UDFStyleRatingComponent.h"
+#include "FX/UDFImpactFramingComponent.h"
 #include "Combat/UDFWeaponTrailPoolComponent.h"
 #include "Data/UDFCombatTuningData.h"
 #include "DFAssetManager.h"
@@ -1434,6 +1438,10 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 				}
 			}
 		}
+		if (UDFStyleRatingComponent* const Style = Owner->FindComponentByClass<UDFStyleRatingComponent>())
+		{
+			Style->RecordParry();
+		}
 	}
 
 	const float Health = TargetASC->GetNumericAttribute(UDFAttributeSet::GetHealthAttribute());
@@ -1524,6 +1532,57 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 		}
 		const bool bCrit = FDFGameplayTags::Data_CriticalHit.IsValid()
 			&& SpecHandle.Data->GetSetByCallerMagnitude(FDFGameplayTags::Data_CriticalHit, false, 0.f) > 0.5f;
+
+		if (UDFImpactFramingComponent* const Framing = Owner->FindComponentByClass<UDFImpactFramingComponent>())
+		{
+			if (bCrit)
+			{
+				Framing->TriggerCritical();
+			}
+			else if (bHeavySwingActive)
+			{
+				Framing->TriggerHeavy();
+			}
+			else
+			{
+				Framing->TriggerLight();
+			}
+		}
+
+		if (UDFComboComponent* const Combo = Owner->FindComponentByClass<UDFComboComponent>())
+		{
+			FDFComboStep StepData;
+			if (Combo->GetActiveComboStep(Combo->CurrentComboStep, StepData) && StepData.bIsLauncher)
+			{
+				if (UDFLauncherComponent* const LauncherComp = Owner->FindComponentByClass<UDFLauncherComponent>())
+				{
+					LauncherComp->ApplyLaunch(
+						Target, StepData.LaunchVelocity, StepData.TargetGravityScale, StepData.HangtimeSeconds);
+					if (!StepData.SelfLaunchVelocity.IsNearlyZero())
+					{
+						LauncherComp->ApplySelfLaunch(StepData.SelfLaunchVelocity);
+					}
+				}
+			}
+
+			if (UDFStyleRatingComponent* const Style = Owner->FindComponentByClass<UDFStyleRatingComponent>())
+			{
+				FGameplayTag MoveTag;
+				switch (Combo->CurrentComboStep)
+				{
+				case 0: MoveTag = FDFGameplayTags::Combat_Move_LightCombo_Step0; break;
+				case 1: MoveTag = FDFGameplayTags::Combat_Move_LightCombo_Step1; break;
+				case 2: MoveTag = FDFGameplayTags::Combat_Move_LightCombo_Step2; break;
+				case 3: MoveTag = FDFGameplayTags::Combat_Move_LightCombo_Step3; break;
+				default: MoveTag = FDFGameplayTags::Combat_Move_LightCombo_Step0; break;
+				}
+				if (bHeavySwingActive && FDFGameplayTags::Combat_Move_HeavyAttack.IsValid())
+				{
+					MoveTag = FDFGameplayTags::Combat_Move_HeavyAttack;
+				}
+				Style->RecordMove(MoveTag, 15.f);
+			}
+		}
 
 		FDFHitConfirmedContext HitCtx;
 		HitCtx.Instigator = Owner;

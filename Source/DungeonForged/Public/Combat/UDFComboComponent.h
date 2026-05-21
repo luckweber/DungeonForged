@@ -2,6 +2,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "AlphaBlend.h"
 #include "Components/ActorComponent.h"
 #include "Data/DFDataTableStructs.h"
 #include "GameplayTagContainer.h"
@@ -19,7 +20,7 @@ class DUNGEONFORGED_API UDFComboComponent : public UActorComponent
 public:
 	UDFComboComponent();
 
-	UPROPERTY(BlueprintReadOnly, Category = "Combat|Combo")
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Combat|Combo")
 	int32 CurrentComboStep = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo", meta = (ClampMin = "1"))
@@ -43,7 +44,7 @@ public:
 	 * Step locked for the next GA activation (survives ResetCombo / PrimeMeleeSwing / OnMontageEnd races).
 	 * -1 = use @c CurrentComboStep.
 	 */
-	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Combat|Combo")
+	UPROPERTY(ReplicatedUsing = OnRep_LockedComboActivationStep, BlueprintReadOnly, Category = "Combat|Combo")
 	int32 LockedComboActivationStep = -1;
 
 	/** @deprecated display / server sync mirror; use @c LockedComboActivationStep for activation. */
@@ -72,6 +73,10 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo")
 	TArray<FDFComboStep> ComboSteps;
+
+	/** Used when @c IsOwnerAirborne() and this array is non-empty. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Aerial")
+	TArray<FDFComboStep> AerialComboSteps;
 
 	/** Loops while primary attack is held before heavy tier commits (optional). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Heavy")
@@ -155,6 +160,19 @@ public:
 	/** Blend-out when stopping the previous montage during a chain (0 = instant cut). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Combo|Animation", meta = (ClampMin = "0.0", ClampMax = "0.25"))
 	float ComboChainMontageStopBlendOutTime = 0.10f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Combo|Animation")
+	TEnumAsByte<EAlphaBlendOption> ComboChainBlendOption = EAlphaBlendOption::HermiteCubic;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Curve")
+	FName ComboWindowCurveName = TEXT("ComboWindow");
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Curve", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ComboWindowCurveThreshold = 0.5f;
+
+	/** When true, combo window opens/closes from anim curve; notifies remain fallback when curve is absent. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Curve")
+	bool bUseCurveInsteadOfNotify = false;
 
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
 	void OnAttackInput();
@@ -259,6 +277,19 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
 	float ResolveChainBlendInForStep(int32 Step) const;
 
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
+	EAlphaBlendOption ResolveChainBlendOptionForStep(int32 Step) const;
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
+	UAnimMontage* PickComboVariant(const TArray<FDFComboVariant>& Variants) const;
+
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Aerial")
+	bool IsOwnerAirborne() const;
+
+	/** Active step data (aerial vs grounded). */
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
+	bool GetActiveComboStep(int32 Step, FDFComboStep& OutStep) const;
+
 #if !UE_BUILD_SHIPPING
 	/** Used by melee GA + df.DebugCombat overlay. */
 	void RecordChainMontageBlendIn(float RuntimeBlendIn, UAnimMontage* Montage = nullptr);
@@ -275,7 +306,13 @@ protected:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	UFUNCTION()
+	void OnRep_LockedComboActivationStep();
+
+	UFUNCTION()
 	void OnComboWindowTimerExpired();
+
+	void EvaluateComboCurveWindow();
+	UAnimMontage* ResolveStepMontageFromData(const FDFComboStep& StepData) const;
 
 	void PlayCurrentComboMontage();
 	void PrimeMeleeSwingAbilityChain();
@@ -317,6 +354,8 @@ protected:
 	bool bPendingChargeReleaseMontage = false;
 	bool bAbilityCancelWindowActive = false;
 	FGameplayTagContainer AllowedAbilityCancelTags;
+	bool bSwingHitConfirmedThisActivation = false;
+	int32 LastRepLockedComboStep = -1;
 	void ApplyCombatTuningFromDataAsset();
 	void BufferComboInputAndTryAdvance();
 	void DrawCombatDebug() const;
