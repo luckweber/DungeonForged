@@ -36,7 +36,7 @@ DFCombatDebug::FMontagePlaybackSample DFCombatDebug::SampleMontagePlayback(
 	Out.bValid = true;
 	Out.MontageName = M->GetName();
 	Out.PositionSec = AnimInstance->Montage_GetPosition(M);
-	Out.FrameRate = M->GetComputedFrameRate();
+	Out.FrameRate = static_cast<float>(M->GetSamplingFrameRate().AsDecimal());
 	if (Out.FrameRate <= KINDA_SMALL_NUMBER)
 	{
 		Out.FrameRate = 30.f;
