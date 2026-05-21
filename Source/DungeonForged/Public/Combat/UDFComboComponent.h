@@ -280,6 +280,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
 	EAlphaBlendOption ResolveChainBlendOptionForStep(int32 Step) const;
 
+	/** Seconds to skip at the start of step @a Step's montage when chained. 0 = no skip. */
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
+	float ResolveChainStartOffsetForStep(int32 Step) const;
+
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
 	UAnimMontage* PickComboVariant(const TArray<FDFComboVariant>& Variants) const;
 

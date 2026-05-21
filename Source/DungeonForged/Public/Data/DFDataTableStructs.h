@@ -217,6 +217,14 @@ struct DUNGEONFORGED_API FDFComboStep
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo", meta = (ClampMin = "0", ClampMax = "255"))
 	uint8 ChainBlendOptionOverride = 255;
 
+	/**
+	 * Seconds to skip at the start of the montage when this step is reached as a chain (step > 0).
+	 * Cuts the windup/anticipation frames so the chain feels continuous instead of "swing → pause → swing".
+	 * 0 = play from start. Tip: set to a value slightly before AN_TraceStart on the montage timeline.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ChainStartTimeOffset = 0.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Launch")
 	bool bIsLauncher = false;
 

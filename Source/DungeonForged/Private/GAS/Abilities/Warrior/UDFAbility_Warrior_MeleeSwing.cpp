@@ -174,6 +174,13 @@ void UDFAbility_Warrior_MeleeSwing::ActivateAbility(const FGameplayAbilitySpecHa
 		// default blend-out and kill the cross-fade.
 		const float Len = UDFAnimCombatLibrary::PlayMontageWithBlendIn(
 			AnimInst, MontToPlay, 1.f, ChainBlendIn, false, BlendOpt);
+
+		// Skip windup frames so the chain feels continuous (no "pause" between swings).
+		const float ChainStartOffset = Combo ? Combo->ResolveChainStartOffsetForStep(ComboStep) : 0.f;
+		if (Len > 0.f && ChainStartOffset > 0.f && ChainStartOffset < Len)
+		{
+			AnimInst->Montage_SetPosition(MontToPlay, ChainStartOffset);
+		}
 #if !UE_BUILD_SHIPPING
 		if (Combo)
 		{

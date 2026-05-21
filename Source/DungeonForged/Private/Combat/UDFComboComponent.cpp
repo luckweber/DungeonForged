@@ -263,6 +263,16 @@ EAlphaBlendOption UDFComboComponent::ResolveChainBlendOptionForStep(const int32 
 	return ComboChainBlendOption;
 }
 
+float UDFComboComponent::ResolveChainStartOffsetForStep(const int32 Step) const
+{
+	FDFComboStep StepData;
+	if (GetActiveComboStep(Step, StepData) && StepData.ChainStartTimeOffset > 0.f)
+	{
+		return StepData.ChainStartTimeOffset;
+	}
+	return 0.f;
+}
+
 bool UDFComboComponent::IsOwnerAirborne() const
 {
 	const ACharacter* const Char = Cast<ACharacter>(GetOwner());
