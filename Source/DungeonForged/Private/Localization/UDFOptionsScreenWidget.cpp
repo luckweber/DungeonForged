@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/Localization/UDFOptionsScreenWidget.cpp
 #include "Localization/UDFOptionsScreenWidget.h"
+#include "GameModes/MainMenu/ADFMainMenuHUD.h"
 #include "Components/Button.h"
 #include "Components/CheckBox.h"
 #include "Components/ComboBoxString.h"
@@ -26,6 +27,12 @@ void UDFOptionsScreenWidget::NativeConstruct()
 	if (Button_TabControls) { Button_TabControls->OnClicked.AddDynamic(this, &UDFOptionsScreenWidget::OnTabButtonControls); }
 	if (Button_TabAccessibility) { Button_TabAccessibility->OnClicked.AddDynamic(this, &UDFOptionsScreenWidget::OnTabButtonAccessibility); }
 	if (Button_TabLanguage) { Button_TabLanguage->OnClicked.AddDynamic(this, &UDFOptionsScreenWidget::OnTabButtonLanguage); }
+	if (Button_Back) { Button_Back->OnClicked.AddDynamic(this, &UDFOptionsScreenWidget::OnBackButtonClicked); }
+
+	if (MainTabSwitcher)
+	{
+		SetCurrentTabIndex(MainTabSwitcher->GetActiveWidgetIndex(), true);
+	}
 
 	if (Slider_Master) { Slider_Master->OnValueChanged.AddDynamic(this, &UDFOptionsScreenWidget::OnMasterChanged); }
 	if (Slider_Music) { Slider_Music->OnValueChanged.AddDynamic(this, &UDFOptionsScreenWidget::OnMusicChanged); }
@@ -121,12 +128,67 @@ FReply UDFOptionsScreenWidget::NativeOnKeyDown(const FGeometry& InGeometry, cons
 	return FReply::Handled();
 }
 
-void UDFOptionsScreenWidget::ShowTabByIndex(const int32 Index)
+int32 UDFOptionsScreenWidget::ClampTabIndex(const int32 Index) const
 {
+	if (!MainTabSwitcher)
+	{
+		return FMath::Max(0, Index);
+	}
+	const int32 Count = MainTabSwitcher->GetNumWidgets();
+	if (Count <= 0)
+	{
+		return 0;
+	}
+	return FMath::Clamp(Index, 0, Count - 1);
+}
+
+void UDFOptionsScreenWidget::SetCurrentTabIndex(const int32 Index, const bool bNotifyEvenIfUnchanged)
+{
+	const int32 Clamped = ClampTabIndex(Index);
+	const bool bChanged = CurrentTabIndex != Clamped;
 	if (MainTabSwitcher)
 	{
-		MainTabSwitcher->SetActiveWidgetIndex(Index);
+		MainTabSwitcher->SetActiveWidgetIndex(Clamped);
 	}
+	CurrentTabIndex = Clamped;
+	if (bChanged || bNotifyEvenIfUnchanged)
+	{
+		NotifyTabChanged();
+	}
+}
+
+void UDFOptionsScreenWidget::NotifyTabChanged()
+{
+	const EDFOptionsTab Tab = GetCurrentTab();
+	OnTabChanged.Broadcast(CurrentTabIndex, Tab);
+	OnTabIndexChanged(CurrentTabIndex, Tab);
+}
+
+void UDFOptionsScreenWidget::ShowTabByIndex(const int32 Index)
+{
+	SetCurrentTabIndex(Index, false);
+}
+
+void UDFOptionsScreenWidget::ShowTab(const EDFOptionsTab Tab)
+{
+	ShowTabByIndex(static_cast<int32>(Tab));
+}
+
+void UDFOptionsScreenWidget::CloseOptions()
+{
+	RemoveFromParent();
+	if (APlayerController* const PC = GetOwningPlayer())
+	{
+		if (ADFMainMenuHUD* const H = Cast<ADFMainMenuHUD>(PC->GetHUD()))
+		{
+			H->RestoreMainMenuFocus();
+		}
+	}
+}
+
+void UDFOptionsScreenWidget::OnBackButtonClicked()
+{
+	CloseOptions();
 }
 
 void UDFOptionsScreenWidget::ResetKeybindsToDefaults()

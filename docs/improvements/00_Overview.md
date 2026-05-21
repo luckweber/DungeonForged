@@ -37,6 +37,10 @@ Sempre que possível, mantém:
 | 07 | [UI / UX](07_UI_UX.md) | HUD adaptativo, boss intro, defeat polish, indicadores | 🎨 MÉDIA |
 | 08 | [Accessibility](08_Accessibility.md) | Sliders, colorblind, hold/toggle, motion sickness | ♿ BAIXA |
 | 09 | [Implementation Status](09_ImplementationStatus.md) | O que já está no C++ vs. pendente | 📋 |
+| 10 | [Combat Blueprint Setup](10_CombatBlueprintSetup.md) | GCN, montages, telegraph/parry no editor | 📦 |
+| 11 | [Silent Death Blueprint Setup](11_SilentDeathBlueprintSetup.md) | Morte player/inimigo, defeat screen | 📦 |
+| 12 | [AI Blueprint Setup](12_AIBlueprintSetup.md) | BT, blackboard, subtrees por archetype | 📦 |
+| 13 | [Settings Blueprint Setup](13_SettingsBlueprintSetup.md) | Options no Main Menu + Pause, keybinds, a11y | 📦 |
 
 ---
 

@@ -66,7 +66,7 @@ existente — note o nome truncado; opcionalmente renomeie para
 | `CreditsWidgetClass` | DF \| MainMenu \| UI | `WBP_Credits` |
 | `ConfirmWidgetClass` | DF \| MainMenu \| UI | `WBP_ConfirmDialog` |
 | `SaveSlotWidgetClass` | DF \| MainMenu \| UI | `WBP_SaveSlotSelection` |
-| `OptionsWidgetClass` | DF \| MainMenu \| UI | (opcional, Prompt 45) |
+| `OptionsWidgetClass` | DF \| MainMenu \| UI | `WBP_OptionsScreen` — ver [`13_SettingsBlueprintSetup.md`](../improvements/13_SettingsBlueprintSetup.md) |
 | `AchievementListWidgetClass` | DF \| MainMenu \| UI | (opcional, Prompt 61) |
 
 > Se `SplashWidgetClass` ficar **None**, o HUD pula direto para

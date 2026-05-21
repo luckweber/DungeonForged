@@ -62,7 +62,15 @@ void UANS_DFCancelWindow::NotifyBegin(USkeletalMeshComponent* const MeshComp,
 	{
 		if (UDFComboComponent* const Combo = Owner->FindComponentByClass<UDFComboComponent>())
 		{
-			Combo->AdvanceCombo();
+			UAnimMontage* MontageContext = nullptr;
+			if (MeshComp)
+			{
+				if (UAnimInstance* const AnimInst = MeshComp->GetAnimInstance())
+				{
+					MontageContext = AnimInst->GetCurrentActiveMontage();
+				}
+			}
+			Combo->AdvanceCombo(TEXT("ANS_DFCancelWindow"), MontageContext);
 		}
 	}
 }

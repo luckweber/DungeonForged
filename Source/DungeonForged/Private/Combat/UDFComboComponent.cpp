@@ -94,6 +94,49 @@ void UDFComboComponent::ArmComboWindowTimer()
 		ComboWindowTimer, this, &UDFComboComponent::OnComboWindowTimerExpired, ComboWindowDuration, false);
 }
 
+#if !UE_BUILD_SHIPPING
+void UDFComboComponent::RecordComboWindowOpened(const FName Source, UAnimMontage* const MontageAtNotify)
+{
+	const FString SourceStr = Source.IsNone() ? TEXT("AdvanceCombo") : Source.ToString();
+	UAnimInstance* const AnimInst = GetAnimInstance();
+	const DFCombatDebug::FMontagePlaybackSample Sample =
+		DFCombatDebug::SampleMontagePlayback(AnimInst, MontageAtNotify);
+	LastComboWindowOpenSource = SourceStr;
+	LastComboWindowOpenWorldTime = GetWorld() ? GetWorld()->GetTimeSeconds() : -1.f;
+	if (Sample.bValid)
+	{
+		LastComboWindowOpenMontageTime = Sample.PositionSec;
+		LastComboWindowOpenMontageFrame = Sample.Frame;
+		LastComboWindowOpenMontageName = Sample.MontageName;
+	}
+	else
+	{
+		LastComboWindowOpenMontageTime = -1.f;
+		LastComboWindowOpenMontageFrame = -1;
+		LastComboWindowOpenMontageName.Reset();
+	}
+	DFCombatDebug::LogComboMontageEvent(
+		*FString::Printf(TEXT("ComboWindow OPEN (%s) timer=%.2fs"), *SourceStr, ComboWindowDuration),
+		AnimInst,
+		MontageAtNotify);
+}
+
+void UDFComboComponent::RecordComboWindowClosed(const FName Source)
+{
+	const FString SourceStr = Source.IsNone() ? TEXT("Unknown") : Source.ToString();
+	DFCombatDebug::LogComboMontageEvent(
+		*FString::Printf(TEXT("ComboWindow CLOSE (%s)"), *SourceStr),
+		GetAnimInstance(),
+		ResolveDirectionalComboMontage(CurrentComboStep));
+}
+
+void UDFComboComponent::RecordChainMontageBlendIn(const float RuntimeBlendIn, UAnimMontage* const Montage)
+{
+	LastChainRuntimeBlendIn = RuntimeBlendIn;
+	DFCombatDebug::LogComboMontageEvent(TEXT("ChainMontagePlay"), GetAnimInstance(), Montage, RuntimeBlendIn);
+}
+#endif
+
 void UDFComboComponent::NotifyOwnerHitConfirmed(const float ExtensionSeconds)
 {
 	if (!bComboWindowActive)
@@ -715,7 +758,7 @@ void UDFComboComponent::PlayCurrentComboMontage()
 	}
 }
 
-void UDFComboComponent::AdvanceCombo()
+void UDFComboComponent::AdvanceCombo(const FName DebugSource, UAnimMontage* const MontageContext)
 {
 	UWorld* const W = GetWorld();
 	if (W)
@@ -769,6 +812,10 @@ void UDFComboComponent::AdvanceCombo()
 	{
 		bComboWindowActive = true;
 		ArmComboWindowTimer();
+#if !UE_BUILD_SHIPPING
+		RecordComboWindowOpened(DebugSource,
+			MontageContext ? MontageContext : ResolveDirectionalComboMontage(CurrentComboStep));
+#endif
 	}
 }
 
@@ -796,6 +843,12 @@ void UDFComboComponent::OnComboWindowTimerExpired()
 	}
 	bComboWindowActive = false;
 	ComboWindowExpireTime = -1.f;
+#if !UE_BUILD_SHIPPING
+	if (DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Combo))
+	{
+		RecordComboWindowClosed(FName(TEXT("TimerExpired")));
+	}
+#endif
 }
 
 void UDFComboComponent::ResetCombo()
@@ -1294,21 +1347,47 @@ void UDFComboComponent::DrawCombatDebug() const
 	{
 		const int32 DisplayStep = LockedComboActivationStep >= 0 ? LockedComboActivationStep : CurrentComboStep;
 		const UAnimMontage* const StepM = ResolveDirectionalComboMontage(DisplayStep);
+		float WindowRemain = -1.f;
+		if (bComboWindowActive && ComboWindowExpireTime >= 0.f)
+		{
+			WindowRemain = FMath::Max(0.f, ComboWindowExpireTime - World->GetTimeSeconds());
+		}
 		DrawLine(FColor::Cyan,
-			FString::Printf(TEXT("Combo step %d/%d | locked %d | montages %d | win %s | buf %s"),
+			FString::Printf(TEXT("Combo step %d/%d | locked %d | win %s (%.2fs) | buf %s"),
 				DisplayStep,
 				GetEffectiveMaxComboSteps() - 1,
 				LockedComboActivationStep,
-				ComboMontages.Num(),
 				bComboWindowActive ? TEXT("OPEN") : TEXT("-"),
+				WindowRemain,
 				bComboInputBuffered ? TEXT("Y") : TEXT("n")));
-		if (StepM)
+		if (LastComboWindowOpenWorldTime >= 0.f)
 		{
-			DrawLine(FColor::White, FString::Printf(TEXT("  montage: %s"), *StepM->GetName()));
+			DrawLine(FColor::Green,
+				FString::Printf(TEXT("  last OPEN [%s] @ montage t=%.3fs fr=%d (%s)"),
+					*LastComboWindowOpenSource,
+					LastComboWindowOpenMontageTime,
+					LastComboWindowOpenMontageFrame,
+					*LastComboWindowOpenMontageName));
+		}
+		const DFCombatDebug::FMontagePlaybackSample Live =
+			DFCombatDebug::SampleMontagePlayback(GetAnimInstance(), const_cast<UAnimMontage*>(StepM));
+		if (Live.bValid)
+		{
+			DrawLine(FColor::White, FString::Printf(TEXT("  playing: %s"), *DFCombatDebug::FormatMontagePlayback(Live)));
+		}
+		else if (StepM)
+		{
+			DrawLine(FColor::White, FString::Printf(TEXT("  step montage (idle): %s"), *StepM->GetName()));
 		}
 		else if (ComboMontages.Num() == 0)
 		{
 			DrawLine(FColor::Red, TEXT("  !! ComboMontages EMPTY"));
+		}
+		if (LastChainRuntimeBlendIn >= 0.f)
+		{
+			DrawLine(FColor::Silver,
+				FString::Printf(TEXT("  last chain runtimeBlendIn=%.3f (component default %.3f)"),
+					LastChainRuntimeBlendIn, ComboChainMontageBlendInTime));
 		}
 	}
 

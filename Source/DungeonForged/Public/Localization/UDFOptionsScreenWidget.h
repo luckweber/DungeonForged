@@ -20,6 +20,20 @@ class UUserWidget;
 class UWidget;
 class UWidgetSwitcher;
 
+/** Matches @c MainTabSwitcher child order (Audio=0 … Language=4). */
+UENUM(BlueprintType)
+enum class EDFOptionsTab : uint8
+{
+	Audio         UMETA(DisplayName = "Audio"),
+	Graphics      UMETA(DisplayName = "Graphics"),
+	Controls      UMETA(DisplayName = "Controls"),
+	Accessibility UMETA(DisplayName = "Accessibility"),
+	Language      UMETA(DisplayName = "Language"),
+};
+
+/** Fired when the active options tab changes (@c ShowTabByIndex / tab buttons). */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnDFOptionsTabChanged, int32, TabIndex, EDFOptionsTab, Tab);
+
 UCLASS(Blueprintable, BlueprintType)
 class DUNGEONFORGED_API UDFOptionsScreenWidget : public UDFUserWidgetBase
 {
@@ -35,6 +49,34 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "DF|Options|Tabs")
 	void ShowTabByIndex(int32 Index);
+
+	UFUNCTION(BlueprintCallable, Category = "DF|Options|Tabs")
+	void ShowTab(EDFOptionsTab Tab);
+
+	/**
+	 * Sets active tab index, updates @c MainTabSwitcher, and fires @c OnTabChanged when the index changes.
+	 * Callable from WBP Event Graph (custom tab buttons, animations, etc.).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DF|Options|Tabs", meta = (AdvancedDisplay = "bNotifyEvenIfUnchanged"))
+	void SetCurrentTabIndex(int32 Index, bool bNotifyEvenIfUnchanged = false);
+
+	/** Index of the active tab (same as @c MainTabSwitcher active index). */
+	UFUNCTION(BlueprintPure, Category = "DF|Options|Tabs")
+	int32 GetCurrentTabIndex() const { return CurrentTabIndex; }
+
+	UFUNCTION(BlueprintPure, Category = "DF|Options|Tabs")
+	EDFOptionsTab GetCurrentTab() const { return static_cast<EDFOptionsTab>(CurrentTabIndex); }
+
+	/** Read-only mirror for UMG bindings / Blueprint (updated by @c ShowTabByIndex). */
+	UPROPERTY(BlueprintReadOnly, Category = "DF|Options|Tabs")
+	int32 CurrentTabIndex = 0;
+
+	/** Assign in WBP Designer: Event Graph → On Tab Changed. */
+	UPROPERTY(BlueprintAssignable, Category = "DF|Options|Tabs|Events")
+	FOnDFOptionsTabChanged OnTabChanged;
+
+	UFUNCTION(BlueprintCallable, Category = "DF|Options|Tabs")
+	void CloseOptions();
 
 	UFUNCTION(BlueprintCallable, Category = "DF|Options|Controls")
 	void ResetKeybindsToDefaults();
@@ -97,6 +139,17 @@ protected:
 	UFUNCTION()
 	void OnTabButtonLanguage() { ShowTabByIndex(4); }
 
+	UFUNCTION()
+	void OnBackButtonClicked();
+
+	int32 ClampTabIndex(int32 Index) const;
+
+	/** Override in WBP (Event Graph → Override Functions) for tab highlight / SFX. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "DF|Options|Tabs|Events")
+	void OnTabIndexChanged(int32 NewTabIndex, EDFOptionsTab NewTab);
+
+	void NotifyTabChanged();
+
 	void BuildKeybindRows();
 	void RebuildColorBlindCombo();
 	EDFColorBlindMode ParseColorBlindCombo();
@@ -118,6 +171,9 @@ protected:
 	TObjectPtr<UButton> Button_TabAccessibility = nullptr;
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UButton> Button_TabLanguage = nullptr;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UButton> Button_Back = nullptr;
 
 	/* Audio */
 	UPROPERTY(meta = (BindWidgetOptional))

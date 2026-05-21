@@ -167,6 +167,12 @@ void UDFAbility_Warrior_MeleeSwing::ActivateAbility(const FGameplayAbilitySpecHa
 	{
 		bPlayedMontageDirect = true;
 		const float Len = UDFAnimCombatLibrary::PlayMontageWithBlendIn(AnimInst, MontToPlay, 1.f, ChainBlendIn, true);
+#if !UE_BUILD_SHIPPING
+		if (Combo)
+		{
+			Combo->RecordChainMontageBlendIn(ChainBlendIn, MontToPlay);
+		}
+#endif
 		if (Len <= 0.f)
 		{
 			EndAbility(Handle, ActorInfo, ActivationInfo, true, true);

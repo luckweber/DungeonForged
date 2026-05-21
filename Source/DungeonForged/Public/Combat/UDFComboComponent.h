@@ -197,9 +197,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
 	void StartCombo();
 
-	/** Placed on the timeline where the next chain can start (e.g. AnimNotify AN_ComboWindow). */
+	/**
+	 * Placed on the timeline where the next chain can start (e.g. AnimNotify AN_ComboWindow).
+	 * @param DebugSource Non-shipping log label (e.g. AN_ComboWindowOpen).
+	 * @param MontageContext Montage playing when the notify fired (improves df.DebugCombat frame/time).
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
-	void AdvanceCombo();
+	void AdvanceCombo(FName DebugSource = NAME_None, UAnimMontage* MontageContext = nullptr);
 
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
 	void ResetCombo();
@@ -255,6 +259,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
 	float ResolveChainBlendInForStep(int32 Step) const;
 
+#if !UE_BUILD_SHIPPING
+	/** Used by melee GA + df.DebugCombat overlay. */
+	void RecordChainMontageBlendIn(float RuntimeBlendIn, UAnimMontage* Montage = nullptr);
+#endif
+
 	/** Sends finisher QTE input when Execute is active; tries Execute when FinisherReady. */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Finisher")
 	bool TryHandleFinisherPrimaryInput();
@@ -294,7 +303,17 @@ protected:
 	bool bSwingInputBuffered = false;
 	float SwingInputBufferExpireTime = -1.f;
 	float ComboWindowExpireTime = -1.f;
+#if !UE_BUILD_SHIPPING
+	FString LastComboWindowOpenSource;
+	float LastComboWindowOpenWorldTime = -1.f;
+	float LastComboWindowOpenMontageTime = -1.f;
+	int32 LastComboWindowOpenMontageFrame = -1;
+	FString LastComboWindowOpenMontageName;
+#endif
 	bool bPlayingChargeWindup = false;
+#if !UE_BUILD_SHIPPING
+	float LastChainRuntimeBlendIn = -1.f;
+#endif
 	bool bPendingChargeReleaseMontage = false;
 	bool bAbilityCancelWindowActive = false;
 	FGameplayTagContainer AllowedAbilityCancelTags;
@@ -306,6 +325,10 @@ protected:
 	void TryAdvanceComboBranchFromHold();
 	bool IsInputBufferExpired(float ExpireGameTime) const;
 	void ArmComboWindowTimer();
+#if !UE_BUILD_SHIPPING
+	void RecordComboWindowOpened(FName Source, UAnimMontage* MontageAtNotify = nullptr);
+	void RecordComboWindowClosed(FName Source);
+#endif
 	/** Stops the previous swing montage and clears end delegates before a GAS combo chain step. */
 	void PrepareForComboChainActivation();
 

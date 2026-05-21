@@ -9,7 +9,7 @@ static TAutoConsoleVariable<int32> CVarDF_DebugCombat(
 	0,
 	TEXT("DungeonForged: debug draw for melee combo / heavy / warp / aim.\n")
 	TEXT(" 0: Off\n")
-	TEXT(" 1: Combo (step, window, buffers)\n")
+	TEXT(" 1: Combo (step, window, montage t/fr, chain blend; Output Log [Combo|Debug])\n")
 	TEXT(" 2: Heavy charge + montage\n")
 	TEXT(" 4: Motion warp targets (also enable bDrawDebug on ANS_DFMeleeWarp)\n")
 	TEXT(" 8: Melee aim cone\n")

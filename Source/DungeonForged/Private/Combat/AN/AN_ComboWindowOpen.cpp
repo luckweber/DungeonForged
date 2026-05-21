@@ -1,5 +1,7 @@
 // Source/DungeonForged/Private/Combat/AN/AN_ComboWindowOpen.cpp
 #include "Combat/AN/AN_ComboWindowOpen.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Combat/UDFComboComponent.h"
 #include "Animation/AnimSequenceBase.h"
@@ -21,6 +23,11 @@ void UAN_ComboWindowOpen::Notify(USkeletalMeshComponent* MeshComp, UAnimSequence
 	}
 	if (UDFComboComponent* C = Owner->FindComponentByClass<UDFComboComponent>())
 	{
-		C->AdvanceCombo();
+		UAnimMontage* MontageContext = nullptr;
+		if (UAnimInstance* const AnimInst = MeshComp->GetAnimInstance())
+		{
+			MontageContext = AnimInst->GetCurrentActiveMontage();
+		}
+		C->AdvanceCombo(TEXT("AN_ComboWindowOpen"), MontageContext);
 	}
 }
