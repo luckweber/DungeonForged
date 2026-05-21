@@ -166,7 +166,10 @@ void UDFAbility_Warrior_MeleeSwing::ActivateAbility(const FGameplayAbilitySpecHa
 	if (bChainSwing && AnimInst && MontToPlay)
 	{
 		bPlayedMontageDirect = true;
-		const float Len = UDFAnimCombatLibrary::PlayMontageWithBlendIn(AnimInst, MontToPlay, 1.f, ChainBlendIn, true);
+		// bStopAllMontages=false: PrepareForComboChainActivation already stopped the previous swing with the
+		// configured blend-out time. Letting StopAllMontages fire here would override that with the asset's
+		// default blend-out and kill the cross-fade.
+		const float Len = UDFAnimCombatLibrary::PlayMontageWithBlendIn(AnimInst, MontToPlay, 1.f, ChainBlendIn, false);
 #if !UE_BUILD_SHIPPING
 		if (Combo)
 		{
