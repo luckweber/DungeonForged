@@ -11,6 +11,8 @@
 class UAnimMontage;
 class UDFMeleeTraceComponent;
 class UAnimInstance;
+class UAbilitySystemComponent;
+class UGameplayAbility;
 
 UCLASS(ClassGroup = (Combat), meta = (BlueprintSpawnableComponent))
 class DUNGEONFORGED_API UDFComboComponent : public UActorComponent
@@ -256,6 +258,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
 	int32 GetEffectiveMaxComboSteps() const;
 
+	/** Mid-chain melee swings skip Ability.Cooldown apply/check (last step still uses CD). */
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|GAS")
+	bool ShouldBypassMeleeAbilityCooldown() const;
+
 	/** Extends the active combo window after a confirmed hit (defaults to @c ComboRefreshOnHitExtension). */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
 	void NotifyOwnerHitConfirmed(float ExtensionSeconds = -1.f);
@@ -324,6 +330,9 @@ protected:
 	bool ShouldRouteHeavyAttackThroughGAS() const;
 	bool TryActivatePrimaryMeleeGameplayAbility();
 	bool TryActivateHeavyAttackGameplayAbility();
+#if !UE_BUILD_SHIPPING
+	void LogPrimaryMeleeActivateFailure(UAbilitySystemComponent* ASC, TSubclassOf<UGameplayAbility> AbilityClass) const;
+#endif
 	void UnbindMontageEndDelegate();
 	void HandleMontageEndedInternal(class UAnimMontage* EndedMontage, bool bInterrupted);
 	UAnimInstance* GetAnimInstance() const;
@@ -337,6 +346,8 @@ protected:
 	FTimerHandle ComboWindowTimer;
 	TObjectPtr<UAnimMontage> LastBoundMontageForEnd = nullptr;
 	bool bPlayingComboMontage = false;
+	/** Set while stopping a montage for GAS chain; blocks BufferedSwingChain on intentional interrupt. */
+	bool bSuppressBufferedSwingChainOnMontageEnd = false;
 	bool bHeavySwingPending = false;
 	bool bMaxHeavyPending = false;
 	float HeavyChargeStartTime = -1.f;

@@ -259,10 +259,31 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 
 	auto ApplyEquippedWeaponMeleeProfile = [&](const FDFItemTableRow& WRow)
 	{
-		if (WRow.WeaponMeleeComboSteps.Num() > 0)
+		// Combo resolution priority:
+		//   1. DT_Combos handle (WRow.WeaponMeleeComboRow)  ← preferred (JSON/CSV friendly, reusable)
+		//   2. Inline WRow.WeaponMeleeComboSteps            ← legacy per-item
+		//   3. ClassRow ArmedMeleeComboStepsFallback        ← unarmed/baseline class fallback
+		//   4. WRow.WeaponMeleeComboMontages                ← legacy flat montage array
+		//   5. ClassRow ArmedMeleeComboMontagesFallback
+		//   6. Baseline snapshot from BP defaults
+		TArray<FDFComboStep> ResolvedSteps;
+		if (WRow.WeaponMeleeComboRow.DataTable && !WRow.WeaponMeleeComboRow.RowName.IsNone())
 		{
-			Combo->ApplyComboStepData(WRow.WeaponMeleeComboSteps);
-			Combo->MaxComboSteps = FMath::Max(Combo->MaxComboSteps, WRow.WeaponMeleeComboSteps.Num());
+			if (const FDFComboTableRow* const ComboRow =
+				WRow.WeaponMeleeComboRow.GetRow<FDFComboTableRow>(TEXT("ApplyEquippedWeaponMeleeProfile")))
+			{
+				ResolvedSteps = ComboRow->Steps;
+			}
+		}
+		if (ResolvedSteps.Num() == 0)
+		{
+			ResolvedSteps = WRow.WeaponMeleeComboSteps;
+		}
+
+		if (ResolvedSteps.Num() > 0)
+		{
+			Combo->ApplyComboStepData(ResolvedSteps);
+			Combo->MaxComboSteps = FMath::Max(Combo->MaxComboSteps, ResolvedSteps.Num());
 		}
 		else if (ClassRow && ClassRow->ArmedMeleeComboStepsFallback.Num() > 0)
 		{

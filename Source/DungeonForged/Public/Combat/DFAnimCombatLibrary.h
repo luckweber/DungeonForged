@@ -27,5 +27,6 @@ public:
 		float PlayRate = 1.f,
 		float BlendInTime = 0.12f,
 		bool bStopAllMontages = true,
-		EAlphaBlendOption BlendOption = EAlphaBlendOption::HermiteCubic);
+		EAlphaBlendOption BlendOption = EAlphaBlendOption::HermiteCubic,
+		float InTimeToStartMontageAt = 0.f);
 };

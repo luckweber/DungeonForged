@@ -1,8 +1,11 @@
 // Source/DungeonForged/Private/Combat/UDFComboComponent.cpp
 #include "Combat/UDFComboComponent.h"
+#include "Abilities/GameplayAbility.h"
+#include "AbilitySystemGlobals.h"
 #include "AbilitySystemInterface.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
+#include "GAS/UDFGameplayAbility.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Combat/UDFMeleeAimComponent.h"
 #include "DFAssetManager.h"
@@ -519,7 +522,23 @@ void UDFComboComponent::Server_ChainMeleeComboStep_Implementation(const int32 St
 	CurrentComboStep = ClampedStep;
 	bComboChainAdvancePending = true;
 	PrepareForComboChainActivation();
-	(void)TryActivatePrimaryMeleeGameplayAbility();
+	// Same defer as the client-side chain — let the previous GA's async cleanup finish before
+	// re-triggering. Same call stack would drop the activation in the ASC's in-flight state.
+	if (UWorld* const World = GetWorld())
+	{
+		World->GetTimerManager().SetTimerForNextTick(
+			[WeakThis = TWeakObjectPtr<UDFComboComponent>(this)]()
+			{
+				if (UDFComboComponent* const Self = WeakThis.Get())
+				{
+					Self->TryActivatePrimaryMeleeGameplayAbility();
+				}
+			});
+	}
+	else
+	{
+		(void)TryActivatePrimaryMeleeGameplayAbility();
+	}
 }
 
 void UDFComboComponent::BeginPlay()
@@ -559,6 +578,23 @@ int32 UDFComboComponent::GetEffectiveMaxComboSteps() const
 		return MaxComboSteps;
 	}
 	return FMath::Min(MaxComboSteps, MontageCount);
+}
+
+bool UDFComboComponent::ShouldBypassMeleeAbilityCooldown() const
+{
+	if (LockedComboActivationStep > 0
+		|| PendingComboActivationStep > 0
+		|| bComboChainAdvancePending
+		|| bComboWindowActive
+		|| bComboInputBuffered
+		|| bSwingInputBuffered
+		|| CurrentComboStep > 0)
+	{
+		return true;
+	}
+	const int32 Step = ResolveComboStepForActivation();
+	const int32 MaxSteps = GetEffectiveMaxComboSteps();
+	return MaxSteps > 1 && Step < MaxSteps - 1;
 }
 
 void UDFComboComponent::ApplyComboStepData(const TArray<FDFComboStep>& Steps)
@@ -716,6 +752,15 @@ void UDFComboComponent::TryAdvanceComboBranchFromHold()
 
 void UDFComboComponent::OnPrimaryAttackPressed()
 {
+#if !UE_BUILD_SHIPPING
+	if (DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Combo))
+	{
+		const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : -1.f;
+		UE_LOG(LogDungeonForged, Log,
+			TEXT("[Combo|Input] OnPrimaryAttackPressed t=%.3f | playing=%d window=%d step=%d swingBuf=%d comboBuf=%d"),
+			Now, bPlayingComboMontage, bComboWindowActive, CurrentComboStep, bSwingInputBuffered, bComboInputBuffered);
+	}
+#endif
 	if (TryHandleFinisherPrimaryInput())
 	{
 		return;
@@ -748,6 +793,15 @@ void UDFComboComponent::OnPrimaryAttackPressed()
 
 void UDFComboComponent::OnPrimaryAttackReleased()
 {
+#if !UE_BUILD_SHIPPING
+	if (DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Combo))
+	{
+		const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : -1.f;
+		UE_LOG(LogDungeonForged, Log,
+			TEXT("[Combo|Input] OnPrimaryAttackReleased t=%.3f | playing=%d window=%d step=%d chargeStart=%.3f"),
+			Now, bPlayingComboMontage, bComboWindowActive, CurrentComboStep, HeavyChargeStartTime);
+	}
+#endif
 	if (bComboWindowActive && bComboInputBuffered)
 	{
 		UWorld* const W = GetWorld();
@@ -797,6 +851,16 @@ void UDFComboComponent::OnPrimaryAttackReleased()
 
 void UDFComboComponent::OnAttackInput()
 {
+#if !UE_BUILD_SHIPPING
+	if (DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Combo))
+	{
+		const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : -1.f;
+		UE_LOG(LogDungeonForged, Log,
+			TEXT("[Combo|Input] OnAttackInput t=%.3f | playing=%d window=%d step=%d locked=%d swingBuf=%d comboBuf=%d"),
+			Now, bPlayingComboMontage, bComboWindowActive, CurrentComboStep,
+			LockedComboActivationStep, bSwingInputBuffered, bComboInputBuffered);
+	}
+#endif
 	if (TryHandleFinisherPrimaryInput())
 	{
 		return;
@@ -892,13 +956,21 @@ bool UDFComboComponent::TryActivatePrimaryMeleeGameplayAbility()
 	{
 		return false;
 	}
+
+	TSubclassOf<UGameplayAbility> AttemptedAbilityClass;
+	bool bActivated = false;
+
 	if (UDFEquipmentComponent* const Eq = PC->Equipment)
 	{
 		if (!Eq->IsSlotEmpty(EEquipmentSlot::Weapon))
 		{
 			if (Eq->HasGrantedWeaponMeleeAbilitySpec())
 			{
-				return Eq->TryActivateGrantedWeaponMeleeAbility();
+				if (const FDFItemTableRow* const Row = Eq->GetEquippedItemDataRaw(EEquipmentSlot::Weapon))
+				{
+					AttemptedAbilityClass = Row->WeaponMeleeGameplayAbility;
+				}
+				bActivated = Eq->TryActivateGrantedWeaponMeleeAbility();
 			}
 		}
 		else
@@ -908,21 +980,193 @@ bool UDFComboComponent::TryActivatePrimaryMeleeGameplayAbility()
 			{
 				FGameplayTagContainer UnarmedTags;
 				UnarmedTags.AddTag(UnarmedTag);
-				if (ASC->TryActivateAbilitiesByTag(UnarmedTags, true))
+				bActivated = ASC->TryActivateAbilitiesByTag(UnarmedTags, true);
+				if (!AttemptedAbilityClass)
 				{
-					return true;
+					for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+					{
+						if (Spec.Ability && Spec.Ability->AbilityTags.HasTag(UnarmedTag))
+						{
+							AttemptedAbilityClass = Spec.Ability->GetClass();
+							break;
+						}
+					}
 				}
 			}
 		}
 	}
-	if (!FDFGameplayTags::Ability_Warrior_MeleeSwing.IsValid())
+
+	if (!bActivated && FDFGameplayTags::Ability_Warrior_MeleeSwing.IsValid())
 	{
-		return false;
+		FGameplayTagContainer Tags;
+		Tags.AddTag(FDFGameplayTags::Ability_Warrior_MeleeSwing);
+		bActivated = ASC->TryActivateAbilitiesByTag(Tags, true);
+		if (!AttemptedAbilityClass)
+		{
+			for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+			{
+				if (Spec.Ability && Spec.Ability->AbilityTags.HasTag(FDFGameplayTags::Ability_Warrior_MeleeSwing))
+				{
+					AttemptedAbilityClass = Spec.Ability->GetClass();
+					break;
+				}
+			}
+		}
 	}
-	FGameplayTagContainer Tags;
-	Tags.AddTag(FDFGameplayTags::Ability_Warrior_MeleeSwing);
-	return ASC->TryActivateAbilitiesByTag(Tags, true);
+
+#if !UE_BUILD_SHIPPING
+	if (!bActivated && DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Combo))
+	{
+		LogPrimaryMeleeActivateFailure(ASC, AttemptedAbilityClass);
+	}
+#endif
+	return bActivated;
 }
+
+#if !UE_BUILD_SHIPPING
+void UDFComboComponent::LogPrimaryMeleeActivateFailure(
+	UAbilitySystemComponent* const ASC,
+	const TSubclassOf<UGameplayAbility> AbilityClass) const
+{
+	if (!ASC)
+	{
+		return;
+	}
+
+	const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : -1.f;
+	FGameplayAbilitySpec* TargetSpec = AbilityClass
+		? ASC->FindAbilitySpecFromClass(AbilityClass)
+		: nullptr;
+	if (!TargetSpec && FDFGameplayTags::Ability_Warrior_MeleeSwing.IsValid())
+	{
+		for (FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+		{
+			if (Spec.Ability && Spec.Ability->AbilityTags.HasTag(FDFGameplayTags::Ability_Warrior_MeleeSwing))
+			{
+				TargetSpec = &Spec;
+				break;
+			}
+		}
+	}
+
+	FString Reasons;
+	auto AppendReason = [&Reasons](const TCHAR* Reason)
+	{
+		if (!Reasons.IsEmpty())
+		{
+			Reasons += TEXT(",");
+		}
+		Reasons += Reason;
+	};
+
+	FGameplayTagContainer FailTags;
+	bool bCanActivate = false;
+	float BaseCooldown = 0.f;
+	float StaminaCost = 0.f;
+	FString AbilityName = TEXT("(none)");
+
+	if (TargetSpec && TargetSpec->Ability)
+	{
+		AbilityName = TargetSpec->Ability->GetName();
+		if (TargetSpec->IsActive())
+		{
+			AppendReason(TEXT("spec_active"));
+		}
+
+		FGameplayAbilityActorInfo ActorInfo;
+		ActorInfo.InitFromActor(ASC->GetOwnerActor(), ASC->GetAvatarActor(), ASC);
+		bCanActivate = TargetSpec->Ability->CanActivateAbility(
+			TargetSpec->Handle, &ActorInfo, nullptr, nullptr, &FailTags);
+
+		if (const UDFGameplayAbility* const DFAbility = Cast<UDFGameplayAbility>(TargetSpec->Ability))
+		{
+			BaseCooldown = DFAbility->BaseCooldown;
+			StaminaCost = DFAbility->AbilityCost_Stamina;
+			if (const FGameplayTagContainer* const CooldownTags = DFAbility->GetCooldownTags())
+			{
+				if (CooldownTags->Num() > 0 && ASC->HasAnyMatchingGameplayTags(*CooldownTags))
+				{
+					AppendReason(TEXT("cooldown_tags_on_asc"));
+				}
+			}
+		}
+
+		if (!bCanActivate)
+		{
+			AppendReason(TEXT("CanActivate_false"));
+			const FGameplayTag& CooldownFail = UAbilitySystemGlobals::Get().ActivateFailCooldownTag;
+			if (CooldownFail.IsValid() && FailTags.HasTag(CooldownFail))
+			{
+				AppendReason(TEXT("fail_cooldown"));
+			}
+			const FGameplayTag& BlockedFail = UAbilitySystemGlobals::Get().ActivateFailTagsBlockedTag;
+			if (BlockedFail.IsValid() && FailTags.HasTag(BlockedFail))
+			{
+				AppendReason(TEXT("fail_blocked_tags"));
+			}
+			const FGameplayTag& CostFail = UAbilitySystemGlobals::Get().ActivateFailCostTag;
+			if (CostFail.IsValid() && FailTags.HasTag(CostFail))
+			{
+				AppendReason(TEXT("fail_cost"));
+			}
+		}
+	}
+	else
+	{
+		AppendReason(TEXT("no_spec"));
+	}
+
+	float Stamina = 0.f;
+	if (const UDFAttributeSet* const Attrs = ASC->GetSet<UDFAttributeSet>())
+	{
+		Stamina = Attrs->GetStamina();
+	}
+	if (StaminaCost > 0.f && Stamina < StaminaCost)
+	{
+		AppendReason(TEXT("stamina"));
+	}
+
+	if (FDFGameplayTags::State_Attacking.IsValid() && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Attacking))
+	{
+		AppendReason(TEXT("state_attacking"));
+	}
+	if (FDFGameplayTags::Ability_Cooldown.IsValid() && ASC->HasMatchingGameplayTag(FDFGameplayTags::Ability_Cooldown))
+	{
+		AppendReason(TEXT("tag_ability_cooldown"));
+	}
+
+	FString ActiveList;
+	for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		if (Spec.IsActive() && Spec.Ability)
+		{
+			if (!ActiveList.IsEmpty())
+			{
+				ActiveList += TEXT("|");
+			}
+			ActiveList += Spec.Ability->GetName();
+		}
+	}
+
+	const FString FailTagStr = FailTags.IsEmpty() ? TEXT("-") : FailTags.ToStringSimple();
+	UE_LOG(LogDungeonForged, Log,
+		TEXT("[Combo|GAS] Activate FAIL t=%.3f | %s | ability=%s BaseCD=%.2f CanActivate=%d playing=%d step=%d locked=%d pending=%d chain=%d | stamina=%.1f/%.1f | active=[%s] | failTags=%s"),
+		Now,
+		Reasons.IsEmpty() ? TEXT("unknown") : *Reasons,
+		*AbilityName,
+		BaseCooldown,
+		bCanActivate ? 1 : 0,
+		bPlayingComboMontage,
+		CurrentComboStep,
+		LockedComboActivationStep,
+		PendingComboActivationStep,
+		bComboChainAdvancePending ? 1 : 0,
+		Stamina,
+		StaminaCost,
+		ActiveList.IsEmpty() ? TEXT("-") : *ActiveList,
+		*FailTagStr);
+}
+#endif
 
 void UDFComboComponent::NotifyHeavyAbilitySwingMontageStarted(UAnimMontage* Montage)
 {
@@ -950,13 +1194,23 @@ void UDFComboComponent::NotifyHeavyAbilitySwingMontageStarted(UAnimMontage* Mont
 
 void UDFComboComponent::PrepareForComboChainActivation()
 {
+	bSuppressBufferedSwingChainOnMontageEnd = true;
 	UnbindMontageEndDelegate();
 	if (UAnimInstance* const AnimInst = GetAnimInstance())
 	{
+		FOnMontageEnded EmptyDelegate;
 		for (const TObjectPtr<UAnimMontage>& M : ComboMontages)
 		{
 			if (M && AnimInst->Montage_IsPlaying(M))
 			{
+				// CRITICAL: clear the per-montage end delegate BEFORE stopping. The chain GA binds
+				// FOnMontageEnded directly on each chain montage via Montage_SetEndDelegate (not via
+				// UnbindMontageEndDelegate, which only tracks LastBoundMontageForEnd). Without this
+				// clear, the previous step's montage fires OnDirectMontageEnded ~blendOut seconds
+				// after Montage_Stop — which calls OnMontageEnd → ResetCombo, wiping the NEW step's
+				// state mid-swing. Symptom: chain step 3 starts visually then is silently reset after
+				// ~100ms, breaking subsequent inputs and forcing fresh step 0.
+				AnimInst->Montage_SetEndDelegate(EmptyDelegate, M);
 				AnimInst->Montage_Stop(FMath::Max(0.f, ComboChainMontageStopBlendOutTime), M);
 			}
 		}
@@ -970,6 +1224,7 @@ void UDFComboComponent::NotifyAbilitySwingMontageStarted(UAnimMontage* Montage)
 	{
 		return;
 	}
+	bSuppressBufferedSwingChainOnMontageEnd = false;
 	bSwingHitConfirmedThisActivation = false;
 	bComboHeavyFinisherPending = false;
 	ComboBranchPressTime = -1.f;
@@ -998,6 +1253,35 @@ void UDFComboComponent::NotifyAbilitySwingMontageStarted(UAnimMontage* Montage)
 void UDFComboComponent::NotifyAbilitySwingMontagePlaybackEnded()
 {
 	bPlayingComboMontage = false;
+
+	if (bSuppressBufferedSwingChainOnMontageEnd || bComboChainAdvancePending)
+	{
+		return;
+	}
+
+	// Only chain from montage end when the combo window was open (player timed input to the window).
+	// Early mash is kept in swingBuf until AN_ComboWindowOpen / ANS_DFCancelWindow fires.
+	if (!bComboWindowActive)
+	{
+		return;
+	}
+
+	const bool bBufferedSwing = bSwingInputBuffered;
+	bSwingInputBuffered = false;
+	SwingInputBufferExpireTime = -1.f;
+	if (!bBufferedSwing)
+	{
+		return;
+	}
+
+	if (CurrentComboStep + 1 < GetEffectiveMaxComboSteps())
+	{
+		bComboInputBuffered = true;
+		AdvanceCombo(TEXT("BufferedSwingChain"));
+		return;
+	}
+
+	OnAttackInput();
 }
 
 void UDFComboComponent::StartCombo()
@@ -1046,10 +1330,24 @@ void UDFComboComponent::AdvanceCombo(const FName DebugSource, UAnimMontage* cons
 	{
 		W->GetTimerManager().ClearTimer(ComboWindowTimer);
 	}
+
+	static const FName ComboWindowNotifySource(TEXT("AN_ComboWindowOpen"));
+	static const FName CancelWindowNotifySource(TEXT("ANS_DFCancelWindow"));
+	const bool bFromComboWindowNotify = DebugSource == ComboWindowNotifySource
+		|| DebugSource == CancelWindowNotifySource;
+	const bool bWasComboWindowActive = bComboWindowActive;
 	bComboWindowActive = false;
 
+	// Promote early mash only when the anim opened the window (notify) or window was already active.
+	if (!bComboInputBuffered && bSwingInputBuffered && (bFromComboWindowNotify || bWasComboWindowActive))
+	{
+		bComboInputBuffered = true;
+		bSwingInputBuffered = false;
+		SwingInputBufferExpireTime = -1.f;
+	}
+
 	const int32 EffectiveMax = GetEffectiveMaxComboSteps();
-	if (bComboInputBuffered)
+	if (bComboInputBuffered && (bWasComboWindowActive || bFromComboWindowNotify))
 	{
 		if (CurrentComboStep + 1 < EffectiveMax)
 		{
@@ -1062,22 +1360,52 @@ void UDFComboComponent::AdvanceCombo(const FName DebugSource, UAnimMontage* cons
 				PendingComboActivationStep = ChainStep;
 				bComboChainAdvancePending = true;
 				AActor* const Owner = GetOwner();
+
+				// Defer the chain GA activation by one tick. PrepareForComboChainActivation stops the
+				// previous swing montage; that fires the PlayMontageAndWait task's OnInterrupted, which
+				// ends the previous GA asynchronously. If we call TryActivate in the same call stack,
+				// the ASC sees the old instance as still "in flight" and silently drops the re-trigger
+				// — the player then has to mash 2-3 extra clicks before a TryActivate finally lands.
+				// Yielding one tick lets the GAS internals settle before we re-trigger.
+				auto DoActivate = [WeakThis = TWeakObjectPtr<UDFComboComponent>(this)]()
+				{
+					if (UDFComboComponent* const Self = WeakThis.Get())
+					{
+						Self->TryActivatePrimaryMeleeGameplayAbility();
+					}
+				};
+
 				if (Owner && Owner->HasAuthority())
 				{
 					PrepareForComboChainActivation();
-					(void)TryActivatePrimaryMeleeGameplayAbility();
+					if (UWorld* const World = GetWorld())
+					{
+						World->GetTimerManager().SetTimerForNextTick(DoActivate);
+					}
+					else
+					{
+						(void)TryActivatePrimaryMeleeGameplayAbility();
+					}
 				}
 				else if (Owner)
 				{
 					Server_ChainMeleeComboStep(ChainStep);
 					PrepareForComboChainActivation();
-					(void)TryActivatePrimaryMeleeGameplayAbility();
+					if (UWorld* const World = GetWorld())
+					{
+						World->GetTimerManager().SetTimerForNextTick(DoActivate);
+					}
+					else
+					{
+						(void)TryActivatePrimaryMeleeGameplayAbility();
+					}
 				}
 #if !UE_BUILD_SHIPPING
 				if (DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Combo))
 				{
 					UE_LOG(LogDungeonForged, Log,
-						TEXT("[Combo|GAS] AdvanceCombo chain -> step=%d locked=%d montages=%d"),
+						TEXT("[Combo|GAS] AdvanceCombo chain (%s) -> step=%d locked=%d montages=%d"),
+						*DebugSource.ToString(),
 						CurrentComboStep, LockedComboActivationStep, ComboMontages.Num());
 				}
 #endif
@@ -1169,6 +1497,7 @@ void UDFComboComponent::ResetCombo()
 	bHeavySwingPending = false;
 	bMaxHeavyPending = false;
 	bComboChainAdvancePending = false;
+	bSuppressBufferedSwingChainOnMontageEnd = false;
 	LockedComboActivationStep = -1;
 	PendingComboActivationStep = -1;
 	HeavyChargeStartTime = -1.f;
