@@ -44,6 +44,7 @@
 - [13. Checklist de validação](#13-checklist-de-validação)
 - [14. Tabela de arquivos](#14-tabela-de-arquivos)
 - [15. Próximos passos (AAA polish)](#15-próximos-passos-aaa-polish)
+- [16. Combate Aéreo & Combos com Jump](#16-c--combate-aéreo--combos-com-jump)
 
 ---
 
@@ -615,54 +616,94 @@ Header — adicionar `FTimerHandle TimerHandle_EndLanding;` em `protected`.
 
 ## 7. C++ — Integração combate / dodge / lock-on
 
-### 7.1 Bloqueio do jump em estados inválidos
+> ⚠️ **Importante:** o projeto usa **combos aéreos e combos que incluem pulo como step**. Por isso, os blockers **não bloqueiam atacar ou pular cegamente** — usam tags mais finas (`State_Attacking_Aerial`, `State_Combat_AbilityCancelWindow_Open`) que permitem jump-cancel e ar attack. Ver detalhes na [§16 — Combate Aéreo & Combos com Jump](#16-c--combate-aéreo--combos-com-jump).
 
-Em `ADFRunPlayerController::Input_JumpStart` (ou idealmente em `ADFPlayerCharacter::Jump` override):
+### 7.1 Bloqueio do jump em estados inválidos (refinado)
+
+Em `ADFPlayerCharacter::Jump` (override) — **somente** bloqueia em estados verdadeiramente incapacitantes:
 
 ```cpp
 void ADFPlayerCharacter::Jump()
 {
     if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponent())
     {
-        static const FGameplayTagContainer Blockers = []{
+        // Hard blockers — estados onde nem pular nem atacar faz sentido.
+        static const FGameplayTagContainer HardBlockers = []{
             FGameplayTagContainer C;
             C.AddTag(FDFGameplayTags::State_Dead);
             C.AddTag(FDFGameplayTags::State_Stunned);
             C.AddTag(FDFGameplayTags::State_Dodging);
-            C.AddTag(FDFGameplayTags::State_Attacking);
-            C.AddTag(FDFGameplayTags::State_Casting);
             C.AddTag(FDFGameplayTags::State_Exhausted);
+            C.AddTag(FDFGameplayTags::State_Landing);   // landing recovery
             return C;
         }();
-        if (ASC->HasAnyMatchingGameplayTags(Blockers))
+        if (ASC->HasAnyMatchingGameplayTags(HardBlockers)) return;
+
+        // Soft blocker — durante ataque, só permite jump se houver cancel window aberta.
+        // (Jump-cancel: o combo cancel window é setado pelo ANS_DFAbilityCancelWindow
+        //  e inclui Ability.Movement.Jump nos AllowedCancelTags — ver §16.2.)
+        if (ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Attacking))
         {
-            return; // gated
+            const bool bCancelable = ASC->HasMatchingGameplayTag(
+                FDFGameplayTags::State_Combat_AbilityCancelWindow_Open);
+            if (!bCancelable) return;
+            // Cancela o combo step atual antes de pular.
+            if (UDFComboComponent* const Combo = this->Combo) { Combo->CancelCurrentMontage(); }
         }
     }
     Super::Jump();
 }
 ```
 
-### 7.2 Cancelar combo no takeoff
+### 7.2 Combo no takeoff — **NÃO** resetar incondicional
 
-Em `OnMovementModeChanged`, quando Walking→Falling:
+Substitui o reset cego por uma decisão baseada na intenção:
 
 ```cpp
+// UDFCharacterMovementComponent::OnMovementModeChanged, Walking→Falling:
 if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(CharacterOwner))
 {
-    if (UDFComboComponent* const Combo = PC->Combo) { Combo->ResetCombo(); }
+    if (UDFComboComponent* const Combo = PC->Combo)
+    {
+        // Se o combo está em janela de cancel ou se está em estado aéreo previsto,
+        // preserva o combo counter. Senão, decide pelo tempo no chão (curto = preserva).
+        const bool bPreserve = Combo->IsInCancelWindow() || Combo->HasAerialContinuation();
+        if (!bPreserve)
+        {
+            // Não reseta imediatamente — dá grace window para conectar aerial attack.
+            Combo->RequestDeferredReset(/*GraceSeconds=*/0.35f);
+        }
+    }
 }
 ```
 
-### 7.3 Dodge integration
+> O `RequestDeferredReset` é um método novo a adicionar no `UDFComboComponent` — ver §16.3.
 
-Já coberto na §6 — `State.Dodging` bloqueia jump pelo `Blockers` tag container acima. **Adicional:** no `DFAbility_Dodge::ActivateAbility`, se já no ar (`MovementMode == MOVE_Falling`), suprimir programmatic displacement (dodge no chão é diferente de dodge no ar; se você não quiser air-dodge, bloqueie pelo `State.Jumping`/`State.Falling`):
+### 7.3 Dodge integration (refinada)
+
+Air dodge **sim** ou **não**? Decisão do projeto:
+
+- **Air dodge desabilitado** (Souls-like): bloqueie via `BlockAbilitiesWithTag` (`State_Jumping`, `State_Falling`)
+- **Air dodge habilitado** (DMC / Bayonetta): permita; ajuste o `UDFAbility_Dodge` para usar `LaunchCharacter` em vez de root-motion no ar
+
+Sugestão para este projeto (intermediário): **um air dodge por pulo**.
 
 ```cpp
-// In UDFAbility_Dodge::PostInitProperties:
-BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Jumping);
-BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Falling);
+// UDFAbility_Dodge::PostInitProperties — NÃO adicionar State_Jumping/Falling em BlockAbilitiesWithTag.
+// Em vez disso, controlar via UDFAbility_Dodge::CanActivateAbility:
+bool UDFAbility_Dodge::CanActivateAbility(...) const
+{
+    if (!Super::CanActivateAbility(...)) return false;
+    if (ASC && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Falling))
+    {
+        // Permite 1 air dodge — controla via attribute "AirDodgeChargesRemaining".
+        if (bIsAirDodgeUsedThisJump) return false;
+    }
+    return true;
+}
 ```
+
+O flag `bIsAirDodgeUsedThisJump` resetaria em `OnMovementModeChanged` quando volta a `MOVE_Walking`.
 
 ### 7.4 Lock-on integration
 
@@ -1176,15 +1217,647 @@ Todas já estão em `UUDFAnimInstance` após §4:
 
 ## 15. Próximos passos (AAA polish)
 
+> **Nota:** combate aéreo (ataques no ar, combos com jump, plunge, launcher, jump-cancel) **não é "próximo passo" — é requisito do jogo**. Ver [§16](#16-c--combate-aéreo--combos-com-jump) para spec completa. Os itens abaixo são polish secundário, não core mechanics.
+
 1. **Double jump** — `JumpMaxCount = 2` + ability `Ability_Movement_DoubleJump` que requer item/passive
 2. **Wall jump** — sweep horizontal no apex; se hit em parede, re-apply impulse perpendicular
-3. **Plunge attack** — `MMB` durante `State.Falling` → ataque vertical com camera shake forte no impacto
-4. **Roll-into-jump** — se buffer pressionar jump no último frame de `State.Landing`, executar pequeno "spring jump" sem stamina cost
-5. **Long jump** — segurar `IA_Jump` para horizontalizar a velocidade (steeper arc with hold)
-6. **Coyote time** — permite jump até 100ms depois de sair de uma plataforma (lenient ledge)
-7. **Jump curve** — substituir gravity scale linear por curve asset (`UCurveFloat`) para arcos com ease-in/ease-out
-8. **VFX trail** — Niagara emissor no socket `root` durante `State.Falling`
-9. **Camera vertical kick** no land se `VerticalVelocity < -500` (heavy land) — já tem reference no doc 01
+3. **Roll-into-jump** — se buffer pressionar jump no último frame de `State.Landing`, executar pequeno "spring jump" sem stamina cost
+4. **Long jump** — segurar `IA_Jump` para horizontalizar a velocidade (steeper arc with hold)
+5. **Coyote time** — permite jump até 100ms depois de sair de uma plataforma (lenient ledge)
+6. **Jump curve** — substituir gravity scale linear por curve asset (`UCurveFloat`) para arcos com ease-in/ease-out
+7. **VFX trail** — Niagara emissor no socket `root` durante `State.Falling`
+8. **Camera vertical kick** no land se `VerticalVelocity < -500` (heavy land) — já tem reference no doc 01
+
+---
+
+## 16. C++ — Combate Aéreo & Combos com Jump
+
+> Sistema que permite **ataques aéreos**, **combos que incluem pulo como step** (e.g., 3 hits no chão → launcher → 3 hits no ar → plunge), **jump-cancel** (cancelar qualquer step de combo em pulo para juggle setup) e **air dodge**. Inspiração: DMC5, Bayonetta, Stranger of Paradise.
+
+### 16.1 Pilares do sistema
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  GROUND COMBOS                          AERIAL COMBOS                   │
+│  ──────────────                         ──────────────                  │
+│  Light: L L L L                         Air Light:  AL AL AL            │
+│  Heavy: H                               Air Heavy:  AH                  │
+│  Launcher: L L H↑  (uppercut → both     Plunge:     AH↓ (downward       │
+│            popam pro ar)                            slam, com slam      │
+│                                                     damage AOE)         │
+│                                                                         │
+│  CONNECTIONS                                                            │
+│  ──────────────                                                         │
+│  Jump-cancel: durante cancel window de QUALQUER attack ground,          │
+│               pode-se pular → continua combo no ar                      │
+│  Launcher → Air: Heavy[3] no fim do combo terrestre lança ambos         │
+│                  pro ar; entra no aerial mode automaticamente            │
+│  Plunge → Ground: Air Heavy↓ no ar bate forte no chão, AOE radial,      │
+│                   reseta combo counter para extensão terrestre          │
+│  Land-cancel: Air attack que aterrissa no meio do swing continua        │
+│               como ground attack equivalente (continuidade visual)      │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 16.2 Tags GAS adicionais
+
+**Arquivo:** [`DFGameplayTags.h/.cpp`](../../Source/DungeonForged/Public/GAS/DFGameplayTags.h)
+
+```cpp
+// Aerial state
+static FGameplayTag State_Attacking_Aerial;       // ataque aéreo em curso
+static FGameplayTag State_Aerial_ComboActive;     // combo aéreo em janela ativa
+static FGameplayTag State_Launching;              // launcher pop-up em execução
+
+// Aerial ability tags
+static FGameplayTag Ability_Attack_Melee_Aerial;        // pai genérico
+static FGameplayTag Ability_Attack_Melee_Aerial_Light;
+static FGameplayTag Ability_Attack_Melee_Aerial_Heavy;
+static FGameplayTag Ability_Attack_Melee_Aerial_Plunge;
+static FGameplayTag Ability_Attack_Melee_Launcher;       // ground attack que pop-up
+```
+
+**Em `DFGameplayTags.cpp::RegisterGameplayTags`:**
+```cpp
+DF_TAG(State_Attacking_Aerial)(FName("State.Attacking.Aerial"), FString("Aerial attack montage active."));
+DF_TAG(State_Aerial_ComboActive)(FName("State.Aerial.ComboActive"), FString("Aerial combo window open."));
+DF_TAG(State_Launching)(FName("State.Launching"), FString("Launcher upward impulse in progress."));
+DF_TAG(Ability_Attack_Melee_Aerial)(FName("Ability.Attack.Melee.Aerial"), FString("Generic aerial melee attack."));
+DF_TAG(Ability_Attack_Melee_Aerial_Light)(FName("Ability.Attack.Melee.Aerial.Light"), FString());
+DF_TAG(Ability_Attack_Melee_Aerial_Heavy)(FName("Ability.Attack.Melee.Aerial.Heavy"), FString());
+DF_TAG(Ability_Attack_Melee_Aerial_Plunge)(FName("Ability.Attack.Melee.Aerial.Plunge"), FString());
+DF_TAG(Ability_Attack_Melee_Launcher)(FName("Ability.Attack.Melee.Launcher"), FString());
+```
+
+### 16.3 Patches no `UDFComboComponent`
+
+**Header — `UDFComboComponent.h`:**
+
+```cpp
+// ── Aerial mode ─────────────────────────────────────────────────────
+/** True when current combo state lives in the air (between Launcher and Land). */
+UPROPERTY(BlueprintReadOnly, Category = "DF|Combat|Combo|Aerial")
+bool bIsAerialComboActive = false;
+
+/** True if the next step of the combo should switch to aerial montages
+ *  (set when a Launcher fires; cleared on Land or combo reset). */
+UPROPERTY(BlueprintReadOnly, Category = "DF|Combat|Combo|Aerial")
+bool bHasAerialContinuation = false;
+
+UFUNCTION(BlueprintPure, Category = "DF|Combat|Combo")
+bool HasAerialContinuation() const { return bHasAerialContinuation; }
+
+UFUNCTION(BlueprintPure, Category = "DF|Combat|Combo")
+bool IsInCancelWindow() const { return bAbilityCancelWindowOpen; }
+
+/** Defer the combo reset by GraceSeconds — lets player chain into aerial attack
+ *  after takeoff without losing the combo counter. Cancelled if an aerial attack
+ *  activates within the grace window. */
+UFUNCTION(BlueprintCallable, Category = "DF|Combat|Combo")
+void RequestDeferredReset(float GraceSeconds);
+
+/** Cancel the current playing montage (used by jump-cancel). */
+UFUNCTION(BlueprintCallable, Category = "DF|Combat|Combo")
+void CancelCurrentMontage();
+
+/** Called by aerial ability activate; cancels pending deferred reset. */
+UFUNCTION(BlueprintCallable, Category = "DF|Combat|Combo")
+void ConfirmAerialContinuation();
+
+/** Called when the character lands. If combo was aerial-active, decides whether
+ *  to chain to ground variant (land-cancel) or reset. */
+UFUNCTION(BlueprintCallable, Category = "DF|Combat|Combo")
+void OnLanded();
+
+protected:
+    FTimerHandle TimerHandle_DeferredReset;
+    bool bAbilityCancelWindowOpen = false;
+```
+
+**Cpp — pontos chave:**
+
+```cpp
+void UDFComboComponent::RequestDeferredReset(const float GraceSeconds)
+{
+    if (UWorld* const W = GetWorld())
+    {
+        W->GetTimerManager().SetTimer(TimerHandle_DeferredReset, this,
+            &UDFComboComponent::ResetCombo, GraceSeconds, false);
+    }
+}
+
+void UDFComboComponent::ConfirmAerialContinuation()
+{
+    bIsAerialComboActive = true;
+    bHasAerialContinuation = true;
+    if (UWorld* const W = GetWorld())
+    {
+        W->GetTimerManager().ClearTimer(TimerHandle_DeferredReset);
+    }
+    if (UAbilitySystemComponent* const ASC = GetOwnerASC())
+    {
+        ASC->AddLooseGameplayTag(FDFGameplayTags::State_Aerial_ComboActive);
+    }
+}
+
+void UDFComboComponent::OnLanded()
+{
+    if (UAbilitySystemComponent* const ASC = GetOwnerASC())
+    {
+        ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Aerial_ComboActive, 0);
+    }
+
+    if (bIsAerialComboActive && bIsPlayingMontage)
+    {
+        // Land-cancel: anim aérea ainda tocando — não reseta, deixa a anim terminar
+        // ou transiciona para a continuação terrestre (handled pelo AnimBP).
+        bIsAerialComboActive = false;
+        return;
+    }
+
+    // Sem combo aéreo ativo → reseta após uma pequena grace (permite re-entrada).
+    RequestDeferredReset(0.25f);
+}
+
+void UDFComboComponent::CancelCurrentMontage()
+{
+    if (USkeletalMeshComponent* const Mesh = GetOwnerMesh())
+    {
+        if (UAnimInstance* const Anim = Mesh->GetAnimInstance())
+        {
+            Anim->Montage_Stop(0.05f); // 50ms blend out — preserva fluidez
+        }
+    }
+    bIsPlayingMontage = false;
+}
+```
+
+### 16.4 Cancel window do attack permite Jump
+
+**Arquivo:** [`ANS_DFAbilityCancelWindow.cpp`](../../Source/DungeonForged/Private/Combat/AN/ANS_DFAbilityCancelWindow.cpp)
+
+Adicionar `Ability_Movement_Jump` no `AllowedCancelTags` por default (como já está feito com `Ability_Movement_Dodge`):
+
+```cpp
+UANS_DFAbilityCancelWindow::UANS_DFAbilityCancelWindow()
+{
+    // ... existing ...
+    if (FDFGameplayTags::Ability_Movement_Dodge.IsValid())
+    {
+        AllowedCancelTags.AddTag(FDFGameplayTags::Ability_Movement_Dodge);
+    }
+    if (FDFGameplayTags::Ability_Movement_Jump.IsValid())   // ← NOVO
+    {
+        AllowedCancelTags.AddTag(FDFGameplayTags::Ability_Movement_Jump);
+    }
+    if (FDFGameplayTags::Ability_Attack_Melee_Aerial.IsValid())   // ← NOVO
+    {
+        AllowedCancelTags.AddTag(FDFGameplayTags::Ability_Attack_Melee_Aerial);
+    }
+}
+```
+
+### 16.5 `UDFAbility_AerialAttack` — base genérica
+
+**Novo arquivo:** `Source/DungeonForged/Public/GAS/Abilities/UDFAbility_AerialAttack.h`
+
+```cpp
+#pragma once
+#include "GAS/UDFGameplayAbility.h"
+#include "Combat/DFAerialAttackTypes.h"
+#include "UDFAbility_AerialAttack.generated.h"
+
+UENUM(BlueprintType)
+enum class EDFAerialAttackKind : uint8
+{
+    Light,
+    Heavy,
+    Plunge
+};
+
+UCLASS(Abstract)
+class DUNGEONFORGED_API UDFAbility_AerialAttack : public UDFGameplayAbility
+{
+    GENERATED_BODY()
+public:
+    UDFAbility_AerialAttack();
+
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|Aerial")
+    EDFAerialAttackKind Kind = EDFAerialAttackKind::Light;
+
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|Aerial")
+    TObjectPtr<UAnimMontage> AerialMontage;
+
+    /** Plunge: launches character straight down with this Z speed. */
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|Aerial|Plunge", meta = (EditCondition = "Kind==EDFAerialAttackKind::Plunge"))
+    float PlungeDownVelocity = -1800.f;
+
+    /** Plunge: AOE radius on ground impact. */
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|Aerial|Plunge", meta = (EditCondition = "Kind==EDFAerialAttackKind::Plunge"))
+    float PlungeImpactRadius = 350.f;
+
+    /** Plunge: stay-in-place hover before slam (anticipation). */
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|Aerial|Plunge", meta = (EditCondition = "Kind==EDFAerialAttackKind::Plunge"))
+    float PlungeHoverDuration = 0.20f;
+
+protected:
+    virtual void PostInitProperties() override;
+
+    virtual bool CanActivateAbility(...) const override;
+
+    virtual void ActivateAbility(...) override;
+
+    UFUNCTION()
+    void OnAerialMontageCompleted();
+
+    UFUNCTION()
+    void OnPlungeHoverEnd();
+};
+```
+
+**Cpp — `PostInitProperties`:**
+
+```cpp
+void UDFAbility_AerialAttack::PostInitProperties()
+{
+    Super::PostInitProperties();
+    if (HasAnyFlags(RF_ClassDefaultObject))
+    {
+        AbilityTags.AddTag(FDFGameplayTags::Ability_Attack_Melee_Aerial);
+
+        // Cada subclasse adiciona a tag mais específica no seu próprio CDO.
+        switch (Kind)
+        {
+        case EDFAerialAttackKind::Light:
+            AbilityTags.AddTag(FDFGameplayTags::Ability_Attack_Melee_Aerial_Light);
+            break;
+        case EDFAerialAttackKind::Heavy:
+            AbilityTags.AddTag(FDFGameplayTags::Ability_Attack_Melee_Aerial_Heavy);
+            break;
+        case EDFAerialAttackKind::Plunge:
+            AbilityTags.AddTag(FDFGameplayTags::Ability_Attack_Melee_Aerial_Plunge);
+            break;
+        }
+
+        ActivationOwnedTags.AddTag(FDFGameplayTags::State_Attacking);
+        ActivationOwnedTags.AddTag(FDFGameplayTags::State_Attacking_Aerial);
+
+        BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Dead);
+        BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Stunned);
+        BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Dodging);
+        // NOTA: NÃO bloqueamos por State.Attacking — aerial light pode chainar
+        // light→light→light no ar. O cancel é controlado pelo cancel window.
+    }
+}
+```
+
+**Cpp — `CanActivateAbility`** (deve estar **no ar**):
+
+```cpp
+bool UDFAbility_AerialAttack::CanActivateAbility(...) const
+{
+    if (!Super::CanActivateAbility(...)) return false;
+    if (!ActorInfo) return false;
+
+    const ACharacter* const Char = Cast<ACharacter>(ActorInfo->AvatarActor.Get());
+    if (!Char) return false;
+
+    // Tem que estar no ar OU ser plunge sem distinção (plunge pode ativar no chão e gerar pequeno hop).
+    if (Kind != EDFAerialAttackKind::Plunge)
+    {
+        const UCharacterMovementComponent* const CMC = Char->GetCharacterMovement();
+        if (!CMC || !CMC->IsFalling()) return false;
+    }
+    return true;
+}
+```
+
+**Cpp — `ActivateAbility`** (extrair pontos chave):
+
+```cpp
+void UDFAbility_AerialAttack::ActivateAbility(...)
+{
+    if (!CommitAbility(Handle, ActorInfo, ActivationInfo, nullptr))
+    {
+        EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+        return;
+    }
+
+    ACharacter* const Char = Cast<ACharacter>(ActorInfo->AvatarActor.Get());
+    if (!Char) { EndAbility(...); return; }
+
+    // Confirma continuação aérea para o combo component (cancela deferred reset).
+    if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(Char))
+    {
+        if (UDFComboComponent* const Combo = PC->Combo) { Combo->ConfirmAerialContinuation(); }
+    }
+
+    if (Kind == EDFAerialAttackKind::Plunge)
+    {
+        // Hover anticipation: freeze vertical velocity briefly antes do slam.
+        if (UCharacterMovementComponent* const CMC = Char->GetCharacterMovement())
+        {
+            CMC->Velocity.Z = 0.f;
+            CMC->GravityScale = 0.f;
+        }
+        if (UAbilityTask_WaitDelay* const Hover =
+                UAbilityTask_WaitDelay::WaitDelay(this, PlungeHoverDuration))
+        {
+            Hover->OnFinish.AddDynamic(this, &UDFAbility_AerialAttack::OnPlungeHoverEnd);
+            Hover->ReadyForActivation();
+        }
+    }
+
+    if (AerialMontage)
+    {
+        if (UAbilityTask_PlayMontageAndWait* const Task =
+                UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
+                    this, NAME_None, AerialMontage, 1.f, NAME_None, true, 1.f, 0.f, true))
+        {
+            Task->OnCompleted.AddDynamic(this, &UDFAbility_AerialAttack::OnAerialMontageCompleted);
+            Task->OnInterrupted.AddDynamic(this, &UDFAbility_AerialAttack::OnAerialMontageCompleted);
+            Task->ReadyForActivation();
+        }
+    }
+}
+
+void UDFAbility_AerialAttack::OnPlungeHoverEnd()
+{
+    ACharacter* const Char = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+    if (!Char) return;
+    if (UCharacterMovementComponent* const CMC = Char->GetCharacterMovement())
+    {
+        CMC->GravityScale = 2.5f;          // restore + boost para slam pesado
+        CMC->Velocity = FVector(0,0, PlungeDownVelocity);
+    }
+}
+```
+
+### 16.6 `UDFAbility_Launcher` — ground attack que pop-up
+
+**Novo arquivo:** `Source/DungeonForged/Public/GAS/Abilities/UDFAbility_Launcher.h`
+
+Subclasse da ability de heavy melee existente, mas adiciona impulse vertical no notify de impact + arma o combo aerial mode:
+
+```cpp
+UCLASS()
+class DUNGEONFORGED_API UDFAbility_Launcher : public UDFGameplayAbility
+{
+    GENERATED_BODY()
+public:
+    UDFAbility_Launcher();
+
+    /** Vertical velocity applied to BOTH player and hit target. */
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|Launcher")
+    float LaunchZVelocity = 850.f;
+
+    /** Horizontal kick (cm/s) applied to target (knocks them forward + up). */
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|Launcher")
+    float LaunchForwardVelocity = 400.f;
+
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|Launcher")
+    TObjectPtr<UAnimMontage> LauncherMontage;
+
+protected:
+    virtual void PostInitProperties() override;
+    virtual void ActivateAbility(...) override;
+
+    /** Hook chamado por um AnimNotify "LauncherImpact" no montage frame de hit. */
+    UFUNCTION(BlueprintCallable, Category = "DF|Combat|Launcher")
+    void ExecuteLaunchImpulse(AActor* HitTarget);
+};
+```
+
+**Cpp:**
+
+```cpp
+void UDFAbility_Launcher::PostInitProperties()
+{
+    Super::PostInitProperties();
+    if (HasAnyFlags(RF_ClassDefaultObject))
+    {
+        AbilityTags.AddTag(FDFGameplayTags::Ability_Attack_Melee_Launcher);
+        ActivationOwnedTags.AddTag(FDFGameplayTags::State_Launching);
+        ActivationOwnedTags.AddTag(FDFGameplayTags::State_Attacking);
+        // Launcher é "heavy" — bloqueia movimento durante o swing
+        ActivationBlockedTags.AddTag(FDFGameplayTags::State_Stunned);
+    }
+}
+
+void UDFAbility_Launcher::ExecuteLaunchImpulse(AActor* const HitTarget)
+{
+    ACharacter* const Self = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+    if (!Self) return;
+
+    // Player jumps com o alvo (acompanha o juggle).
+    Self->LaunchCharacter(FVector(0, 0, LaunchZVelocity), false, true);
+
+    // Inimigo pega lift + small forward push (knockback).
+    if (ACharacter* const TargetChar = Cast<ACharacter>(HitTarget))
+    {
+        const FVector Fwd = Self->GetActorForwardVector();
+        TargetChar->LaunchCharacter(
+            FVector(Fwd.X * LaunchForwardVelocity, Fwd.Y * LaunchForwardVelocity, LaunchZVelocity),
+            true, true);
+    }
+
+    // Arma o combo aerial mode no Self.
+    if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(Self))
+    {
+        if (UDFComboComponent* const Combo = PC->Combo)
+        {
+            Combo->bHasAerialContinuation = true;
+            // bIsAerialComboActive ficará true quando o aerial attack ativar
+        }
+    }
+}
+```
+
+### 16.7 Input bindings
+
+Hoje você tem `IA_Attack` (LMB) e `IA_SecondaryAttack` (RMB). O mesmo input pode produzir versão aérea ou terrestre — a decisão é em runtime via tag:
+
+```cpp
+// ADFPlayerCharacter::HandlePrimaryAttackPressed
+void ADFPlayerCharacter::HandlePrimaryAttackPressed()
+{
+    if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponent())
+    {
+        const bool bAirborne = ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Jumping)
+                            || ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Falling);
+        const FGameplayTag TagToTry = bAirborne
+            ? FDFGameplayTags::Ability_Attack_Melee_Aerial_Light
+            : FDFGameplayTags::Ability_Attack_Melee_Light; // ou whatever ground tag você usa
+        TryActivateByGameplayTag(TagToTry);
+    }
+}
+```
+
+E para o heavy:
+```cpp
+void ADFPlayerCharacter::HandleSecondaryAttackPressed()
+{
+    const bool bAirborne = (ASC has State_Jumping or State_Falling);
+    const FGameplayTag TagToTry = bAirborne
+        ? FDFGameplayTags::Ability_Attack_Melee_Aerial_Heavy
+        : FDFGameplayTags::Ability_Attack_Melee_Heavy;
+    TryActivateByGameplayTag(TagToTry);
+}
+```
+
+**Plunge dedicada** (input combinado — Heavy + Down ou tecla específica):
+```cpp
+// Pode usar IA_Plunge separada, ou Heavy com modifier Down stick (gamepad)
+void ADFPlayerCharacter::HandlePlungePressed()
+{
+    if (IsInAir()) // helper que checa MOVE_Falling
+    {
+        TryActivateByGameplayTag(FDFGameplayTags::Ability_Attack_Melee_Aerial_Plunge);
+    }
+}
+```
+
+### 16.8 OnLanded hook do ACharacter
+
+**Arquivo:** [`ADFPlayerCharacter.cpp`](../../Source/DungeonForged/Private/Characters/ADFPlayerCharacter.cpp)
+
+Override `Landed` para notificar o combo component:
+
+```cpp
+void ADFPlayerCharacter::Landed(const FHitResult& Hit)
+{
+    Super::Landed(Hit);
+    if (UDFComboComponent* const C = Combo) { C->OnLanded(); }
+}
+```
+
+### 16.9 Combo Data — referência cruzada armed/aerial
+
+No `DT_Combos` (data table de combos), adicionar coluna para mapear o aerial equivalente:
+
+```cpp
+// Em FDFComboMontageRow (provavelmente DFDataTableStructs.h):
+UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combo|Aerial")
+TObjectPtr<UAnimMontage> AerialEquivalent;  // mesma posição do combo, mas no ar
+
+UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combo|Aerial")
+bool bIsLauncherStep = false;  // último step que ativa launcher
+```
+
+Quando `bIsAerialComboActive = true`, o `UDFComboComponent::PickNextMontage` consulta `AerialEquivalent` em vez de o montage default.
+
+### 16.10 AnimNotify para LauncherImpact
+
+**Novo arquivo:** `Source/DungeonForged/Public/Animation/AN/AnimNotify_LauncherImpact.h`
+
+```cpp
+UCLASS()
+class UAnimNotify_LauncherImpact : public UAnimNotify
+{
+    GENERATED_BODY()
+public:
+    virtual void Notify(USkeletalMeshComponent* MeshComp, ...) override
+    {
+        Super::Notify(...);
+        AActor* const Owner = MeshComp ? MeshComp->GetOwner() : nullptr;
+        if (!Owner) return;
+
+        // Encontra o launcher ability ativo e dispara seu ExecuteLaunchImpulse
+        if (UAbilitySystemComponent* const ASC = GetASC(Owner))
+        {
+            // Encontra atual ability instance via ActiveAbilities por tag
+            TArray<UGameplayAbility*> Found;
+            ASC->GetActivatableAbilities(); // pseudocode
+            // ... loop até achar UDFAbility_Launcher e chamar ExecuteLaunchImpulse(HitTarget)
+        }
+    }
+};
+```
+
+> Alternativa mais limpa: usar **UAbilityTask_WaitGameplayEvent** dentro da `UDFAbility_Launcher::ActivateAbility` e disparar via `UAbilitySystemBlueprintLibrary::SendGameplayEvent`. O notify só envia o event tag `Event.Combat.LauncherImpact` e a ability já está ouvindo.
+
+### 16.11 Debug `df.AerialCombatDebug`
+
+Adicionar comando que mostra:
+```
+[Aerial] InAir=1 ComboStep=2 AerialActive=1 LaunchPending=0 Continuation=1
+[Aerial] LastInput=LMB MappedTo=Ability.Attack.Melee.Aerial.Light cancelWindow=open
+```
+
+### 16.12 Exemplo de combo completo
+
+**Cena: "Light Light Heavy Launcher → Air Light Light Light → Plunge"**
+
+```
+Frame 0:    Player no chão, input LMB
+            → UDFAbility_Light ativa → Combo step 0 → montage Light_01
+Frame 30:   Light_01 abre ANS_DFAbilityCancelWindow
+            → input LMB recebido → cancel + Light_02 (combo step 1)
+Frame 70:   Light_02 cancel window → input RMB → Heavy ativa (combo step 2)
+            Heavy é a "Launcher" desse weapon (DT_Combos.bIsLauncherStep=true)
+            → UDFAbility_Launcher ativa
+Frame 95:   Launcher montage AnimNotify_LauncherImpact dispara
+            → ExecuteLaunchImpulse: player.LaunchCharacter(Z=850),
+              enemy.LaunchCharacter(Fwd*400, Z=850)
+            → Combo.bHasAerialContinuation = true
+Frame 96:   Player sai do chão → OnMovementModeChanged Walking→Falling
+            → State.Jumping tag adicionada
+            → State.Launching ainda ativa (montage termina no ar)
+            → Combo: NÃO faz reset porque bHasAerialContinuation=true
+Frame 130:  Launcher montage termina, player ainda no ar
+            → State.Attacking removida, State.Launching removida
+            → Combo agora aguarda input aerial
+Frame 145:  Input LMB no ar
+            → HandlePrimaryAttackPressed vê State_Falling → TryActivate Ability.Aerial.Light
+            → UDFAbility_AerialAttack(Kind=Light) ativa
+            → ConfirmAerialContinuation → bIsAerialComboActive=true,
+              State.Aerial.ComboActive adicionada
+            → Aerial light montage roda (combo step 3, picked from AerialEquivalent)
+Frame 175:  Aerial light cancel window → LMB → Aerial light 2 (step 4)
+Frame 200:  Aerial light 2 cancel window → LMB → Aerial light 3 (step 5)
+Frame 230:  Aerial light 3 cancel window → RMB+Down → Plunge ativa
+            → Hover por 200ms → Velocity.Z = -1800
+Frame 260:  Player toca o chão com plunge montage rodando
+            → OnLanded chamado
+            → Combo.OnLanded vê bIsAerialComboActive=true e bIsPlayingMontage=true
+              → preserva o combo (não reseta) — plunge termina + AOE damage
+Frame 280:  Plunge montage finish → Combo grace de 0.25s para nova entrada
+            → Se LMB nesse intervalo: continua combo terrestre (step 6+ se DT permitir)
+            → Se nada: ResetCombo
+```
+
+### 16.13 Checklist de validação combate aéreo
+
+- [ ] LMB no chão → ground light; LMB no ar → aerial light (mesma tecla, mapa automaticamente)
+- [ ] Ground combo (L L H) com último H = Launcher → pop-up player + inimigo
+- [ ] Em juggle: aerial light chains 3 vezes (LMB LMB LMB no ar)
+- [ ] Jump-cancel: durante cancel window de qualquer attack, Space pula → combo preservado
+- [ ] Cancel window de ground attack fechada → Space pula → reset combo (correto)
+- [ ] Plunge: RMB+Down no ar → hover 200ms → slam vertical
+- [ ] Plunge AOE no impacto: inimigos dentro de 350cm recebem dano + knockup leve
+- [ ] Land-cancel: aerial montage tocando quando aterrissa → não corta abruptamente
+- [ ] Combo grace 0.35s após takeoff: input aerial nesse intervalo preserva combo counter
+- [ ] Air dodge: 1 charge por pulo; reseta no land
+- [ ] `State.Attacking.Aerial` ativa só durante montage aérea
+- [ ] `State.Aerial.ComboActive` ativa entre primeira aerial attack e land
+- [ ] `df.JumpDebug 2` + `df.AerialCombatDebug 1` mostra cadeia toda no log
+
+### 16.14 Arquivos adicionais (combate aéreo)
+
+| Arquivo | Status | O que tem |
+|---|---|---|
+| [`DFGameplayTags.h/.cpp`](../../Source/DungeonForged/Public/GAS/DFGameplayTags.h) | 🔧 Add | 8 tags novas (aerial states + ability variants) |
+| `UDFAbility_AerialAttack.h/.cpp` (novo) | ✅ Criar | Base genérica para Light/Heavy/Plunge variants |
+| `UDFAbility_Launcher.h/.cpp` (novo) | ✅ Criar | Ground attack que pop-up player + target |
+| `AnimNotify_LauncherImpact.h/.cpp` (novo) | ✅ Criar | Notify que dispara o `ExecuteLaunchImpulse` |
+| [`UDFComboComponent.h/.cpp`](../../Source/DungeonForged/Public/Combat/UDFComboComponent.h) | 🔧 Modificar | `bIsAerialComboActive`, `bHasAerialContinuation`, `OnLanded`, `RequestDeferredReset`, `ConfirmAerialContinuation`, `CancelCurrentMontage` |
+| [`ANS_DFAbilityCancelWindow.cpp`](../../Source/DungeonForged/Private/Combat/AN/ANS_DFAbilityCancelWindow.cpp) | 🔧 Modificar | `Ability.Movement.Jump` + `Ability.Attack.Melee.Aerial` no `AllowedCancelTags` |
+| [`ADFPlayerCharacter.h/.cpp`](../../Source/DungeonForged/Public/Characters/ADFPlayerCharacter.h) | 🔧 Modificar | Override `Landed`, attack handlers que rotam por airborne tag |
+| `DT_Combos` row struct | 🔧 Modificar | `AerialEquivalent` (montage), `bIsLauncherStep` (bool) |
+| Assets `GA_Aerial_Light/Heavy/Plunge/Launcher` | ✅ Criar | Blueprint subclasses configuradas com montages e tags |
+| Montages aéreas | ✅ Criar | Light/Heavy/Plunge montages com anim notify states no cancel window |
+
+---
 
 ---
 
