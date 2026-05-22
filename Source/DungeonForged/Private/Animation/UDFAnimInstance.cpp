@@ -408,3 +408,58 @@ void UUDFAnimInstance::UpdateFootIK(const float DeltaTime)
 	LeftFootIKAlpha = FMath::FInterpTo(LeftFootIKAlpha, LA, DeltaTime, FootIK_SmoothSpeed);
 	RightFootIKAlpha = FMath::FInterpTo(RightFootIKAlpha, RA, DeltaTime, FootIK_SmoothSpeed);
 }
+
+#if !UE_BUILD_SHIPPING
+namespace
+{
+const TCHAR* LocomotionDirName(const EDFMovementDirection Dir)
+{
+	switch (Dir)
+	{
+	case EDFMovementDirection::Forward:
+		return TEXT("Forward");
+	case EDFMovementDirection::ForwardRight:
+		return TEXT("ForwardRight");
+	case EDFMovementDirection::Right:
+		return TEXT("Right");
+	case EDFMovementDirection::BackwardRight:
+		return TEXT("BackwardRight");
+	case EDFMovementDirection::Backward:
+		return TEXT("Backward");
+	case EDFMovementDirection::BackwardLeft:
+		return TEXT("BackwardLeft");
+	case EDFMovementDirection::Left:
+		return TEXT("Left");
+	case EDFMovementDirection::ForwardLeft:
+		return TEXT("ForwardLeft");
+	default:
+		return TEXT("None");
+	}
+}
+
+static FString BlendSpaceDebugName(const UBlendSpace* const BS)
+{
+	return BS ? BS->GetName() : FString(TEXT("(null)"));
+}
+} // namespace
+
+FString UUDFAnimInstance::BuildLocomotionDebugString() const
+{
+	const UBlendSpace* const ActiveBS = ActiveAnimSet.ResolveLocomotionBS(bShouldStrafe);
+	const bool bUsingStrafeBS = bShouldStrafe && ActiveAnimSet.StrafeBlendSpace != nullptr;
+	const bool bCMCStrafe = DFCharacterMovement && DFCharacterMovement->bIsStrafing;
+	return FString::Printf(
+		TEXT("locked=%d strafe=%d inCombat=%d | BS=%s (%s) | MoveBS=%s StrafeBS=%s | Spd=%.0f Dir=%.0f wedge=%s | CMC strafe=%d"),
+		bIsLockedOn ? 1 : 0,
+		bShouldStrafe ? 1 : 0,
+		bIsInCombat ? 1 : 0,
+		*BlendSpaceDebugName(ActiveBS),
+		bUsingStrafeBS ? TEXT("8-way strafe") : TEXT("1D movement"),
+		*BlendSpaceDebugName(ActiveAnimSet.MovementBlendSpace.Get()),
+		*BlendSpaceDebugName(ActiveAnimSet.StrafeBlendSpace.Get()),
+		Speed,
+		Direction,
+		LocomotionDirName(MovementDirection),
+		bCMCStrafe ? 1 : 0);
+}
+#endif

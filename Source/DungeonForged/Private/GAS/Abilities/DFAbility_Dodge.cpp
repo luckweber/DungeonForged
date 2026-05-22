@@ -225,7 +225,17 @@ void UDFAbility_Dodge::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 	const bool bUseAnimRootMotion = bPreferAnimRootMotion && bMontageHasRootMotion;
 	const bool bUseProgrammaticDisplacement = !bUseAnimRootMotion;
 
-	if (bRotateToDodgeDirection && !DodgeDirWorld.IsNearlyZero())
+	bool bSkipRotateForLockOn = false;
+	if (const UDFCombatTuningData* const Tuning = UDFAssetManager::GetCombatTuningDataSafe())
+	{
+		bSkipRotateForLockOn = Tuning->bDodgeKeepFacingTargetOnLockOn;
+	}
+	bool bIsLockedOn = false;
+	if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponentFromActorInfo())
+	{
+		bIsLockedOn = ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Targeting);
+	}
+	if (bRotateToDodgeDirection && !(bSkipRotateForLockOn && bIsLockedOn) && !DodgeDirWorld.IsNearlyZero())
 	{
 		FRotator FaceRot = DodgeDirWorld.GetSafeNormal().Rotation();
 		FaceRot.Pitch = 0.f;

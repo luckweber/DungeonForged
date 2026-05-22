@@ -366,6 +366,15 @@ public:
 	void HandleDodgePressed();
 
 	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
+	void HandleLockOnToggle();
+
+	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
+	void HandleCycleLockOnLeft();
+
+	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
+	void HandleCycleLockOnRight();
+
+	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
 	void HandleEquipmentWeaponTogglePressed();
 
 protected:
@@ -381,6 +390,7 @@ protected:
 
 	void TryActivateByGameplayTagName(const FName& TagName);
 	void CancelAbilitiesByGameplayTagName(const FName& TagName);
+	void BindLockOnStrafeFromTargeting();
 
 	void SetupModularMeshPart(USkeletalMeshComponent* Part);
 	void RegisterModularSlotsWithEquipment();
@@ -404,6 +414,7 @@ protected:
 private:
 	/** OnEquipmentChanged bound once; cleared in EndPlay. */
 	bool bModularEquipmentDelegateBound = false;
+	bool bLockOnStrafeDelegateBound = false;
 
 	bool bHasWeaponRSocket = false;
 	bool bHasWeaponLSocket = false;

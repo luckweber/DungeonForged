@@ -171,6 +171,18 @@ void ADFRunPlayerController::SetupInputComponent()
 	{
 		EIC->BindAction(IA_Dodge, ETriggerEvent::Started, this, &ADFRunPlayerController::Input_Dodge);
 	}
+	if (IA_LockOn)
+	{
+		EIC->BindAction(IA_LockOn, ETriggerEvent::Started, this, &ADFRunPlayerController::Input_LockOn);
+	}
+	if (IA_CycleLockOnLeft)
+	{
+		EIC->BindAction(IA_CycleLockOnLeft, ETriggerEvent::Started, this, &ADFRunPlayerController::Input_CycleLockOnLeft);
+	}
+	if (IA_CycleLockOnRight)
+	{
+		EIC->BindAction(IA_CycleLockOnRight, ETriggerEvent::Started, this, &ADFRunPlayerController::Input_CycleLockOnRight);
+	}
 	if (IA_EquipmentWeaponToggle)
 	{
 		EIC->BindAction(
@@ -438,6 +450,30 @@ void ADFRunPlayerController::Input_Dodge()
 	if (ADFPlayerCharacter* const Hero = GetHeroPawn())
 	{
 		Hero->HandleDodgePressed();
+	}
+}
+
+void ADFRunPlayerController::Input_LockOn()
+{
+	if (ADFPlayerCharacter* const Hero = GetHeroPawn())
+	{
+		Hero->HandleLockOnToggle();
+	}
+}
+
+void ADFRunPlayerController::Input_CycleLockOnLeft()
+{
+	if (ADFPlayerCharacter* const Hero = GetHeroPawn())
+	{
+		Hero->HandleCycleLockOnLeft();
+	}
+}
+
+void ADFRunPlayerController::Input_CycleLockOnRight()
+{
+	if (ADFPlayerCharacter* const Hero = GetHeroPawn())
+	{
+		Hero->HandleCycleLockOnRight();
 	}
 }
 

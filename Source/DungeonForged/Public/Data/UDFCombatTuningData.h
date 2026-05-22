@@ -79,6 +79,24 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge", meta = (ClampMin = "0.0"))
 	float DodgeStaminaCost = 20.f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn", meta = (ClampMin = "0.0"))
+	float LockOnRange = 1500.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn", meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	float LockOnConeAngle = 60.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn", meta = (ClampMin = "0.0"))
+	float LockOnAutoBreakGraceDelay = 0.4f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn", meta = (ClampMin = "1.0"))
+	float LockOnCameraInterpSpeed = 12.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LockOnWarningRangePercent = 0.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn")
+	bool bDodgeKeepFacingTargetOnLockOn = true;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|State")
 	float CombatExitDelay = 4.f;
 

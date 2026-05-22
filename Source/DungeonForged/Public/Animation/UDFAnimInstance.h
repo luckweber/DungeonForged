@@ -41,6 +41,11 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "DF|Locomotion")
 	bool HasTag(const FGameplayTag& Tag) const;
 
+#if !UE_BUILD_SHIPPING
+	/** One-line locomotion / blend space state for df.LockOnDebug. */
+	FString BuildLocomotionDebugString() const;
+#endif
+
 	// ── Default (unarmed) Anim Set ──
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "DF|Anim Set")
 	FUDAnimSet DefaultAnimSet;

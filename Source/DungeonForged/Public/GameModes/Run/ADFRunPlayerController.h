@@ -82,6 +82,15 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input")
 	TObjectPtr<UInputAction> IA_Dodge;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input|LockOn")
+	TObjectPtr<UInputAction> IA_LockOn;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input|LockOn")
+	TObjectPtr<UInputAction> IA_CycleLockOnLeft;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input|LockOn")
+	TObjectPtr<UInputAction> IA_CycleLockOnRight;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|Input")
 	TObjectPtr<UInputAction> IA_EquipmentWeaponToggle;
 
@@ -198,6 +207,9 @@ protected:
 	void Input_SprintStart();
 	void Input_SprintEnd();
 	void Input_Dodge();
+	void Input_LockOn();
+	void Input_CycleLockOnLeft();
+	void Input_CycleLockOnRight();
 	void Input_EquipmentWeaponToggle();
 
 	static constexpr float MinLookPitch = -60.f;

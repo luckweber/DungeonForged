@@ -17,8 +17,21 @@ UDFCharacterMovementComponent::UDFCharacterMovementComponent(const FObjectInitia
 	PrimaryComponentTick.bCanEverTick = true;
 	MaxWalkSpeed = RunSpeed;
 	MaxWalkSpeedCrouched = CrouchSpeed;
+	DefaultBrakingFrictionFactor = BrakingFrictionFactor;
 	// Snappy but smooth turn toward movement (hack-and-slash / action third-person).
 	RotationRate = FRotator(0.f, 720.f, 0.f);
+}
+
+void UDFCharacterMovementComponent::SetStrafeMode(const bool bStrafe)
+{
+	if (bIsStrafing == bStrafe)
+	{
+		return;
+	}
+	bIsStrafing = bStrafe;
+	bOrientRotationToMovement = !bStrafe;
+	bUseControllerDesiredRotation = bStrafe;
+	BrakingFrictionFactor = bStrafe ? 2.f : DefaultBrakingFrictionFactor;
 }
 
 FNetworkPredictionData_Client* UDFCharacterMovementComponent::GetPredictionData_Client() const

@@ -101,12 +101,21 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Movement|Dodge")
 	float GetDodgeCooldownRemaining() const;
 
+	/** Strafe (lock-on): face controller yaw; exploration: orient to movement. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Movement|Strafe")
+	void SetStrafeMode(bool bStrafe);
+
+	UPROPERTY(BlueprintReadOnly, Category = "DF|Movement|Strafe")
+	bool bIsStrafing = false;
+
 	virtual FNetworkPredictionData_Client* GetPredictionData_Client() const override;
 	virtual void UpdateFromCompressedFlags(uint8 Flags) override;
 	virtual void OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode) override;
 	virtual void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 protected:
+	float DefaultBrakingFrictionFactor = 1.f;
+
 	float TimeLastDodge = -1.f;
 	FTimerHandle TimerHandle_EndDodging;
 	FTimerHandle TimerHandle_EndIFrame;

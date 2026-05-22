@@ -21,6 +21,7 @@
 #include "Combat/UDFStaminaExhaustionComponent.h"
 #include "GAS/Effects/UGE_StaminaRegen.h"
 #include "Combat/DFDodgeDebug.h"
+#include "Combat/DFLockOnDebug.h"
 #include "Combat/UDFComboComponent.h"
 #include "Combat/UDFComboPointsComponent.h"
 #include "Combat/UDFLauncherComponent.h"
@@ -526,6 +527,7 @@ void ADFPlayerCharacter::BeginPlay()
 	RefreshWeaponAndOffHandSocketAttachments();
 	RefreshWeaponTraceForMelee();
 	RefreshMeleeLoadoutAfterEquipmentChange();
+	BindLockOnStrafeFromTargeting();
 }
 
 void ADFPlayerCharacter::SetupModularMeshPart(USkeletalMeshComponent* const Part)
@@ -634,6 +636,7 @@ void ADFPlayerCharacter::PossessedBy(AController* NewController)
 			RunPC->EnsureGameplayInputReady();
 		}
 	}
+	BindLockOnStrafeFromTargeting();
 }
 
 void ADFPlayerCharacter::OnRep_PlayerState()
@@ -1034,6 +1037,65 @@ void ADFPlayerCharacter::HandleDodgePressed()
 	}
 #endif
 	TryActivateByGameplayTagName(FName("Ability.Movement.Dodge"));
+}
+
+void ADFPlayerCharacter::BindLockOnStrafeFromTargeting()
+{
+	if (bLockOnStrafeDelegateBound || !LockOnComponent)
+	{
+		return;
+	}
+	LockOnComponent->OnLockOnChanged.AddWeakLambda(this, [this](const bool bIsLocked)
+	{
+		if (UDFCharacterMovementComponent* const CMC = Cast<UDFCharacterMovementComponent>(GetCharacterMovement()))
+		{
+			CMC->SetStrafeMode(bIsLocked);
+		}
+	});
+	bLockOnStrafeDelegateBound = true;
+	if (LockOnComponent->IsLockedOn())
+	{
+		if (UDFCharacterMovementComponent* const CMC = Cast<UDFCharacterMovementComponent>(GetCharacterMovement()))
+		{
+			CMC->SetStrafeMode(true);
+		}
+	}
+}
+
+void ADFPlayerCharacter::HandleLockOnToggle()
+{
+	if (!LockOnComponent)
+	{
+		return;
+	}
+	if (LockOnComponent->IsLockedOn())
+	{
+		LockOnComponent->ReleaseLockOn();
+	}
+	else
+	{
+		const bool bLocked = LockOnComponent->TryLockOn();
+		if (!bLocked)
+		{
+			DFLockOnDebug::Log(TEXT("HandleLockOnToggle — TryLockOn FAIL"));
+		}
+	}
+}
+
+void ADFPlayerCharacter::HandleCycleLockOnLeft()
+{
+	if (LockOnComponent && LockOnComponent->IsLockedOn())
+	{
+		LockOnComponent->CycleLockOnTarget(-1.f);
+	}
+}
+
+void ADFPlayerCharacter::HandleCycleLockOnRight()
+{
+	if (LockOnComponent && LockOnComponent->IsLockedOn())
+	{
+		LockOnComponent->CycleLockOnTarget(1.f);
+	}
 }
 
 void ADFPlayerCharacter::HandleEquipmentWeaponTogglePressed()

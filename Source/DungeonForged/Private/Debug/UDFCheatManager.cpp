@@ -9,7 +9,9 @@
 #include "Boss/ADFBossBase.h"
 #include "Characters/ADFEnemyBase.h"
 #include "Characters/ADFPlayerCharacter.h"
+#include "Camera/UDFLockOnComponent.h"
 #include "Combat/DFDodgeDebug.h"
+#include "Combat/DFLockOnDebug.h"
 #include "Combat/UDFMeleeTraceComponent.h"
 #include "Characters/UDFCharacterMovementComponent.h"
 #include "Debug/UDFDebugComponent.h"
@@ -1143,6 +1145,68 @@ static FAutoConsoleCommand GCmdDodgeDebug(
 	TEXT("df.DodgeDebug"),
 	TEXT("Dodge debug: toggle df.DebugDodge (0/1/2). Args: dump | 0 | 1 | 2 | log | draw | on | off. Log prefix [Dodge]."),
 	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_dodgedebug));
+
+static void Cmd_df_lockondebug(TArray<FString> const& Args)
+{
+	IConsoleVariable* const Cv = IConsoleManager::Get().FindConsoleVariable(TEXT("df.DebugLockOn"));
+	if (!Cv)
+	{
+		DF_LOG(Warning, "df.LockOnDebug: df.DebugLockOn CVar missing (shipping build?)");
+		return;
+	}
+
+	if (Args.Num() > 0)
+	{
+		const FString A = Args[0].ToLower();
+		if (A == TEXT("dump"))
+		{
+			Cv->Set(1, ECVF_SetByConsole);
+			UWorld* const W = GetCheatWorld();
+			if (ADFPlayerCharacter* const P = GetLocalDFPawn(W))
+			{
+				if (UDFLockOnComponent* const LOC = P->LockOnComponent)
+				{
+					const bool bLocked = LOC->IsLockedOn();
+					const AActor* const T = LOC->GetCurrentTarget();
+					DF_LOG(Log, "df.LockOnDebug dump: locked=%d target=%s range=%.0f",
+						bLocked ? 1 : 0, *GetNameSafe(T), LOC->GetLockOnRange());
+					DFLockOnDebug::DumpLocomotionAnimState(P, true);
+				}
+			}
+			return;
+		}
+		if (A == TEXT("0") || A == TEXT("off"))
+		{
+			Cv->Set(0, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("1") || A == TEXT("log"))
+		{
+			Cv->Set(1, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("2") || A == TEXT("draw") || A == TEXT("on"))
+		{
+			Cv->Set(2, ECVF_SetByConsole);
+		}
+		else
+		{
+			DF_LOG(Warning, "df.LockOnDebug: use [0|1|2|dump|log|draw|on|off]");
+			return;
+		}
+	}
+	else
+	{
+		const int32 Next = Cv->GetInt() >= 2 ? 0 : (Cv->GetInt() + 1);
+		Cv->Set(Next, ECVF_SetByConsole);
+	}
+
+	DF_LOG(Log, "df.LockOnDebug: df.DebugLockOn=%d (0=off 1=log 2=log+draw) — filter Output Log: LockOn",
+		Cv->GetInt());
+}
+
+static FAutoConsoleCommand GCmdLockOnDebug(
+	TEXT("df.LockOnDebug"),
+	TEXT("Lock-on debug: toggle df.DebugLockOn (0/1/2). Args: dump | 0 | 1 | 2 | log | draw | on | off."),
+	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_lockondebug));
 
 } // namespace
 

@@ -179,6 +179,11 @@ void UDFCameraComponent::ExitCombatMode()
 	bCombatBlendActive = true;
 }
 
+void UDFCameraComponent::SetRotationInterpSpeed(const float Speed)
+{
+	InterpSpeed = FMath::Max(1.f, Speed);
+}
+
 void UDFCameraComponent::EnableLockOn(AActor* Target)
 {
 	if (!IsValid(Target))
