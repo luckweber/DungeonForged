@@ -41,6 +41,7 @@ Content/BigFanBundle
 
 # Claude/Cursor worktrees must not live under Source/ (duplicate Build.cs breaks UBT)
 Source/.claude/
+.claude/
 
 # Visual Studio Code (optional local settings)
 .vscode/
