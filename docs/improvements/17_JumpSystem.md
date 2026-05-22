@@ -1597,7 +1597,12 @@ void UDFAbility_AerialAttack::OnPlungeHoverEnd()
 
 **Novo arquivo:** `Source/DungeonForged/Public/GAS/Abilities/UDFAbility_Launcher.h`
 
-Subclasse da ability de heavy melee existente, mas adiciona impulse vertical no notify de impact + arma o combo aerial mode:
+Suporta **dois padrões** via flag `bAutoFollowToAir`:
+
+| `bAutoFollowToAir` | Comportamento | Quando usar |
+|---|---|---|
+| `true` (default) | Player **e** inimigo sobem juntos | Combos "auto-juggle" (segura o ritmo, mais arcade) |
+| `false` | **Só** inimigo sobe; player decide se persegue | Combo branching (DMC/Bayo-style) — abre janela de pursuit window |
 
 ```cpp
 UCLASS()
@@ -1607,13 +1612,29 @@ class DUNGEONFORGED_API UDFAbility_Launcher : public UDFGameplayAbility
 public:
     UDFAbility_Launcher();
 
-    /** Vertical velocity applied to BOTH player and hit target. */
+    /** Vertical velocity applied to the launched target. */
     UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|Launcher")
     float LaunchZVelocity = 850.f;
 
     /** Horizontal kick (cm/s) applied to target (knocks them forward + up). */
     UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|Launcher")
     float LaunchForwardVelocity = 400.f;
+
+    /**
+     * If true, player launches with the target (auto-juggle pattern).
+     * If false, only target launches — player stays grounded and a "pursuit window"
+     * opens (PursuitWindowDuration seconds) during which TrackingJump can fire.
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|Launcher")
+    bool bAutoFollowToAir = true;
+
+    /** Duration (seconds) the pursuit window stays open after launch (only when bAutoFollowToAir=false). */
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|Launcher|Pursuit", meta = (EditCondition = "!bAutoFollowToAir"))
+    float PursuitWindowDuration = 0.6f;
+
+    /** Player Z velocity when auto-following (only when bAutoFollowToAir=true). */
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|Launcher|AutoFollow", meta = (EditCondition = "bAutoFollowToAir"))
+    float SelfLaunchZVelocity = 850.f;
 
     UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|Launcher")
     TObjectPtr<UAnimMontage> LauncherMontage;
@@ -1639,7 +1660,6 @@ void UDFAbility_Launcher::PostInitProperties()
         AbilityTags.AddTag(FDFGameplayTags::Ability_Attack_Melee_Launcher);
         ActivationOwnedTags.AddTag(FDFGameplayTags::State_Launching);
         ActivationOwnedTags.AddTag(FDFGameplayTags::State_Attacking);
-        // Launcher é "heavy" — bloqueia movimento durante o swing
         ActivationBlockedTags.AddTag(FDFGameplayTags::State_Stunned);
     }
 }
@@ -1648,30 +1668,504 @@ void UDFAbility_Launcher::ExecuteLaunchImpulse(AActor* const HitTarget)
 {
     ACharacter* const Self = Cast<ACharacter>(GetAvatarActorFromActorInfo());
     if (!Self) return;
+    ACharacter* const TargetChar = Cast<ACharacter>(HitTarget);
 
-    // Player jumps com o alvo (acompanha o juggle).
-    Self->LaunchCharacter(FVector(0, 0, LaunchZVelocity), false, true);
-
-    // Inimigo pega lift + small forward push (knockback).
-    if (ACharacter* const TargetChar = Cast<ACharacter>(HitTarget))
+    // 1. Sempre lança o inimigo (lift + forward kick).
+    if (TargetChar)
     {
         const FVector Fwd = Self->GetActorForwardVector();
         TargetChar->LaunchCharacter(
             FVector(Fwd.X * LaunchForwardVelocity, Fwd.Y * LaunchForwardVelocity, LaunchZVelocity),
             true, true);
+
+        // Aplica State.Launched no inimigo (usado pelo TrackingJump para identificar pursuit target).
+        if (UAbilitySystemComponent* const TgtASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(TargetChar))
+        {
+            TgtASC->AddLooseGameplayTag(FDFGameplayTags::State_Launched);
+            // Auto-remove após ~1s (tempo típico de hang-time).
+            if (UWorld* const W = Self->GetWorld())
+            {
+                FTimerHandle Th;
+                W->GetTimerManager().SetTimer(Th, [WeakTgt = TWeakObjectPtr<AActor>(TargetChar)]()
+                {
+                    if (UAbilitySystemComponent* const A = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(WeakTgt.Get()))
+                    {
+                        A->RemoveLooseGameplayTag(FDFGameplayTags::State_Launched, 0);
+                    }
+                }, 1.5f, false);
+            }
+        }
     }
 
-    // Arma o combo aerial mode no Self.
-    if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(Self))
+    ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(Self);
+    if (!PC) return;
+
+    if (bAutoFollowToAir)
     {
+        // Padrão "auto-juggle": player sobe junto.
+        Self->LaunchCharacter(FVector(0, 0, SelfLaunchZVelocity), false, true);
         if (UDFComboComponent* const Combo = PC->Combo)
         {
             Combo->bHasAerialContinuation = true;
-            // bIsAerialComboActive ficará true quando o aerial attack ativar
+        }
+    }
+    else
+    {
+        // Padrão "decide se persegue": player fica no chão, abre pursuit window.
+        if (UAbilitySystemComponent* const ASC = PC->GetAbilitySystemComponent())
+        {
+            ASC->AddLooseGameplayTag(FDFGameplayTags::State_PursuitWindow);
+            // Stash do alvo lançado pra TrackingJump warp para ele.
+            if (UDFLaunchPursuitComponent* const Pursuit = PC->FindComponentByClass<UDFLaunchPursuitComponent>())
+            {
+                Pursuit->RegisterPursuitTarget(TargetChar, PursuitWindowDuration);
+            }
+        }
+        if (UDFComboComponent* const Combo = PC->Combo)
+        {
+            // Mantém combo armado pelo PursuitWindowDuration — se nada acontecer, reseta.
+            Combo->RequestDeferredReset(PursuitWindowDuration + 0.1f);
         }
     }
 }
 ```
+
+> **Padrão recomendado:** começar com `bAutoFollowToAir = false` (mais cinematográfico, dá controle ao player). Subclasses específicas como `GA_Launcher_AutoJuggle` podem flipar para `true` em armas leves (estilo dual blade) onde o auto-follow combina com o ritmo.
+
+---
+
+### 16.6.1 `UDFLaunchPursuitComponent` — registry do alvo lançado
+
+**Novo componente em `ADFPlayerCharacter`:** guarda o último alvo lançado e por quanto tempo a pursuit window fica aberta. O `UDFAbility_TrackingJump` lê desse componente.
+
+**Header — `UDFLaunchPursuitComponent.h`:**
+
+```cpp
+#pragma once
+#include "Components/ActorComponent.h"
+#include "UDFLaunchPursuitComponent.generated.h"
+
+UCLASS(ClassGroup = (Combat), meta = (BlueprintSpawnableComponent))
+class DUNGEONFORGED_API UDFLaunchPursuitComponent : public UActorComponent
+{
+    GENERATED_BODY()
+public:
+    UDFLaunchPursuitComponent();
+
+    /** Registers the latest launched target. Pursuit window starts now and lasts WindowDuration s. */
+    UFUNCTION(BlueprintCallable, Category = "DF|Combat|Pursuit")
+    void RegisterPursuitTarget(AActor* Target, float WindowDuration);
+
+    /** Currently registered target (null if window expired or none). */
+    UFUNCTION(BlueprintPure, Category = "DF|Combat|Pursuit")
+    AActor* GetPursuitTarget() const;
+
+    UFUNCTION(BlueprintPure, Category = "DF|Combat|Pursuit")
+    bool IsPursuitWindowOpen() const;
+
+    UFUNCTION(BlueprintPure, Category = "DF|Combat|Pursuit")
+    float GetPursuitWindowRemaining() const;
+
+    UFUNCTION(BlueprintCallable, Category = "DF|Combat|Pursuit")
+    void ClearPursuit();
+
+protected:
+    TWeakObjectPtr<AActor> CurrentTarget;
+    float WindowEndTime = -1.f;
+    FTimerHandle TimerHandle_WindowEnd;
+};
+```
+
+**Cpp:**
+
+```cpp
+#include "Combat/UDFLaunchPursuitComponent.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "AbilitySystemComponent.h"
+#include "GAS/DFGameplayTags.h"
+#include "Engine/World.h"
+
+UDFLaunchPursuitComponent::UDFLaunchPursuitComponent()
+{
+    PrimaryComponentTick.bCanEverTick = false;
+}
+
+void UDFLaunchPursuitComponent::RegisterPursuitTarget(AActor* const Target, const float WindowDuration)
+{
+    CurrentTarget = Target;
+    if (UWorld* const W = GetWorld())
+    {
+        WindowEndTime = W->GetTimeSeconds() + WindowDuration;
+        W->GetTimerManager().SetTimer(TimerHandle_WindowEnd, this,
+            &UDFLaunchPursuitComponent::ClearPursuit, WindowDuration, false);
+    }
+}
+
+AActor* UDFLaunchPursuitComponent::GetPursuitTarget() const
+{
+    return IsPursuitWindowOpen() ? CurrentTarget.Get() : nullptr;
+}
+
+bool UDFLaunchPursuitComponent::IsPursuitWindowOpen() const
+{
+    return CurrentTarget.IsValid() && GetWorld() && GetWorld()->GetTimeSeconds() < WindowEndTime;
+}
+
+float UDFLaunchPursuitComponent::GetPursuitWindowRemaining() const
+{
+    if (!GetWorld()) return 0.f;
+    return FMath::Max(0.f, WindowEndTime - GetWorld()->GetTimeSeconds());
+}
+
+void UDFLaunchPursuitComponent::ClearPursuit()
+{
+    CurrentTarget = nullptr;
+    WindowEndTime = -1.f;
+    if (AActor* const Owner = GetOwner())
+    {
+        if (UAbilitySystemComponent* const ASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Owner))
+        {
+            ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_PursuitWindow, 0);
+        }
+    }
+}
+```
+
+Adicionar instância no `ADFPlayerCharacter`:
+```cpp
+// header
+UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Combat")
+TObjectPtr<UDFLaunchPursuitComponent> LaunchPursuit;
+
+// constructor:
+LaunchPursuit = CreateDefaultSubobject<UDFLaunchPursuitComponent>(TEXT("LaunchPursuit"));
+```
+
+---
+
+### 16.6.2 `UDFAbility_TrackingJump` — perseguir o inimigo lançado
+
+**A ability principal que você pediu.** Ativa via input de jump **durante a pursuit window**. Calcula a posição prevista do alvo no ar (físico simples) e usa **Motion Warping** + impulso para mover o player até lá, transicionando automaticamente para combo aéreo no ápice.
+
+**Novo arquivo:** `Source/DungeonForged/Public/GAS/Abilities/UDFAbility_TrackingJump.h`
+
+```cpp
+#pragma once
+#include "GAS/UDFGameplayAbility.h"
+#include "UDFAbility_TrackingJump.generated.h"
+
+class UAnimMontage;
+
+UCLASS()
+class DUNGEONFORGED_API UDFAbility_TrackingJump : public UDFGameplayAbility
+{
+    GENERATED_BODY()
+public:
+    UDFAbility_TrackingJump();
+
+    /** Optional anticipation montage (small windup before the leap). 0 = instant. */
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|TrackingJump")
+    TObjectPtr<UAnimMontage> WindupMontage;
+
+    /**
+     * Vertical velocity component of the tracking jump. Should roughly match the
+     * launched enemy's Z velocity so player arrives at apex with enemy.
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|TrackingJump", meta = (ClampMin = "0.0"))
+    float TrackingJumpZVelocity = 900.f;
+
+    /**
+     * Max horizontal speed of the leap (cm/s). Distance to target capped by this.
+     * If target is 800cm away and this is 600, leap takes ~1.3s horizontally.
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|TrackingJump", meta = (ClampMin = "0.0"))
+    float TrackingJumpForwardVelocityMax = 1400.f;
+
+    /**
+     * Max horizontal distance (cm) the tracking jump will cover.
+     * Beyond this, the leap stops short (prevents teleport-feel).
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|TrackingJump", meta = (ClampMin = "0.0"))
+    float MaxTrackingDistance = 1500.f;
+
+    /**
+     * Vertical offset added to target predicted position (lands player slightly above
+     * the enemy for a clean overhead hit setup).
+     */
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|TrackingJump")
+    float TargetVerticalOffset = 50.f;
+
+    /** Anim time over which Motion Warping interpolates to the predicted target spot. */
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|TrackingJump", meta = (ClampMin = "0.05"))
+    float WarpDuration = 0.45f;
+
+    /** Stamina cost for tracking jump (in addition to base jump if any). */
+    UPROPERTY(EditDefaultsOnly, Category = "DF|Combat|TrackingJump", meta = (ClampMin = "0.0"))
+    float TrackingJumpStaminaCost = 15.f;
+
+protected:
+    virtual void PostInitProperties() override;
+    virtual bool CanActivateAbility(...) const override;
+    virtual void ActivateAbility(...) override;
+
+    /** Compute predicted air position of Target based on its current velocity + gravity. */
+    FVector PredictTargetAirPosition(const AActor* Target, float TimeAhead) const;
+
+    UFUNCTION()
+    void OnWindupCompleted();
+};
+```
+
+**Cpp:**
+
+```cpp
+#include "GAS/Abilities/UDFAbility_TrackingJump.h"
+
+#include "AbilitySystemComponent.h"
+#include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
+#include "Animation/AnimMontage.h"
+#include "Characters/ADFPlayerCharacter.h"
+#include "Combat/UDFLaunchPursuitComponent.h"
+#include "GAS/DFGameplayTags.h"
+#include "GAS/UDFAttributeSet.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "MotionWarpingComponent.h"
+
+UDFAbility_TrackingJump::UDFAbility_TrackingJump()
+{
+    InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
+    NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::LocalPredicted;
+    AbilityCost_Stamina = TrackingJumpStaminaCost;
+}
+
+void UDFAbility_TrackingJump::PostInitProperties()
+{
+    Super::PostInitProperties();
+    if (HasAnyFlags(RF_ClassDefaultObject))
+    {
+        AbilityTags.AddTag(FDFGameplayTags::Ability_Movement_TrackingJump);
+        ActivationOwnedTags.AddTag(FDFGameplayTags::State_Jumping);
+        ActivationOwnedTags.AddTag(FDFGameplayTags::State_TrackingJump);
+        BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Dead);
+        BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Stunned);
+        BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Dodging);
+        BlockAbilitiesWithTag.AddTag(FDFGameplayTags::State_Exhausted);
+    }
+}
+
+bool UDFAbility_TrackingJump::CanActivateAbility(
+    const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
+    const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags,
+    FGameplayTagContainer* OptionalRelevantTags) const
+{
+    if (!Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags))
+        return false;
+
+    if (!ActorInfo) return false;
+    const ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(ActorInfo->AvatarActor.Get());
+    if (!PC || !PC->LaunchPursuit) return false;
+
+    // Tem que ter pursuit window aberta E target válido.
+    if (!PC->LaunchPursuit->IsPursuitWindowOpen()) return false;
+    if (!PC->LaunchPursuit->GetPursuitTarget()) return false;
+
+    // Player tem que estar no chão (não permite tracking jump em pleno ar).
+    const UCharacterMovementComponent* const CMC = PC->GetCharacterMovement();
+    if (!CMC || CMC->IsFalling()) return false;
+
+    return true;
+}
+
+FVector UDFAbility_TrackingJump::PredictTargetAirPosition(const AActor* const Target, const float TimeAhead) const
+{
+    if (!Target) return FVector::ZeroVector;
+    const FVector Pos = Target->GetActorLocation();
+    const FVector Vel = Target->GetVelocity();
+    const float G = -980.f; // gravidade UE default
+
+    // Posição prevista: P = P0 + V*t + 0.5*g*t²  (apenas Z afetado por gravidade)
+    return FVector(
+        Pos.X + Vel.X * TimeAhead,
+        Pos.Y + Vel.Y * TimeAhead,
+        Pos.Z + Vel.Z * TimeAhead + 0.5f * G * TimeAhead * TimeAhead);
+}
+
+void UDFAbility_TrackingJump::ActivateAbility(
+    const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
+    const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
+{
+    if (!ActorInfo || !CommitAbility(Handle, ActorInfo, ActivationInfo, nullptr))
+    {
+        EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+        return;
+    }
+
+    ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(ActorInfo->AvatarActor.Get());
+    if (!PC) { EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
+    AActor* const Target = PC->LaunchPursuit ? PC->LaunchPursuit->GetPursuitTarget() : nullptr;
+    if (!Target) { EndAbility(Handle, ActorInfo, ActivationInfo, true, true); return; }
+
+    // 1. Predict onde o alvo estará daqui a WarpDuration segundos
+    const FVector PredictedTargetPos = PredictTargetAirPosition(Target, WarpDuration) + FVector(0, 0, TargetVerticalOffset);
+    const FVector PlayerPos = PC->GetActorLocation();
+    const FVector ToTarget = PredictedTargetPos - PlayerPos;
+    const float HDist = ToTarget.Size2D();
+
+    // 2. Clamp à MaxTrackingDistance — se for longe demais, ainda faz parcial.
+    const float ClampedHDist = FMath::Min(HDist, MaxTrackingDistance);
+    const FVector HDir = ToTarget.GetSafeNormal2D();
+    const FVector ClampedTargetPos = FVector(
+        PlayerPos.X + HDir.X * ClampedHDist,
+        PlayerPos.Y + HDir.Y * ClampedHDist,
+        PredictedTargetPos.Z);
+
+    // 3. Face toward target horizontally (snap yaw).
+    if (!HDir.IsNearlyZero())
+    {
+        FRotator FaceRot = HDir.Rotation();
+        FaceRot.Pitch = 0.f; FaceRot.Roll = 0.f;
+        PC->SetActorRotation(FaceRot);
+    }
+
+    // 4. Add MotionWarping target — anim montage usa "TrackingJump" warp target name
+    if (UMotionWarpingComponent* const Warp = PC->MotionWarping)
+    {
+        FMotionWarpingTarget WarpTarget;
+        WarpTarget.Name = FName(TEXT("TrackingJump"));
+        WarpTarget.Location = ClampedTargetPos;
+        WarpTarget.Rotation = PC->GetActorRotation();
+        Warp->AddOrUpdateWarpTarget(WarpTarget);
+    }
+
+    // 5. Apply velocity + leave the ground
+    if (UCharacterMovementComponent* const CMC = PC->GetCharacterMovement())
+    {
+        const float ForwardSpeed = FMath::Min(TrackingJumpForwardVelocityMax, ClampedHDist / FMath::Max(0.01f, WarpDuration));
+        const FVector LeapVelocity = HDir * ForwardSpeed + FVector(0, 0, TrackingJumpZVelocity);
+        PC->LaunchCharacter(LeapVelocity, true, true); // override XY and Z
+    }
+
+    // 6. Notify combo component — entra em aerial mode imediatamente
+    if (UDFComboComponent* const Combo = PC->Combo) { Combo->ConfirmAerialContinuation(); }
+
+    // 7. Pursuit window consumed
+    if (PC->LaunchPursuit) { PC->LaunchPursuit->ClearPursuit(); }
+
+    // 8. Optional windup montage (small 100-150ms wind anim before the leap visual)
+    if (WindupMontage)
+    {
+        if (UAbilityTask_PlayMontageAndWait* const Task =
+                UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
+                    this, NAME_None, WindupMontage, 1.f, NAME_None, true, 1.f, 0.f, true))
+        {
+            Task->OnCompleted.AddDynamic(this, &UDFAbility_TrackingJump::OnWindupCompleted);
+            Task->OnInterrupted.AddDynamic(this, &UDFAbility_TrackingJump::OnWindupCompleted);
+            Task->ReadyForActivation();
+        }
+        else
+        {
+            OnWindupCompleted();
+        }
+    }
+    else
+    {
+        OnWindupCompleted();
+    }
+}
+
+void UDFAbility_TrackingJump::OnWindupCompleted()
+{
+    // EndAbility — the leap is in progress (CharacterMovement is in MOVE_Falling now).
+    // Aerial attacks take over from here via input → UDFAbility_AerialAttack.
+    EndAbility(GetCurrentAbilitySpecHandle(), GetCurrentActorInfo(), GetCurrentActivationInfo(), true, false);
+}
+```
+
+**Tags adicionais necessárias** (adicionar em §16.2):
+```cpp
+static FGameplayTag State_PursuitWindow;      // pursuit window aberta (player no chão pode TrackingJump)
+static FGameplayTag State_Launched;           // inimigo está em hang-time pós-launcher
+static FGameplayTag State_TrackingJump;       // player executando tracking jump
+static FGameplayTag Ability_Movement_TrackingJump;
+```
+
+### 16.6.3 Input routing — Jump após Launcher
+
+O **mesmo input `IA_Jump`** decide entre jump normal e tracking jump baseado em `State.PursuitWindow`:
+
+```cpp
+// ADFPlayerCharacter::HandleJumpPressed (ou onde Input_JumpStart roteia)
+void ADFPlayerCharacter::HandleJumpPressed()
+{
+    if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponent())
+    {
+        // Se pursuit window aberta + target válido → tenta tracking jump
+        if (ASC->HasMatchingGameplayTag(FDFGameplayTags::State_PursuitWindow)
+            && LaunchPursuit && LaunchPursuit->GetPursuitTarget())
+        {
+            const bool bActivated = TryActivateByGameplayTag(FDFGameplayTags::Ability_Movement_TrackingJump);
+            if (bActivated) return;
+        }
+    }
+    // Fallback: pulo normal
+    Jump();
+}
+```
+
+### 16.6.4 Visual feedback — pursuit window UI
+
+Durante `State.PursuitWindow`, mostrar um pequeno indicador no HUD:
+- Ring pulsando ao redor do crosshair com texto "↑ JUMP TO PURSUIT" + countdown bar de 0.6s
+- Niagara emissor "trail de poeira" subindo do alvo lançado (visual cue de onde está)
+- Camera shake leve no momento do launcher (já coberto pelo `UDFImpactFramingComponent`)
+
+### 16.6.5 Combo trabalhado — Launcher → TrackingJump → Aerial → Plunge
+
+```
+Frame 0:    Player no chão, input LMB → Light_01 (combo step 0)
+Frame 25:   Light_01 cancel window → LMB → Light_02 (step 1)
+Frame 50:   Light_02 cancel window → RMB → Heavy/Launcher (step 2)
+            DT_Combos: bIsLauncherStep=true → UDFAbility_Launcher ativa
+Frame 70:   Launcher montage → AnimNotify_LauncherImpact dispara
+            → ExecuteLaunchImpulse:
+                - inimigo.LaunchCharacter(Fwd*400, Z=850), State_Launched aplicada
+                - bAutoFollowToAir=false → player NÃO sobe
+                - LaunchPursuit->RegisterPursuitTarget(enemy, 0.6s)
+                - State.PursuitWindow adicionada ao player
+                - Combo->RequestDeferredReset(0.7s)
+            HUD mostra: "↑ JUMP TO PURSUIT" + countdown
+Frame 75:   Inimigo na trajetória ascendente, player ainda parado
+Frame 110:  Input SPACE → HandleJumpPressed
+            → State.PursuitWindow ativa → TryActivate Ability.Movement.TrackingJump
+            → UDFAbility_TrackingJump.CanActivate=true (target válido, no chão)
+            → ActivateAbility:
+                - PredictTargetAirPosition(enemy, 0.45s) → posição t+0.45s
+                - HDist=400cm, ClampedHDist=400cm < MaxTrackingDistance
+                - HDir = (Forward) → ForwardSpeed = 400/0.45 = ~889 cm/s
+                - LeapVelocity = (889 Fwd) + (0,0,900)
+                - LaunchCharacter(LeapVelocity)
+                - MotionWarping target "TrackingJump" set para posição prevista
+                - Combo->ConfirmAerialContinuation()
+                - LaunchPursuit->ClearPursuit() (consumida)
+Frame 140:  Player no ar perseguindo, ~na altura/posição do inimigo
+            State.Jumping → vai virar State.Falling quando Vz<=0
+Frame 165:  LMB no ar → HandlePrimaryAttackPressed
+            → State_Falling ativa → TryActivate Ability.Attack.Melee.Aerial.Light
+            → AirLight_01 (combo step 3, via AerialEquivalent)
+            → ConfirmAerialContinuation já chamado, combo NÃO reseta
+Frame 195:  Aerial Light cancel → LMB → Air Light 2 (step 4)
+Frame 225:  Aerial Light 2 cancel → RMB+Down → Plunge ativa
+            Hover 200ms → Velocity.Z = -1800
+Frame 260:  Player aterrissa → Combo.OnLanded
+            Plunge ainda tocando → preserva combo (land-cancel)
+            AOE damage ring
+Frame 290:  Plunge montage termina → Combo grace 0.25s pra extensão terrestre
+```
+
+**Esse é o combo que você descreveu** — launcher só no inimigo + jump em direção a ele.
+
+---
 
 ### 16.7 Input bindings
 
@@ -1828,34 +2322,68 @@ Frame 280:  Plunge montage finish → Combo grace de 0.25s para nova entrada
 
 ### 16.13 Checklist de validação combate aéreo
 
+**Combos básicos:**
 - [ ] LMB no chão → ground light; LMB no ar → aerial light (mesma tecla, mapa automaticamente)
-- [ ] Ground combo (L L H) com último H = Launcher → pop-up player + inimigo
 - [ ] Em juggle: aerial light chains 3 vezes (LMB LMB LMB no ar)
-- [ ] Jump-cancel: durante cancel window de qualquer attack, Space pula → combo preservado
-- [ ] Cancel window de ground attack fechada → Space pula → reset combo (correto)
 - [ ] Plunge: RMB+Down no ar → hover 200ms → slam vertical
 - [ ] Plunge AOE no impacto: inimigos dentro de 350cm recebem dano + knockup leve
 - [ ] Land-cancel: aerial montage tocando quando aterrissa → não corta abruptamente
+
+**Launcher modo "auto-follow" (`bAutoFollowToAir=true`):**
+- [ ] Ground combo (L L H) com último H = Launcher → pop-up **player + inimigo juntos**
+- [ ] Combo aerial continua naturalmente sem input extra
+
+**Launcher modo "pursuit" (`bAutoFollowToAir=false`):**
+- [ ] Launcher → **só inimigo sobe**, player fica no chão
+- [ ] `State.PursuitWindow` ativa por 0.6s no player
+- [ ] `State.Launched` ativa no inimigo durante hang-time
+- [ ] HUD mostra indicador "↑ JUMP TO PURSUIT" + countdown
+- [ ] Space dentro da window → TrackingJump ativa; fora da window → jump normal
+- [ ] Sem input dentro da window → combo reseta (combo.RequestDeferredReset expira)
+
+**Tracking Jump:**
+- [ ] Player face automaticamente para a direção do alvo lançado
+- [ ] Trajetória passa pela posição PREDITA do alvo (não onde ele estava quando o launcher bateu)
+- [ ] Distância > MaxTrackingDistance → leap parcial (não teleporta)
+- [ ] Distância pequena (< 200cm) → leap curto sem overshoot
+- [ ] Aerial light disponível imediatamente no ápice (sem delay)
+- [ ] Motion Warping leva o player exatamente na posição prevista no fim do windup
+- [ ] Stamina drena `TrackingJumpStaminaCost` ao ativar
+
+**Jump-cancel & continuity:**
+- [ ] Jump-cancel: durante cancel window de qualquer attack, Space pula → combo preservado
+- [ ] Cancel window de ground attack fechada → Space pula → reset combo (correto)
 - [ ] Combo grace 0.35s após takeoff: input aerial nesse intervalo preserva combo counter
 - [ ] Air dodge: 1 charge por pulo; reseta no land
+
+**Tags & states:**
 - [ ] `State.Attacking.Aerial` ativa só durante montage aérea
 - [ ] `State.Aerial.ComboActive` ativa entre primeira aerial attack e land
+- [ ] `State.PursuitWindow` ativa só durante a janela do launcher (modo pursuit)
+- [ ] `State.TrackingJump` ativa durante o leap windup
+- [ ] `State.Launched` no inimigo expira após 1.5s automaticamente
+
+**Debug:**
 - [ ] `df.JumpDebug 2` + `df.AerialCombatDebug 1` mostra cadeia toda no log
+- [ ] `df.PursuitDebug 1` (opcional) logaria TrackingJump prediction (predict pos, dist, target alive)
 
 ### 16.14 Arquivos adicionais (combate aéreo)
 
 | Arquivo | Status | O que tem |
 |---|---|---|
-| [`DFGameplayTags.h/.cpp`](../../Source/DungeonForged/Public/GAS/DFGameplayTags.h) | 🔧 Add | 8 tags novas (aerial states + ability variants) |
+| [`DFGameplayTags.h/.cpp`](../../Source/DungeonForged/Public/GAS/DFGameplayTags.h) | 🔧 Add | 12 tags: aerial states (3) + ability variants (5) + pursuit (3) + tracking jump (1) |
 | `UDFAbility_AerialAttack.h/.cpp` (novo) | ✅ Criar | Base genérica para Light/Heavy/Plunge variants |
-| `UDFAbility_Launcher.h/.cpp` (novo) | ✅ Criar | Ground attack que pop-up player + target |
+| `UDFAbility_Launcher.h/.cpp` (novo) | ✅ Criar | Ground attack pop-up; flag `bAutoFollowToAir` (player junto vs solo enemy) |
+| `UDFAbility_TrackingJump.h/.cpp` (novo) | ✅ Criar | Pula em direção ao inimigo lançado com prediction + MotionWarping |
+| `UDFLaunchPursuitComponent.h/.cpp` (novo) | ✅ Criar | Registry do target lançado + pursuit window timer |
 | `AnimNotify_LauncherImpact.h/.cpp` (novo) | ✅ Criar | Notify que dispara o `ExecuteLaunchImpulse` |
 | [`UDFComboComponent.h/.cpp`](../../Source/DungeonForged/Public/Combat/UDFComboComponent.h) | 🔧 Modificar | `bIsAerialComboActive`, `bHasAerialContinuation`, `OnLanded`, `RequestDeferredReset`, `ConfirmAerialContinuation`, `CancelCurrentMontage` |
-| [`ANS_DFAbilityCancelWindow.cpp`](../../Source/DungeonForged/Private/Combat/AN/ANS_DFAbilityCancelWindow.cpp) | 🔧 Modificar | `Ability.Movement.Jump` + `Ability.Attack.Melee.Aerial` no `AllowedCancelTags` |
-| [`ADFPlayerCharacter.h/.cpp`](../../Source/DungeonForged/Public/Characters/ADFPlayerCharacter.h) | 🔧 Modificar | Override `Landed`, attack handlers que rotam por airborne tag |
+| [`ANS_DFAbilityCancelWindow.cpp`](../../Source/DungeonForged/Private/Combat/AN/ANS_DFAbilityCancelWindow.cpp) | 🔧 Modificar | `Ability.Movement.Jump`, `Ability.Movement.TrackingJump`, `Ability.Attack.Melee.Aerial` no `AllowedCancelTags` |
+| [`ADFPlayerCharacter.h/.cpp`](../../Source/DungeonForged/Public/Characters/ADFPlayerCharacter.h) | 🔧 Modificar | Adicionar `LaunchPursuit` component; override `Landed`; `HandleJumpPressed` decide entre Jump normal e TrackingJump |
 | `DT_Combos` row struct | 🔧 Modificar | `AerialEquivalent` (montage), `bIsLauncherStep` (bool) |
-| Assets `GA_Aerial_Light/Heavy/Plunge/Launcher` | ✅ Criar | Blueprint subclasses configuradas com montages e tags |
-| Montages aéreas | ✅ Criar | Light/Heavy/Plunge montages com anim notify states no cancel window |
+| Assets `GA_Aerial_Light/Heavy/Plunge`, `GA_Launcher`, `GA_TrackingJump` | ✅ Criar | Blueprint subclasses configuradas com montages e tags |
+| Montages aéreas + Launcher + TrackingJump | ✅ Criar | Com anim notify states no cancel window e `TrackingJump` warp target no Windup |
+| `WBP_PursuitWindowIndicator` (opcional) | ✅ Criar | HUD ring + countdown durante `State.PursuitWindow` |
 
 ---
 
