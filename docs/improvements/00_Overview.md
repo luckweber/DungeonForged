@@ -44,6 +44,7 @@ Sempre que possível, mantém:
 | 14 | [AAA Combat System](14_AAA_CombatSystem.md) | Roadmap completo AA+ → AAA (blend curves, style rating, juggle, cancel hierarchy) | 🏆 |
 | 15 | [Dodge 8-Way Armado/Desarmado](15_DodgeAbility_4Way.md) | Extensão do `UDFAbility_Dodge` para 8 direções (octant snapping) + variante armada/desarmada, integração com GAS, combo, estamina, hotbar | 📦 |
 | 16 | [Lock-On System](16_LockOnSystem.md) | Finalizar wiring do `UDFLockOnComponent` — GAS tags, input bindings, strafe mode CMC, dodge integrado, tuning DataAsset, debug visual `df.LockOnDebug` | 🔥 ALTA |
+| 17 | [Jump System](17_JumpSystem.md) | 11 anims direcionais (5 starts + loop + 5 lands) armado/desarmado, `FUDJumpAnimSet`, CMC tuning (JumpZVel/AirControl/Gravity), GAS tags `State.Jumping/Falling/Landing`, AnimNotifies Apex/LandingRecovery, debug `df.JumpDebug`, integração lock-on/dodge/combate | 🔥 ALTA |
 
 ---
 
