@@ -20,6 +20,7 @@
 #include "Combat/UDFCombatSpectacleSubsystem.h"
 #include "Combat/UDFStaminaExhaustionComponent.h"
 #include "GAS/Effects/UGE_StaminaRegen.h"
+#include "Combat/DFDodgeDebug.h"
 #include "Combat/UDFComboComponent.h"
 #include "Combat/UDFComboPointsComponent.h"
 #include "Combat/UDFLauncherComponent.h"
@@ -1026,6 +1027,12 @@ void ADFPlayerCharacter::HandleSprintEnd()
 
 void ADFPlayerCharacter::HandleDodgePressed()
 {
+#if !UE_BUILD_SHIPPING
+	if (DFDodgeDebug::IsLogEnabled())
+	{
+		DFDodgeDebug::Log(TEXT("Input dodge pressed -> TryActivate Ability.Movement.Dodge"));
+	}
+#endif
 	TryActivateByGameplayTagName(FName("Ability.Movement.Dodge"));
 }
 

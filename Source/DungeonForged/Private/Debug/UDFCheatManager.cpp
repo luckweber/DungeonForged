@@ -9,7 +9,9 @@
 #include "Boss/ADFBossBase.h"
 #include "Characters/ADFEnemyBase.h"
 #include "Characters/ADFPlayerCharacter.h"
+#include "Combat/DFDodgeDebug.h"
 #include "Combat/UDFMeleeTraceComponent.h"
+#include "Characters/UDFCharacterMovementComponent.h"
 #include "Debug/UDFDebugComponent.h"
 #include "Characters/ADFPlayerController.h"
 #include "Characters/ADFPlayerState.h"
@@ -1084,6 +1086,63 @@ static FAutoConsoleCommand GCmdMeleeDebug(
 	TEXT("df.MeleeDebug"),
 	TEXT("Toggle sphere-sweep melee debug durante o sweep. Preview continuo nos sockets: df.DebugMeleeWeapon 1|2. df.MeleeDebug [0|1|on|off] | collision — ShowFlag.Collision"),
 	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_meleedebug));
+
+static void Cmd_df_dodgedebug(TArray<FString> const& Args)
+{
+	IConsoleVariable* const Cv = IConsoleManager::Get().FindConsoleVariable(TEXT("df.DebugDodge"));
+	if (!Cv)
+	{
+		DF_LOG(Warning, "df.DodgeDebug: df.DebugDodge CVar missing (shipping build?)");
+		return;
+	}
+
+	if (Args.Num() > 0)
+	{
+		const FString A = Args[0].ToLower();
+		if (A == TEXT("dump"))
+		{
+			Cv->Set(1, ECVF_SetByConsole);
+			UWorld* const W = GetCheatWorld();
+			ADFPlayerCharacter* const P = GetLocalDFPawn(W);
+			UDFCharacterMovementComponent* const CMC = P ? Cast<UDFCharacterMovementComponent>(P->GetCharacterMovement()) : nullptr;
+			UAbilitySystemComponent* const ASC = GetLocalASC(W);
+			DFDodgeDebug::DumpLocalDodgeState(CMC, ASC);
+			DF_LOG(Log, "df.DodgeDebug dump: see Output Log filter [Dodge]");
+			return;
+		}
+		if (A == TEXT("0") || A == TEXT("off"))
+		{
+			Cv->Set(0, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("1") || A == TEXT("log"))
+		{
+			Cv->Set(1, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("2") || A == TEXT("draw") || A == TEXT("on"))
+		{
+			Cv->Set(2, ECVF_SetByConsole);
+		}
+		else
+		{
+			DF_LOG(Warning, "df.DodgeDebug: use [0|1|2|dump|log|draw|on|off]");
+			return;
+		}
+	}
+	else
+	{
+		const int32 Next = Cv->GetInt() >= 2 ? 0 : (Cv->GetInt() + 1);
+		Cv->Set(Next, ECVF_SetByConsole);
+	}
+
+	DF_LOG(Log, "df.DodgeDebug: df.DebugDodge=%d (0=off 1=log 2=log+draw) — filter Output Log: Dodge",
+		Cv->GetInt());
+	DF_LOG(Log, "df.DodgeDebug dump — estado CMC/ASC/stamina; showdebug AbilitySystem para tags");
+}
+
+static FAutoConsoleCommand GCmdDodgeDebug(
+	TEXT("df.DodgeDebug"),
+	TEXT("Dodge debug: toggle df.DebugDodge (0/1/2). Args: dump | 0 | 1 | 2 | log | draw | on | off. Log prefix [Dodge]."),
+	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_dodgedebug));
 
 } // namespace
 

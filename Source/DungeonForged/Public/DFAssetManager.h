@@ -19,6 +19,9 @@ class DUNGEONFORGED_API UDFAssetManager : public UAssetManager
 public:
 	static UDFAssetManager& Get();
 
+	/** Safe during CDO / editor load — never CastChecked; falls back to tuning CDO. */
+	static const UDFCombatTuningData* GetCombatTuningDataSafe();
+
 	/** Loaded once from @c CombatTuningDataAsset; falls back to class CDO when unset. */
 	UFUNCTION(BlueprintPure, Category = "DF|Data")
 	const UDFCombatTuningData* GetCombatTuningData() const;

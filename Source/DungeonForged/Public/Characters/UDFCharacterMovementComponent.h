@@ -2,6 +2,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Combat/DFDodgeTypes.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "UObject/WeakObjectPtr.h"
 #include "UDFCharacterMovementComponent.generated.h"
@@ -64,6 +65,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "DF|Movement|Dodge")
 	bool bIsDodging = false;
 
+	/** Last cardinal dodge direction (set by UDFAbility_Dodge before impulse). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Movement|Dodge")
+	EDFDodgeDirection LastDodgeDirection = EDFDodgeDirection::Backward;
+
 	/** When true, stamina drain is handled by a periodic GameplayEffect (Sprint ability) instead of TickSprintStamina. */
 	UPROPERTY(Transient)
 	bool bSprintStaminaFromGameplayEffect = false;
@@ -82,13 +87,19 @@ public:
 	/** If not using periodic GE, drains SprintStaminaDrain * dt from the owner's ASC. At 0 stamina, stops sprint and applies optional exhaustion. */
 	void TickSprintStamina(float DeltaTime);
 
-	/** GAS: applies State.Dodging + dodge impulse; State.Invulnerable for IFrameDuration. Respects DodgeCooldown. */
-	UFUNCTION(BlueprintCallable, Category = "DF|Movement|Dodge")
-	void PerformDodge(const FVector& DirectionWorld);
+	/**
+	 * GAS dodge: tags, cooldown, timers. Optional programmatic MoveToForce (off when montage supplies root motion).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DF|Movement|Dodge", meta = (AdvancedDisplay = "bApplyProgrammaticDisplacement"))
+	void PerformDodge(const FVector& DirectionWorld, bool bApplyProgrammaticDisplacement = true);
 
 	/** Last movement input in world; if nearly zero, returns -Actor forward (backward). */
 	UFUNCTION(BlueprintCallable, Category = "DF|Movement|Dodge")
 	FVector GetDodgeDirection() const;
+
+	/** Seconds until PerformDodge accepts another impulse (0 if ready). */
+	UFUNCTION(BlueprintPure, Category = "DF|Movement|Dodge")
+	float GetDodgeCooldownRemaining() const;
 
 	virtual FNetworkPredictionData_Client* GetPredictionData_Client() const override;
 	virtual void UpdateFromCompressedFlags(uint8 Flags) override;

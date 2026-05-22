@@ -76,6 +76,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge")
 	float DodgeCooldown = 0.7f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge", meta = (ClampMin = "0.0"))
+	float DodgeStaminaCost = 20.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|State")
 	float CombatExitDelay = 4.f;
 

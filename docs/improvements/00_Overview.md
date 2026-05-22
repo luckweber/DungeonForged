@@ -42,6 +42,7 @@ Sempre que possível, mantém:
 | 12 | [AI Blueprint Setup](12_AIBlueprintSetup.md) | BT, blackboard, subtrees por archetype | 📦 |
 | 13 | [Settings Blueprint Setup](13_SettingsBlueprintSetup.md) | Options no Main Menu + Pause, keybinds, a11y | 📦 |
 | 14 | [AAA Combat System](14_AAA_CombatSystem.md) | Roadmap completo AA+ → AAA (blend curves, style rating, juggle, cancel hierarchy) | 🏆 |
+| 15 | [Dodge 8-Way Armado/Desarmado](15_DodgeAbility_4Way.md) | Extensão do `UDFAbility_Dodge` para 8 direções (octant snapping) + variante armada/desarmada, integração com GAS, combo, estamina, hotbar | 📦 |
 
 ---
 

@@ -3,6 +3,7 @@
 
 #include "CoreMinimal.h"
 #include "Animation/AnimInstance.h"
+#include "Combat/DFDodgeTypes.h"
 #include "Animation/DFAnimSetTypes.h"
 #include "Animation/UDFLocomotionTypes.h"
 #include "UDFAnimInstance.generated.h"
@@ -96,6 +97,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion")
 	bool bIsDodging = false;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion")
+	EDFDodgeDirection LastDodgeDirection = EDFDodgeDirection::Backward;
 
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion")
 	bool bIsDead = false;

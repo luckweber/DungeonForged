@@ -1,6 +1,7 @@
 // Source/DungeonForged/Private/Characters/UDFCharacterMovementComponent.cpp
 #include "Characters/UDFCharacterMovementComponent.h"
 
+#include "Combat/DFDodgeDebug.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "AbilitySystemComponent.h"
@@ -148,6 +149,16 @@ void UDFCharacterMovementComponent::ApplySprintExhaustionIfAny()
 	}
 }
 
+float UDFCharacterMovementComponent::GetDodgeCooldownRemaining() const
+{
+	const UWorld* const W = GetWorld();
+	if (!W || TimeLastDodge < 0.f)
+	{
+		return 0.f;
+	}
+	return FMath::Max(0.f, DodgeCooldown - (W->GetTimeSeconds() - TimeLastDodge));
+}
+
 FVector UDFCharacterMovementComponent::GetDodgeDirection() const
 {
 	FVector D = GetLastInputVector();
@@ -162,7 +173,7 @@ FVector UDFCharacterMovementComponent::GetDodgeDirection() const
 	return FVector::ForwardVector;
 }
 
-void UDFCharacterMovementComponent::PerformDodge(const FVector& DirectionWorld)
+void UDFCharacterMovementComponent::PerformDodge(const FVector& DirectionWorld, const bool bApplyProgrammaticDisplacement)
 {
 	if (!CharacterOwner)
 	{
@@ -174,6 +185,7 @@ void UDFCharacterMovementComponent::PerformDodge(const FVector& DirectionWorld)
 		{
 			if (FDFGameplayTags::State_Exhausted.IsValid() && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Exhausted))
 			{
+				DFDodgeDebug::Log(TEXT("PerformDodge SKIP State.Exhausted"));
 				return;
 			}
 		}
@@ -186,9 +198,12 @@ void UDFCharacterMovementComponent::PerformDodge(const FVector& DirectionWorld)
 	const float Now = W->GetTimeSeconds();
 	if (TimeLastDodge >= 0.f && (Now - TimeLastDodge) < DodgeCooldown)
 	{
+		DFDodgeDebug::Logf(TEXT("PerformDodge SKIP cooldown rem=%.2f"), DodgeCooldown - (Now - TimeLastDodge));
 		return;
 	}
 	TimeLastDodge = Now;
+	DFDodgeDebug::Logf(TEXT("PerformDodge OK dirWorld=%s programmaticRM=%d dist=%.0f"),
+		*DirectionWorld.GetSafeNormal().ToCompactString(), bApplyProgrammaticDisplacement ? 1 : 0, DodgeDistance);
 	FVector Dir = DirectionWorld;
 	if (Dir.IsNearlyZero())
 	{
@@ -219,9 +234,9 @@ void UDFCharacterMovementComponent::PerformDodge(const FVector& DirectionWorld)
 			TimerHandle_EndDodging, this, &UDFCharacterMovementComponent::EndDodgingState, DodgeDuration, false);
 	}
 
-	if (USceneComponent* const Comp = UpdatedComponent)
+	if (bApplyProgrammaticDisplacement && UpdatedComponent)
 	{
-		const FVector Start = Comp->GetComponentLocation();
+		const FVector Start = UpdatedComponent->GetComponentLocation();
 		const FVector End = Start + Dir * DodgeDistance;
 		const TSharedPtr<FRootMotionSource_MoveToForce> Source = MakeShared<FRootMotionSource_MoveToForce>();
 		Source->InstanceName = FName(TEXT("DFDodge"));

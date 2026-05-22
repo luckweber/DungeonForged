@@ -12,6 +12,19 @@ UDFAssetManager& UDFAssetManager::Get()
 	return *CastChecked<UDFAssetManager>(&UAssetManager::Get());
 }
 
+const UDFCombatTuningData* UDFAssetManager::GetCombatTuningDataSafe()
+{
+	if (!UAssetManager::IsInitialized())
+	{
+		return GetDefault<UDFCombatTuningData>();
+	}
+	if (const UDFAssetManager* const DFAM = Cast<UDFAssetManager>(&UAssetManager::Get()))
+	{
+		return DFAM->GetCombatTuningData();
+	}
+	return GetDefault<UDFCombatTuningData>();
+}
+
 void UDFAssetManager::StartInitialLoading()
 {
 	Super::StartInitialLoading();

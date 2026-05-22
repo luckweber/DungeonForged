@@ -88,12 +88,14 @@ void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 		bIsInAir = DFCharacterMovement->IsFalling();
 		bIsSprinting = DFCharacterMovement->bIsSprinting;
 		bIsDodging = DFCharacterMovement->bIsDodging;
+		LastDodgeDirection = DFCharacterMovement->LastDodgeDirection;
 	}
 	else
 	{
 		bIsInAir = OwningCharacter->GetCharacterMovement() ? OwningCharacter->GetCharacterMovement()->IsFalling() : false;
 		bIsSprinting = false;
 		bIsDodging = false;
+		LastDodgeDirection = EDFDodgeDirection::Backward;
 	}
 	if (UAbilitySystemComponent* const ASC = OwningAbilitySystem.Get())
 	{

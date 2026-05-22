@@ -14,6 +14,10 @@ UANS_DFAbilityCancelWindow::UANS_DFAbilityCancelWindow()
 #if WITH_EDITORONLY_DATA
 	NotifyColor = FColor(90, 140, 255);
 #endif
+	if (FDFGameplayTags::Ability_Movement_Dodge.IsValid())
+	{
+		AllowedCancelTags.AddTag(FDFGameplayTags::Ability_Movement_Dodge);
+	}
 }
 
 FString UANS_DFAbilityCancelWindow::GetNotifyName_Implementation() const
