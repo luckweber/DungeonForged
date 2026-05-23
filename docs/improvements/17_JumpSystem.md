@@ -45,6 +45,7 @@
 - [14. Tabela de arquivos](#14-tabela-de-arquivos)
 - [15. Próximos passos (AAA polish)](#15-próximos-passos-aaa-polish)
 - [16. Combate Aéreo & Combos com Jump](#16-c--combate-aéreo--combos-com-jump)
+- [18. Troubleshooting & AnimBP Wiring Reference](#18--troubleshooting--animbp-wiring-reference)
 
 ---
 
@@ -2386,6 +2387,374 @@ Frame 280:  Plunge montage finish → Combo grace de 0.25s para nova entrada
 | `WBP_PursuitWindowIndicator` (opcional) | ✅ Criar | HUD ring + countdown durante `State.PursuitWindow` |
 
 ---
+
+---
+
+## 18. 🩺 Troubleshooting & AnimBP Wiring Reference
+
+> **Quando o C++ está OK mas a anim "não toca" / "trava na pose" / "snap no chão"** — esse é o seu primeiro lugar a consultar. Cada caso aqui tem **sintoma → causa → fix exato**.
+
+### 18.0 Tabela de semântica das variáveis (decore isso!)
+
+Estes nomes parecem intercambiáveis mas **NÃO SÃO**:
+
+| Variável (em `UUDFAnimInstance`) | Tipo | Significa | Quando é `true` |
+|---|---|---|---|
+| `bIsInAir` | bool | Em `MOVE_Falling` (qualquer Vz) | Saiu do chão até pousar |
+| `bIsJumping` | bool | **SUBINDO** no ar | `bIsInAir && Vz > 1` |
+| `bIsFalling` ⚠️ | bool | **DESCENDO** no ar (custom — **NÃO É** `UE::IsFalling()`!) | `bIsInAir && Vz <= 1` |
+| `bIsLanding` | bool | Janela de recovery pós-toque | Set pelo `AnimNotifyState_LandingRecovery` ou timer |
+| `VerticalVelocity` | float | `Velocity.Z` exposto | Positivo subindo, negativo caindo |
+| `LastJumpDirection` | enum | Direção capturada no takeoff | Persiste durante todo o pulo |
+| `Speed` | float | `Velocity.Size2D()` | Sempre > 0 ao se mover |
+| `PredictedLandingDistance` | float | Trace para baixo (cm) | Sempre, capped em `LandPredictionTraceMax` |
+
+> **Trap clássico:** `bIsFalling` parece UE's `CharacterMovement::IsFalling()` mas **é a nossa custom** "está descendo". Para "está no ar (qualquer direção)" use **`bIsInAir`**.
+
+---
+
+### 18.1 Worked Example #1 — "JumpStart nunca toca anim, character preso em Locomotion"
+
+**Sintoma:**
+- Logs mostram `[Jump] DoJump OK / Takeoff / Landed` (C++ funciona)
+- AnimBP state machine mostra `Locomotion 100% Active for 158s` (nunca sai do estado)
+- Visualmente o personagem pula fisicamente mas não anima
+
+**Diagnóstico:**
+
+Abra a regra `Locomotion → Jump` e olhe a condição. Caso real diagnosticado:
+```
+bIsFalling  AND  Velocity.Z > 100   ❌ NUNCA DISPARA
+```
+
+A regra exige `bIsFalling = true` **AND** `Vz > 100`. Mas pela tabela §18.0:
+- `bIsFalling = true` ⇒ `Vz <= 1`
+- `Vz > 100` ⇒ `bIsFalling = false`
+
+Condições mutuamente exclusivas → transition nunca fires → estado preso.
+
+**Fix:**
+
+```
+bIsJumping   ✓   (subindo no ar — é exatamente isso que queremos para entrar em Jump)
+```
+
+Ou se quiser ser defensivo (evita falsos positivos por ledge-fall com `bIsInAir` mas sem ter pulado):
+```
+bIsJumping  OR  (bIsInAir AND VerticalVelocity > 100)
+```
+
+---
+
+### 18.2 Worked Example #2 — "JumpStart pula direto para JumpLoop, character não vê start anim"
+
+**Sintoma:**
+- State machine transiciona pra `JumpStart` por 1 frame e pula pra `JumpLoop`
+- Anim de start nunca completa
+
+**Diagnóstico:**
+
+Regra `JumpStart → JumpLoop` usa condição que é verdadeira no mesmo frame da entrada:
+```
+Is Falling   ❌ (UE built-in: vira true no takeoff, igual ao trigger de entrada)
+```
+
+**Fix — use uma das 3 opções:**
+
+| Opção | Regra | Quando usar |
+|---|---|---|
+| A (simples) | `Time Remaining (ratio) of [JumpStart anim] < 0.10` | Quando você quer que a start anim toque inteira |
+| B (responsivo) | `VerticalVelocity < 100` | Quando você quer transicionar perto do apex |
+| C (combinado) | `(Time Remaining < 0.10)  OR  (VerticalVelocity < 0)` | Robusto — o que vier primeiro |
+
+> **Recomendação:** Opção C. Garante que start nunca trava nem fica pendurada se o pulo é curto.
+
+---
+
+### 18.3 Worked Example #3 — "JumpLoop mostra primeiro frame congelado"
+
+**Sintoma:**
+- Personagem entra em `JumpLoop` mas a anim parece um still frame
+- Vê o pose do início do loop pelo ar todo
+
+**Diagnóstico:**
+
+Estado `JumpLoop` contém um `Sequence Player` ou `Sequence Evaluator` mas:
+- `Looping = false` → toca uma vez, segura no último frame
+- OU `Sequence` está null (slot vazio no `JumpSet.Loop`)
+
+**Fix:**
+
+1. Clique no nó dentro do estado `JumpLoop`
+2. Details panel:
+   - ✅ **`Loop Animation` = true** (crítico)
+   - ✅ `Play Rate = 1.0`
+3. Confirme `BP_JCHero_Character` → DefaultAnimSet → JumpSet → **Loop** = `Jump_Loop_0_Seq_Retarged`
+
+---
+
+### 18.4 Worked Example #4 — "Pulo de idle (parado) trava pose, mas pular andando funciona"
+
+**Sintoma:**
+- `LMB+W` (andando + jump) → anim funciona
+- Parado + jump → trava no T-pose ou pose default
+
+**Logs típicos:**
+```
+[Jump] Takeoff dir=0 speed=0   ← dir=0 é EDFMovementDirection::None
+```
+
+**Diagnóstico:**
+
+`LastJumpDirection = None` (porque `Speed < 50` no takeoff). O `ResolveStart(None)` retorna `Start_Idle`. Se o slot `Start_Idle` não foi preenchido no `JumpSet` → anim null → frame congelado.
+
+**Fix:**
+
+`BP_JCHero_Character` → Class Defaults → `Default Anim Set` → `Jump Set` → **Start Idle** = `Jump_Start_0_Seq_Retarged` (e o equivalente `Jump_Combat_Start_0_*` para o `WeaponAnimSet` no `DT_Items`).
+
+**Slots mínimos obrigatórios** (mesmo que outros estejam vazios):
+- `Start Idle` (fallback para dir=None)
+- `Loop` (toca durante todo o ar)
+- `Land Idle` (fallback para land sem direção)
+
+---
+
+### 18.5 Worked Example #5 — "Land snap visual / personagem aparece teleportado pro chão"
+
+**Sintoma:**
+- Aterrissar é um snap brusco — personagem some no ar e aparece no chão de pé
+
+**Causa A:** Sem pre-blend de land — `Fall Loop → Land` só dispara após toque.
+
+**Fix A:** Adicione estado/transition `To Land` entre `Fall Loop` e `Land` com regra:
+```
+GetLandPreparationAlpha > 0.15   ✓   (começa a misturar a 250cm do chão)
+```
+
+Onde `GetLandPreparationAlpha` é uma função BP que computa:
+```
+Alpha = 1.0 - (PredictedLandingDistance / LandPreparationThreshold)
+```
+
+E `Land` state usa `Layered Blend per Bone` para misturar pose `JumpLoop` (alpha 0) → pose `LandAnim` (alpha 1) baseado nesse valor.
+
+**Causa B:** `PredictedLandingDistance` sempre retorna `LandPredictionTraceMax` (1000).
+
+**Fix B:** O trace está falhando. Verifique:
+- O canal `ECC_Visibility` está bloqueado pelo terreno? Adicione `ECollisionResponseContainer` correta
+- `LandPredictionTraceMax` é suficiente? Aumente para `1500` se você pula de plataformas altas
+- Owner do trace está sendo ignorado corretamente? Sim, está em `Params.AddIgnoredActor` (linha do trace no §4)
+
+---
+
+### 18.6 Worked Example #6 — "Land não desbloqueia attack — character preso em Land state"
+
+**Sintoma:**
+- Aterrissa, anim de land toca, mas `LMB`/`Space` não respondem
+- AnimBP fica em `Land` mais que deveria
+
+**Diagnóstico:**
+
+A regra `Land → Locomotion` provavelmente checa só:
+```
+NOT bIsInAir   ❌ insuficiente
+```
+
+Mas o character não estará `bIsInAir` o tempo todo após touch — então a transition tenta disparar imediatamente. Acontece que o `AnimNotifyState_LandingRecovery` adicionou `State.Landing` tag, que ainda está ativa.
+
+**Fix:**
+```
+(NOT bIsInAir)  AND  (NOT HasTag(State.Landing))  AND  (Time Remaining < 0.10)
+```
+
+**Alternativa mais simples:** apenas
+```
+NOT HasTag(State.Landing)
+```
+(o landing recovery window vai expirar sozinho via timer no CMC, e a tag é a single source of truth)
+
+---
+
+### 18.7 Worked Example #7 — "Combat (armed) jump não troca anim — usa Default mesmo armado"
+
+**Sintoma:**
+- Equipa espada, pula → anim ainda é unarmed (`Jump_Start_F_0`, não `Jump_Combat_Start_F_0`)
+
+**Diagnóstico:**
+
+O AnimBP referencia `DefaultAnimSet.JumpSet` em vez de `ActiveAnimSet.JumpSet`. `ActiveAnimSet` é o que é swapado pela weapon layer; `DefaultAnimSet` é o fallback unarmed permanente.
+
+**Fix:**
+
+No AnimGraph, **TODA** referência ao JumpSet deve ser via `ActiveAnimSet`:
+```
+[Get Property: ActiveAnimSet]    ← NÃO use DefaultAnimSet
+        │
+        ▼
+   [Break FUDAnimSet]
+        │
+        ▼
+   [Break FUDJumpAnimSet]
+```
+
+Confira também que `DT_Items` row da arma tem `WeaponAnimSet.JumpSet` preenchido com as 11 anims `Jump_Combat_*`.
+
+---
+
+### 18.8 Reference: state machine completa (recomendação)
+
+```
+                                 [Locomotion (state)]
+                                  Contém: Idle/Walk/Run blend
+                                          │  ▲
+                              bIsJumping  │  │  NOT HasTag(State.Landing)
+                                          │  │  AND Time Remaining < 0.10
+                                          ▼  │
+                                 [JumpStart (state)]
+                                  Anim: ResolveStart(LastJumpDirection)
+                                          │
+                            Time Remaining < 0.10  OR  VerticalVelocity < 0
+                                          ▼
+                                  [JumpLoop (state)]
+                                  Anim: JumpSet.Loop, Looping=true
+                                          │
+                            GetLandPreparationAlpha > 0.15
+                                          ▼
+                              [JumpLandBlend (state)]
+                              Layered Blend: JumpLoop pose + Land pose
+                              Alpha = GetLandPreparationAlpha
+                                          │
+                                  NOT bIsInAir
+                                          ▼
+                                  [Land (state)]
+                                  Anim: ResolveLand(LastJumpDirection)
+                                  Looping = false
+                                          │
+                       NOT HasTag(State.Landing)  AND  Time Remaining < 0.10
+                                          ▼
+                                  Volta para Locomotion
+```
+
+> **Padrão alternativo (mais simples, sem JumpLandBlend):**
+> Se quer pular a complexidade de pre-blend, omita `JumpLandBlend` e use só `Fall Loop → Land` com regra `NOT bIsInAir`. Vai ter snap mais perceptível mas é trivialmente menos código.
+
+---
+
+### 18.9 Reference: cada transition rule (copy-paste)
+
+| Transition | Regra exata (Blueprint) |
+|---|---|
+| `Locomotion → JumpStart` | `bIsJumping` (ou para defensivo: `bIsJumping OR (bIsInAir AND VerticalVelocity > 100)`) |
+| `JumpStart → JumpLoop` | `Time Remaining (ratio) of [JumpStart sequence] < 0.10 OR VerticalVelocity < 0` |
+| `JumpLoop → JumpLandBlend` | `GetLandPreparationAlpha > 0.15` |
+| `JumpLandBlend → Land` | `NOT bIsInAir` |
+| `Land → Locomotion` | `NOT HasTag(State.Landing) AND Time Remaining < 0.10` |
+| `JumpLoop → Land` (skip blend fallback) | `NOT bIsInAir` |
+| `Locomotion → Land` (recovery após hard landing inesperado) | `NOT bIsInAir AND HasTag(State.Landing)` |
+
+---
+
+### 18.10 BP utility function — `GetLandPreparationAlpha`
+
+Crie no `ABP_JSHeroCharacter` (event graph ou function library):
+
+```
+Function: GetLandPreparationAlpha (returns float)
+─────────────────────────────────────────────────
+Inputs: none
+Body:
+  Distance = Get PredictedLandingDistance
+  Threshold = Get LandPreparationThreshold
+  Alpha = 1.0 - (Distance / Threshold)
+  Return: Clamp(Alpha, 0.0, 1.0)
+```
+
+Equivalente em pseudo-code C++:
+```cpp
+float UUDFAnimInstance::GetLandPreparationAlpha() const
+{
+    if (LandPreparationThreshold <= KINDA_SMALL_NUMBER) return 0.f;
+    return FMath::Clamp(1.f - (PredictedLandingDistance / LandPreparationThreshold), 0.f, 1.f);
+}
+```
+
+> **Considerar adicionar como `UFUNCTION(BlueprintPure)` no `UUDFAnimInstance.h`** para evitar 5 nós a cada transition.
+
+---
+
+### 18.11 Debug rápido — Print String no Event Graph
+
+Quando uma anim "não toca", adicione isso temporariamente no `Event Blueprint Update Animation`:
+
+```
+[Format Text "J={0} F={1} L={2} InAir={3} Vz={4} Dir={5} Speed={6} PredLand={7} LandAlpha={8}"]
+   {0} = bIsJumping
+   {1} = bIsFalling
+   {2} = bIsLanding
+   {3} = bIsInAir
+   {4} = VerticalVelocity
+   {5} = LastJumpDirection (enum → int)
+   {6} = Speed
+   {7} = PredictedLandingDistance
+   {8} = GetLandPreparationAlpha()
+   
+→ [Print String, Duration=0, TextColor=Yellow]
+```
+
+Pula e veja qual variável **não está mudando** quando deveria. Compare com a tabela §18.0.
+
+**Ou use `df.JumpDebug 2`** (do §10) que mostra essas variáveis no HUD on-screen sem mexer no AnimBP.
+
+---
+
+### 18.12 Decision tree para diagnóstico
+
+```
+Pulo "não anima"
+├── Logs C++ mostram [Jump] DoJump OK ?
+│   ├── NÃO  → Bug no input/CMC, não no AnimBP. Confirmar tags blockers em §7.1
+│   └── SIM  → continua:
+│
+├── State machine sai de Locomotion?
+│   ├── NÃO  → Regra Locomotion→JumpStart errada
+│   │           Aplicar §18.1 (use bIsJumping não bIsFalling)
+│   └── SIM  → continua:
+│
+├── JumpStart anim toca por > 0.2s ?
+│   ├── NÃO (skip imediato)  → Regra JumpStart→JumpLoop errada
+│   │                          Aplicar §18.2 (Time Remaining < 0.10)
+│   └── SIM  → continua:
+│
+├── JumpStart anim termina ou trava ?
+│   ├── TRAVA  → JumpStart sequence player com Looping=false e sem transition out
+│   │           Add transition JumpStart→JumpLoop ou Looping=true
+│   └── TERMINA → continua:
+│
+├── JumpLoop anima loop continuo ?
+│   ├── NÃO (still frame)  → §18.3 (Looping=true + check Loop slot preenchido)
+│   └── SIM  → continua:
+│
+├── Land transition entra antes do toque ?
+│   ├── NÃO (snap visual)  → §18.5 (GetLandPreparationAlpha + Layered Blend)
+│   └── SIM  → continua:
+│
+├── Land state libera para Locomotion ?
+│   ├── NÃO (preso em Land) → §18.6 (regra usa NOT HasTag(State.Landing))
+│   └── SIM  → tudo OK!
+```
+
+---
+
+### 18.13 Checklist final pós-fix
+
+- [ ] `df.JumpDebug 2` na tela: `J` vira `1` no takeoff, `F` vira `1` no apex, `L` vira `1` no toque
+- [ ] Parado + Space → toca `Jump_Start_0` (idle takeoff anim)
+- [ ] W + Space → toca `Jump_Start_F_0` (forward takeoff)
+- [ ] No ar: `JumpLoop` anim **loopa** continuamente (não fica em still frame)
+- [ ] Antes do toque (~250cm): transition para `JumpLandBlend` ou `Land` dispara
+- [ ] Toque no chão: `Land` anim toca, depois libera para `Locomotion`
+- [ ] Armado: anims usadas são `Jump_Combat_*` (não unarmed)
+- [ ] Combate aéreo: pode atacar durante `Fall Loop` sem ser bloqueado por blockers
 
 ---
 
