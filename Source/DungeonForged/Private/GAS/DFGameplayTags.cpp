@@ -30,6 +30,7 @@ FGameplayTag FDFGameplayTags::Ability_Passive_Rogue_Predator;
 FGameplayTag FDFGameplayTags::Ability_Passive_Rogue_BleedMastery;
 FGameplayTag FDFGameplayTags::Ability_Movement_Sprint;
 FGameplayTag FDFGameplayTags::Ability_Movement_Dodge;
+FGameplayTag FDFGameplayTags::Ability_Movement_Jump;
 FGameplayTag FDFGameplayTags::Ability_Warrior_ShieldBash;
 FGameplayTag FDFGameplayTags::Ability_Warrior_WarCry;
 FGameplayTag FDFGameplayTags::Ability_Warrior_Whirlwind;
@@ -113,6 +114,9 @@ FGameplayTag FDFGameplayTags::State_InCombat;
 FGameplayTag FDFGameplayTags::State_Exhausted;
 FGameplayTag FDFGameplayTags::State_Sprinting;
 FGameplayTag FDFGameplayTags::State_Dodging;
+FGameplayTag FDFGameplayTags::State_Jumping;
+FGameplayTag FDFGameplayTags::State_Falling;
+FGameplayTag FDFGameplayTags::State_Landing;
 FGameplayTag FDFGameplayTags::State_Attacking;
 FGameplayTag FDFGameplayTags::State_Casting;
 FGameplayTag FDFGameplayTags::State_Combat_Telegraph_Active;
@@ -303,6 +307,7 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(Ability_Passive_Rogue_BleedMastery)(FName("Ability.Passive.Rogue.BleedMastery"), FString("Augment bleeds, armor break on multi-bleed."));
 	DF_TAG(Ability_Movement_Sprint)(FName("Ability.Movement.Sprint"), FString("Sprint (hold) movement ability."));
 	DF_TAG(Ability_Movement_Dodge)(FName("Ability.Movement.Dodge"), FString("Dodge / roll."));
+	DF_TAG(Ability_Movement_Jump)(FName("Ability.Movement.Jump"), FString("Jump identifier (reserved)."));
 
 	DF_TAG(Ability_Warrior_ShieldBash)(FName("Ability.Warrior.ShieldBash"), FString("Warrior: shield bash."));
 	DF_TAG(Ability_Warrior_WarCry)(FName("Ability.Warrior.WarCry"), FString("Warrior: war cry AOE buff."));
@@ -388,6 +393,9 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(State_Exhausted)(FName("State.Exhausted"), FString("Brief lockout after stamina bottomed; blocks dodge/sprint."));
 	DF_TAG(State_Sprinting)(FName("State.Sprinting"), FString("Sprint movement."));
 	DF_TAG(State_Dodging)(FName("State.Dodging"), FString("Invuln window / roll."));
+	DF_TAG(State_Jumping)(FName("State.Jumping"), FString("Character is going up after a jump."));
+	DF_TAG(State_Falling)(FName("State.Falling"), FString("Character is falling (post-apex or off ledge)."));
+	DF_TAG(State_Landing)(FName("State.Landing"), FString("Character is in landing recovery window."));
 	DF_TAG(State_Attacking)(FName("State.Attacking"), FString("In melee/weapon attack window; upper body or combo."));
 	DF_TAG(State_Casting)(FName("State.Casting"), FString("Charging or casting a spell/ability with cast anim."));
 	DF_TAG(State_Combat_Telegraph_Active)(FName("State.Combat.Telegraph.Active"), FString("Attacker is in a telegraphed windup; UI/players see ground warning."));

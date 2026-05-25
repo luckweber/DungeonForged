@@ -10,7 +10,9 @@
 #include "Characters/ADFEnemyBase.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Camera/UDFLockOnComponent.h"
+#include "Animation/UDFAnimInstance.h"
 #include "Combat/DFDodgeDebug.h"
+#include "Combat/DFJumpDebug.h"
 #include "Combat/DFLockOnDebug.h"
 #include "Combat/UDFMeleeTraceComponent.h"
 #include "Characters/UDFCharacterMovementComponent.h"
@@ -1207,6 +1209,88 @@ static FAutoConsoleCommand GCmdLockOnDebug(
 	TEXT("df.LockOnDebug"),
 	TEXT("Lock-on debug: toggle df.DebugLockOn (0/1/2). Args: dump | 0 | 1 | 2 | log | draw | on | off."),
 	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_lockondebug));
+
+static void Cmd_df_jumpdebug(TArray<FString> const& Args)
+{
+	IConsoleVariable* const Cv = IConsoleManager::Get().FindConsoleVariable(TEXT("df.DebugJump"));
+	if (!Cv)
+	{
+		DF_LOG(Warning, "df.JumpDebug: df.DebugJump CVar missing (shipping build?)");
+		return;
+	}
+
+	if (Args.Num() > 0)
+	{
+		const FString A = Args[0].ToLower();
+		if (A == TEXT("dump"))
+		{
+			Cv->Set(1, ECVF_SetByConsole);
+			UWorld* const W = GetCheatWorld();
+			if (ADFPlayerCharacter* const P = GetLocalDFPawn(W))
+			{
+				if (USkeletalMeshComponent* const Mesh = P->GetMesh())
+				{
+					if (UUDFAnimInstance* const Anim = Cast<UUDFAnimInstance>(Mesh->GetAnimInstance()))
+					{
+						DF_LOG(Log, "[Jump|Dump] %s", *Anim->BuildLocomotionDebugString());
+						DF_LOG(Log, "[Jump|Dump|SM] %s", *Anim->BuildJumpTransitionDebugString());
+						DF_LOG(Log, "[Jump|Dump|Deep] %s", *Anim->BuildJumpDeepDebugString());
+					}
+				}
+				if (UDFCharacterMovementComponent* const CMC =
+					Cast<UDFCharacterMovementComponent>(P->GetCharacterMovement()))
+				{
+					DF_LOG(Log,
+						"[Jump|Dump] JumpZ=%.0f AirCtrl=%.2f Grav=%.2f CooldownRem=%.2f AirDodgeUsed=%d",
+						CMC->JumpZVelocity,
+						CMC->AirControl,
+						CMC->GravityScale,
+						CMC->GetJumpCooldownRemaining(),
+						CMC->bAirDodgeUsedThisJump ? 1 : 0);
+				}
+			}
+			return;
+		}
+		if (A == TEXT("0") || A == TEXT("off"))
+		{
+			Cv->Set(0, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("1") || A == TEXT("log"))
+		{
+			Cv->Set(1, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("2") || A == TEXT("hud"))
+		{
+			Cv->Set(2, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("3") || A == TEXT("trans") || A == TEXT("sm") || A == TEXT("on"))
+		{
+			Cv->Set(3, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("4") || A == TEXT("deep"))
+		{
+			Cv->Set(4, ECVF_SetByConsole);
+		}
+		else
+		{
+			DF_LOG(Warning, "df.JumpDebug: use [0|1|2|3|4|dump|log|hud|trans|deep|sm|on|off]");
+			return;
+		}
+	}
+	else
+	{
+		const int32 Next = Cv->GetInt() >= 4 ? 0 : (Cv->GetInt() + 1);
+		Cv->Set(Next, ECVF_SetByConsole);
+	}
+
+	DF_LOG(Log, "df.JumpDebug: df.DebugJump=%d (0=off 1=log 2=hud 3=trans 4=deep) — filter Output Log: Jump",
+		Cv->GetInt());
+}
+
+static FAutoConsoleCommand GCmdJumpDebug(
+	TEXT("df.JumpDebug"),
+	TEXT("Jump debug: toggle df.DebugJump (0-4). Args: dump | 0 | 1 | 2 | 3 | 4 | log | hud | trans | deep | sm | on | off."),
+	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_jumpdebug));
 
 } // namespace
 

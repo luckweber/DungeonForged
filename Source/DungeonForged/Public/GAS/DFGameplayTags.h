@@ -49,6 +49,7 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Ability_Passive_Rogue_BleedMastery;
 	static FGameplayTag Ability_Movement_Sprint;
 	static FGameplayTag Ability_Movement_Dodge;
+	static FGameplayTag Ability_Movement_Jump;
 	// Warrior
 	static FGameplayTag Ability_Warrior_ShieldBash;
 	static FGameplayTag Ability_Warrior_WarCry;
@@ -152,6 +153,9 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag State_Exhausted;
 	static FGameplayTag State_Sprinting;
 	static FGameplayTag State_Dodging;
+	static FGameplayTag State_Jumping;
+	static FGameplayTag State_Falling;
+	static FGameplayTag State_Landing;
 	static FGameplayTag State_Attacking;
 	static FGameplayTag State_Casting;
 	/** Telegraph windup is active on an attacker (enemy). UI reads this to show "danger" indicators. */

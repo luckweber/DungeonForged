@@ -1,7 +1,12 @@
 // Source/DungeonForged/Private/Characters/UDFCharacterMovementComponent.cpp
 #include "Characters/UDFCharacterMovementComponent.h"
 
+#include "Characters/ADFPlayerCharacter.h"
 #include "Combat/DFDodgeDebug.h"
+#include "Combat/DFJumpDebug.h"
+#include "Combat/UDFComboComponent.h"
+#include "DFAssetManager.h"
+#include "Data/UDFCombatTuningData.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "AbilitySystemComponent.h"
@@ -20,6 +25,133 @@ UDFCharacterMovementComponent::UDFCharacterMovementComponent(const FObjectInitia
 	DefaultBrakingFrictionFactor = BrakingFrictionFactor;
 	// Snappy but smooth turn toward movement (hack-and-slash / action third-person).
 	RotationRate = FRotator(0.f, 720.f, 0.f);
+	JumpZVelocity = DFJumpZVelocity;
+	AirControl = DFAirControl;
+	GravityScale = DFGravityScale;
+}
+
+void UDFCharacterMovementComponent::BeginPlay()
+{
+	Super::BeginPlay();
+	ApplyJumpTuningFromDataAsset();
+}
+
+void UDFCharacterMovementComponent::ClearLooseGameplayTagAll(UAbilitySystemComponent* const ASC, const FGameplayTag& Tag) const
+{
+	if (!ASC || !Tag.IsValid())
+	{
+		return;
+	}
+	ASC->SetLooseGameplayTagCount(Tag, 0);
+}
+
+void UDFCharacterMovementComponent::ClearJumpAirborneLooseTags(UAbilitySystemComponent* const ASC) const
+{
+	ClearLooseGameplayTagAll(ASC, FDFGameplayTags::State_Jumping);
+	ClearLooseGameplayTagAll(ASC, FDFGameplayTags::State_Falling);
+}
+
+void UDFCharacterMovementComponent::ClearJumpLandingLooseTag(UAbilitySystemComponent* const ASC) const
+{
+	ClearLooseGameplayTagAll(ASC, FDFGameplayTags::State_Landing);
+}
+
+void UDFCharacterMovementComponent::SyncJumpLooseTagsWhileGrounded(UAbilitySystemComponent* const ASC)
+{
+	if (!ASC)
+	{
+		return;
+	}
+	ClearJumpAirborneLooseTags(ASC);
+	bJumpFallingTagActive = false;
+
+	const UWorld* const W = GetWorld();
+	if (!W || TimeLastLanded < 0.f)
+	{
+		ClearJumpLandingLooseTag(ASC);
+		return;
+	}
+	if ((W->GetTimeSeconds() - TimeLastLanded) >= DFLandingRecoveryWindow)
+	{
+		ClearJumpLandingLooseTag(ASC);
+	}
+}
+
+void UDFCharacterMovementComponent::AddJumpLooseTagOnce(UAbilitySystemComponent* const ASC, const FGameplayTag& Tag) const
+{
+	if (!ASC || !Tag.IsValid() || ASC->HasMatchingGameplayTag(Tag))
+	{
+		return;
+	}
+	ASC->AddLooseGameplayTag(Tag);
+}
+
+void UDFCharacterMovementComponent::ApplyJumpTuningFromDataAsset()
+{
+	if (const UDFCombatTuningData* const Tuning = UDFAssetManager::GetCombatTuningDataSafe())
+	{
+		DFJumpZVelocity = Tuning->JumpZVelocity;
+		DFAirControl = Tuning->JumpAirControl;
+		DFGravityScale = Tuning->JumpGravityScale;
+		DFFallGravityMultiplier = Tuning->JumpFallGravityMultiplier;
+		DFJumpStaminaCost = Tuning->JumpStaminaCost;
+		DFJumpCooldown = Tuning->JumpCooldown;
+		DFLandingRecoveryWindow = Tuning->JumpLandingRecoveryWindow;
+	}
+	JumpZVelocity = DFJumpZVelocity;
+	AirControl = DFAirControl;
+	GravityScale = DFGravityScale;
+}
+
+float UDFCharacterMovementComponent::GetJumpCooldownRemaining() const
+{
+	const UWorld* const W = GetWorld();
+	if (!W || TimeLastJump < 0.f)
+	{
+		return 0.f;
+	}
+	return FMath::Max(0.f, DFJumpCooldown - (W->GetTimeSeconds() - TimeLastJump));
+}
+
+bool UDFCharacterMovementComponent::DoJump(const bool bReplayingMoves)
+{
+	if (GetJumpCooldownRemaining() > 0.f)
+	{
+		DFJumpDebug::Log(TEXT("DoJump SKIP cooldown"));
+		return false;
+	}
+
+	if (DFJumpStaminaCost > 0.f && CharacterOwner)
+	{
+		if (IAbilitySystemInterface* const IAS = Cast<IAbilitySystemInterface>(CharacterOwner))
+		{
+			if (UAbilitySystemComponent* const ASC = IAS->GetAbilitySystemComponent())
+			{
+				if (UDFAttributeSet* const Attrs = const_cast<UDFAttributeSet*>(ASC->GetSet<UDFAttributeSet>()))
+				{
+					if (Attrs->GetStamina() < DFJumpStaminaCost)
+					{
+						DFJumpDebug::Logf(TEXT("DoJump SKIP stamina=%.1f need=%.1f"),
+							Attrs->GetStamina(), DFJumpStaminaCost);
+						return false;
+					}
+					Attrs->SetStamina(Attrs->GetStamina() - DFJumpStaminaCost);
+				}
+			}
+		}
+	}
+
+	const bool bOk = Super::DoJump(bReplayingMoves);
+	if (bOk)
+	{
+		if (UWorld* const W = GetWorld())
+		{
+			TimeLastJump = W->GetTimeSeconds();
+		}
+		bAirDodgeUsedThisJump = false;
+		DFJumpDebug::Logf(TEXT("DoJump OK JumpZ=%.0f"), JumpZVelocity);
+	}
+	return bOk;
 }
 
 void UDFCharacterMovementComponent::SetStrafeMode(const bool bStrafe)
@@ -56,6 +188,107 @@ void UDFCharacterMovementComponent::OnMovementModeChanged(EMovementMode Previous
 	const EMovementMode NewMode = MovementMode;
 	Super::OnMovementModeChanged(PreviousMovementMode, PreviousCustomMode);
 	OnDFMovementModeChanged.Broadcast(NewMode, PreviousMovementMode, PreviousCustomMode);
+
+	if (!CharacterOwner)
+	{
+		return;
+	}
+
+	IAbilitySystemInterface* const IAS = Cast<IAbilitySystemInterface>(CharacterOwner);
+	UAbilitySystemComponent* const ASC = IAS ? IAS->GetAbilitySystemComponent() : nullptr;
+
+	if (PreviousMovementMode == MOVE_Walking && NewMode == MOVE_Falling)
+	{
+		bJumpFallingTagActive = false;
+		if (ASC)
+		{
+			// Going up after jump → Jumping; ledge drop / step-off → Falling directly.
+			if (Velocity.Z > 1.f)
+			{
+				AddJumpLooseTagOnce(ASC, FDFGameplayTags::State_Jumping);
+			}
+			else
+			{
+				ClearJumpAirborneLooseTags(ASC);
+				AddJumpLooseTagOnce(ASC, FDFGameplayTags::State_Falling);
+				bJumpFallingTagActive = true;
+			}
+		}
+		if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(CharacterOwner))
+		{
+			if (UDFComboComponent* const Combo = PC->Combo)
+			{
+				const bool bPreserve = Combo->IsInCancelWindow() || Combo->HasAerialContinuation();
+				if (!bPreserve)
+				{
+					Combo->RequestDeferredReset(0.35f);
+				}
+			}
+		}
+	}
+	else if (PreviousMovementMode == MOVE_Falling && NewMode == MOVE_Walking)
+	{
+		bAirDodgeUsedThisJump = false;
+		bJumpFallingTagActive = false;
+		if (UWorld* const W = GetWorld())
+		{
+			TimeLastLanded = W->GetTimeSeconds();
+		}
+
+		// ── Landing impulse damping ──────────────────────────────────────────
+		// Shed momentum on touch-down to prevent the "slide" after a forward jump.
+		// Without this, Velocity.XY stays at runtime speed (e.g. 540 cm/s) and decays
+		// only via BrakingDecelerationWalking — visually the character slides ~0.26s.
+		if (LandingHorizontalVelocityRetain < 1.f)
+		{
+			Velocity.X *= LandingHorizontalVelocityRetain;
+			Velocity.Y *= LandingHorizontalVelocityRetain;
+		}
+		// Bump braking deceleration during the recovery window so even if input is held,
+		// the player feels the "stick the landing" snap. Reverted in the EndLanding timer.
+		if (NormalBrakingDecelerationWalking < 0.f)
+		{
+			NormalBrakingDecelerationWalking = BrakingDecelerationWalking;
+		}
+		BrakingDecelerationWalking = LandingBrakingDeceleration;
+		bIsApplyingLandingBrake = true;
+
+		if (ASC)
+		{
+			ClearJumpAirborneLooseTags(ASC);
+			ClearJumpLandingLooseTag(ASC);
+			AddJumpLooseTagOnce(ASC, FDFGameplayTags::State_Landing);
+		}
+		if (UWorld* const W = GetWorld())
+		{
+			W->GetTimerManager().ClearTimer(TimerHandle_EndLanding);
+			W->GetTimerManager().SetTimer(
+				TimerHandle_EndLanding,
+				[this]()
+				{
+					if (!CharacterOwner)
+					{
+						return;
+					}
+					// Restore normal braking when landing window expires.
+					if (bIsApplyingLandingBrake && NormalBrakingDecelerationWalking >= 0.f)
+					{
+						BrakingDecelerationWalking = NormalBrakingDecelerationWalking;
+						bIsApplyingLandingBrake = false;
+					}
+					if (IAbilitySystemInterface* const I = Cast<IAbilitySystemInterface>(CharacterOwner))
+					{
+						if (UAbilitySystemComponent* const A = I->GetAbilitySystemComponent())
+						{
+							ClearJumpLandingLooseTag(A);
+						}
+					}
+				},
+				DFLandingRecoveryWindow,
+				false);
+		}
+		DFJumpDebug::Log(TEXT("Landed — State.Landing window started"));
+	}
 }
 
 void UDFCharacterMovementComponent::TickComponent(
@@ -66,6 +299,39 @@ void UDFCharacterMovementComponent::TickComponent(
 	if (bIsSprinting)
 	{
 		TickSprintStamina(DeltaTime);
+	}
+
+	if (MovementMode == MOVE_Falling)
+	{
+		const float ZVel = Velocity.Z;
+		GravityScale = (ZVel < 0.f) ? (DFGravityScale * DFFallGravityMultiplier) : DFGravityScale;
+
+		if (!bJumpFallingTagActive && ZVel <= 1.f && CharacterOwner)
+		{
+			if (IAbilitySystemInterface* const AirIAS = Cast<IAbilitySystemInterface>(CharacterOwner))
+			{
+				if (UAbilitySystemComponent* const AirASC = AirIAS->GetAbilitySystemComponent())
+				{
+					ClearJumpAirborneLooseTags(AirASC);
+					AddJumpLooseTagOnce(AirASC, FDFGameplayTags::State_Falling);
+					bJumpFallingTagActive = true;
+				}
+			}
+		}
+	}
+	else if (MovementMode == MOVE_Walking)
+	{
+		GravityScale = DFGravityScale;
+		if (CharacterOwner)
+		{
+			if (IAbilitySystemInterface* const GroundIAS = Cast<IAbilitySystemInterface>(CharacterOwner))
+			{
+				if (UAbilitySystemComponent* const GroundASC = GroundIAS->GetAbilitySystemComponent())
+				{
+					SyncJumpLooseTagsWhileGrounded(GroundASC);
+				}
+			}
+		}
 	}
 }
 
@@ -274,7 +540,7 @@ void UDFCharacterMovementComponent::EndIFrameState()
 	{
 		if (UAbilitySystemComponent* const ASC = IAS->GetAbilitySystemComponent())
 		{
-			ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Invulnerable, 0);
+			ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Invulnerable, 1);
 		}
 	}
 }
@@ -290,7 +556,7 @@ void UDFCharacterMovementComponent::EndDodgingState()
 	{
 		if (UAbilitySystemComponent* const ASC = IAS->GetAbilitySystemComponent())
 		{
-			ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Dodging, 0);
+			ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Dodging, 1);
 		}
 	}
 }

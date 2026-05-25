@@ -371,7 +371,7 @@ void UDFAbility_Warrior_Execute::ClearFinisherCombatState()
 	{
 		if (FDFGameplayTags::State_Combat_FinisherReady.IsValid())
 		{
-			ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Combat_FinisherReady, 0);
+			ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Combat_FinisherReady, 1);
 		}
 	}
 	FinisherTarget = nullptr;

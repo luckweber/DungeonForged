@@ -39,7 +39,7 @@ static void ApplyTargetingTag(AActor* const Owner, const bool bAdd)
 	}
 	else
 	{
-		ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Targeting, 0);
+		ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Targeting, 1);
 	}
 }
 } // namespace

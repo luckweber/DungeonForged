@@ -18,6 +18,10 @@ UANS_DFAbilityCancelWindow::UANS_DFAbilityCancelWindow()
 	{
 		AllowedCancelTags.AddTag(FDFGameplayTags::Ability_Movement_Dodge);
 	}
+	if (FDFGameplayTags::Ability_Movement_Jump.IsValid())
+	{
+		AllowedCancelTags.AddTag(FDFGameplayTags::Ability_Movement_Jump);
+	}
 }
 
 FString UANS_DFAbilityCancelWindow::GetNotifyName_Implementation() const

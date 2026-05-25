@@ -280,6 +280,22 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Cancel")
 	bool IsAbilityCancellable(const FGameplayTagContainer& AbilityTags) const;
 
+	/** True while an ability cancel notify window is open (jump-cancel, dodge-cancel, etc.). */
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Cancel")
+	bool IsInCancelWindow() const;
+
+	/** True when aerial combo steps are configured for this weapon. */
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Aerial")
+	bool HasAerialContinuation() const;
+
+	/** Stops the active attack montage without resetting combo counters. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Cancel")
+	void CancelCurrentMontage();
+
+	/** Resets combo after @a GraceSeconds unless a new swing chains in the meantime. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
+	void RequestDeferredReset(float GraceSeconds = 0.35f);
+
 	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
 	float ResolveChainBlendInForStep(int32 Step) const;
 
@@ -344,6 +360,10 @@ protected:
 	bool ConsumeHeavyStamina();
 
 	FTimerHandle ComboWindowTimer;
+	FTimerHandle DeferredResetTimer;
+
+	UFUNCTION()
+	void OnDeferredResetTimer();
 	TObjectPtr<UAnimMontage> LastBoundMontageForEnd = nullptr;
 	bool bPlayingComboMontage = false;
 	/** Set while stopping a montage for GAS chain; blocks BufferedSwingChain on intentional interrupt. */

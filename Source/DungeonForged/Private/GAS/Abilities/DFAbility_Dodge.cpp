@@ -67,6 +67,19 @@ bool UDFAbility_Dodge::CanActivateAbility(const FGameplayAbilitySpecHandle Handl
 			}
 		}
 	}
+	if (const ACharacter* const Char = ActorInfo ? Cast<ACharacter>(ActorInfo->AvatarActor.Get()) : nullptr)
+	{
+		if (const UDFCharacterMovementComponent* const CMC = Char
+			? Cast<UDFCharacterMovementComponent>(Char->GetCharacterMovement())
+			: nullptr)
+		{
+			if (CMC->IsFalling() && CMC->bAirDodgeUsedThisJump)
+			{
+				DFDodgeDebug::Log(TEXT("CanActivate FAIL air dodge already used this jump"));
+				return false;
+			}
+		}
+	}
 	return true;
 }
 
@@ -241,6 +254,11 @@ void UDFAbility_Dodge::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 		FaceRot.Pitch = 0.f;
 		FaceRot.Roll = 0.f;
 		Char->SetActorRotation(FaceRot);
+	}
+
+	if (CMC->IsFalling())
+	{
+		CMC->bAirDodgeUsedThisJump = true;
 	}
 
 	CMC->PerformDodge(DodgeDirWorld, bUseProgrammaticDisplacement);

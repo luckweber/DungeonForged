@@ -21,6 +21,7 @@
 #include "Combat/UDFStaminaExhaustionComponent.h"
 #include "GAS/Effects/UGE_StaminaRegen.h"
 #include "Combat/DFDodgeDebug.h"
+#include "Combat/DFJumpDebug.h"
 #include "Combat/DFLockOnDebug.h"
 #include "Combat/UDFComboComponent.h"
 #include "Combat/UDFComboPointsComponent.h"
@@ -601,6 +602,52 @@ void ADFPlayerCharacter::OnEquipmentEvent(const EEquipmentSlot Slot, const FName
 	}
 }
 
+void ADFPlayerCharacter::Jump()
+{
+	if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponent())
+	{
+		if (UDFCharacterMovementComponent* const CMC = Cast<UDFCharacterMovementComponent>(GetCharacterMovement()))
+		{
+			if (!CMC->IsFalling())
+			{
+				CMC->SyncJumpLooseTagsWhileGrounded(ASC);
+			}
+		}
+
+		static const FGameplayTagContainer HardBlockers = []()
+		{
+			FGameplayTagContainer C;
+			C.AddTag(FDFGameplayTags::State_Dead);
+			C.AddTag(FDFGameplayTags::State_Stunned);
+			C.AddTag(FDFGameplayTags::State_Dodging);
+			C.AddTag(FDFGameplayTags::State_Exhausted);
+			C.AddTag(FDFGameplayTags::State_Landing);
+			return C;
+		}();
+		if (ASC->HasAnyMatchingGameplayTags(HardBlockers))
+		{
+			DFJumpDebug::Log(TEXT("Jump blocked (hard tag)"));
+			return;
+		}
+
+		if (ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Attacking))
+		{
+			const bool bCancelable = ASC->HasMatchingGameplayTag(
+				FDFGameplayTags::State_Combat_AbilityCancelWindow_Open);
+			if (!bCancelable)
+			{
+				DFJumpDebug::Log(TEXT("Jump blocked (attacking, no cancel window)"));
+				return;
+			}
+			if (Combo)
+			{
+				Combo->CancelCurrentMontage();
+			}
+		}
+	}
+	Super::Jump();
+}
+
 void ADFPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	UnbindPlayerOutOfHealth();
@@ -893,7 +940,7 @@ void ADFPlayerCharacter::InitializeGAS()
 			bDeathPresentationFinalized = false;
 			if (FDFGameplayTags::State_Dead.IsValid())
 			{
-				ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Dead, 0);
+				ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Dead, 1);
 			}
 		}
 		UE_LOG(LogDFPlayer, Verbose, TEXT("InitializeGAS: InitAbilityActorInfo OK | PS=%s Pawn=%s"),

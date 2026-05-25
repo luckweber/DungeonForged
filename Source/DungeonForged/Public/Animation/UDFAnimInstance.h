@@ -41,9 +41,118 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "DF|Locomotion")
 	bool HasTag(const FGameplayTag& Tag) const;
 
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Jump")
+	UAnimSequenceBase* GetJumpStartAnim() const;
+
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Jump")
+	UAnimSequenceBase* GetJumpLoopAnim() const;
+
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Jump")
+	UAnimSequenceBase* GetJumpLandAnim() const;
+
+	/** Alpha 0..1 for early land blend: 1 when close to ground while falling. */
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Jump")
+	float GetLandPreparationAlpha() const;
+
+	/** Mirrors recommended Main States SM rules — wire transitions to these for tuning. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
+	bool bTransition_LocomotionToJumpStart = false;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
+	bool bTransition_JumpStartToLoop = false;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
+	bool bTransition_JumpLoopToLand = false;
+
+	/** Emergency: bypass Loop when landed during JumpStart (short-airtime jumps). Wire in AnimBP. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
+	bool bTransition_JumpStartToLand = false;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
+	bool bTransition_LandToLocomotion = false;
+
+	/** When true, prefer pre-blend loop→land (GetLandPreparationAlpha) before ground contact. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
+	bool bTransition_JumpLoopToLandPrep = false;
+
+	/** Suggested crossfade durations (seconds) — tune in Class Defaults, read in df.JumpDebug 3. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Blend", meta = (ClampMin = "0.0"))
+	float JumpBlend_LocoToStart = 0.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Blend", meta = (ClampMin = "0.0"))
+	float JumpBlend_StartToLoop = 0.18f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Blend", meta = (ClampMin = "0.0"))
+	float JumpBlend_LoopToLand = 0.20f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Blend", meta = (ClampMin = "0.0"))
+	float JumpBlend_LandToLoco = 0.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Debug", meta = (ClampMin = "0.0"))
+	float JumpLandPrepAlphaThreshold = 0.15f;
+
+	/** Min time in Jump Start before Start→Loop (fallback if anim length unavailable). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Debug", meta = (ClampMin = "0.0"))
+	float JumpStartMinPlayTime = 0.42f;
+
+	/** Force Start→Loop if still in air after this (safety if MinPlayTime is too high). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Debug", meta = (ClampMin = "0.0"))
+	float JumpStartMaxPlayTime = 0.45f;
+
+	/** Min rising air time before velocity can latch apex (avoids Vz≈0 flicker on takeoff). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Debug", meta = (ClampMin = "0.0"))
+	float JumpApexMinRisingTime = 0.08f;
+
+	/** Downward Vz (cm/s) required to latch apex after MinRisingTime. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Debug")
+	float JumpApexVelocityThreshold = -80.f;
+
+	/** Min grounded time before a new jump arc (filters IsFalling() flicker). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Debug", meta = (ClampMin = "0.0"))
+	float MinGroundedTimeBeforeJump = 0.06f;
+
+	/** Min loop-phase time before Loop->LandPrep (default ≈ Start->Loop blend; avoids prep during crossfade). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions", meta = (ClampMin = "0.0"))
+	float JumpLoopPrepMinPhaseTime = 0.18f;
+
+	/** Min loop-phase time before Loop->Land on ground contact. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions", meta = (ClampMin = "0.0"))
+	float JumpLoopLandMinPhaseTime = 0.10f;
+
+	/** Min landing recovery before Land->Loco (max with CMC window and land-anim fraction). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions", meta = (ClampMin = "0.0"))
+	float JumpLandRecoveryMinTime = 0.35f;
+
+	/** Fraction of land anim length used when computing recovery at touchdown. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float JumpLandRecoveryAnimFraction = 0.45f;
+
+	/** Seconds in loop phase this jump (after start clip ends); debug / AnimBP. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
+	float JumpLoopPhaseTime = 0.f;
+
+	/** Stable rising phase (latched until apex); use for debug / AnimBP. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
+	bool bHasPassedJumpApex = false;
+
+	/** True from takeoff until Land→Locomotion completes (prevents idle Land->Loco spam). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
+	bool bJumpArcActive = false;
+
+	void NotifyLandingRecoveryBegin(float Duration);
+	void NotifyLandingRecoveryEnd();
+
 #if !UE_BUILD_SHIPPING
 	/** One-line locomotion / blend space state for df.LockOnDebug. */
 	FString BuildLocomotionDebugString() const;
+
+	/** Multi-line jump SM transition debug for df.JumpDebug 3 / dump. */
+	FString BuildJumpTransitionDebugString() const;
+
+	/** Anim assets, SM elapsed times, montage, blend tuning — df.JumpDebug 4 / dump. */
+	FString BuildJumpDeepDebugString();
+
+	void LogJumpDeepSnapshot(const TCHAR* Reason);
 #endif
 
 	// ── Default (unarmed) Anim Set ──
@@ -96,6 +205,33 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion")
 	bool bIsInAir = false;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump")
+	bool bIsJumping = false;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump")
+	bool bIsFalling = false;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump")
+	bool bIsLanding = false;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump")
+	EDFMovementDirection LastJumpDirection = EDFMovementDirection::None;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump")
+	float AirTime = 0.f;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump")
+	float VerticalVelocity = 0.f;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump")
+	float PredictedLandingDistance = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump", meta = (ClampMin = "0.0"))
+	float LandPreparationThreshold = 250.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump", meta = (ClampMin = "0.0"))
+	float LandPredictionTraceMax = 1000.f;
 
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion")
 	bool bIsSprinting = false;
@@ -197,11 +333,35 @@ protected:
 private:
 	float LastActorYaw = 0.f;
 	bool bLastYawInit = false;
+	float LandingRecoveryTimer = 0.f;
+
+	void UpdateJumpTransitionHints();
+	void LogJumpTransitionEdges();
+	bool IsPrimaryMeshAnimInstance() const;
+
+	bool bPrevTransition_LocoToStart = false;
+	bool bPrevTransition_StartToLoop = false;
+	bool bPrevTransition_StartToLand = false;
+	bool bPrevTransition_LoopToLand = false;
+	bool bPrevTransition_LandToLoco = false;
+	bool bPrevTransition_LoopToLandPrep = false;
+
+	bool bWasInAirPreviousFrame = false;
+	float GroundedTime = 0.f;
+	bool bJumpArcEndLatch = false;
+	float JumpDeepLogTimer = 0.f;
+	/** Resolved at takeoff from GetJumpStartAnim()->GetPlayLength(). */
+	float CachedJumpStartPlayTime = 0.42f;
+	/** Snapshot at touchdown for Loop->Land gate. */
+	float CachedJumpLoopPhaseTimeAtLand = 0.f;
 
 	void SyncEquippedWeaponAnimLayerFromOwner();
 
 	/** Layer class last applied via LinkAnimClassLayers (from item or manual). */
 	TSubclassOf<UAnimInstance> CachedLinkedWeaponLayerClass;
+
+	/** Item row whose WeaponAnimSet is currently applied to ActiveAnimSet (NAME_None = unarmed default). */
+	FName CachedAnimSetItemRow = NAME_None;
 
 	// Root motion notify stash
 	bool bStashedForAnimRoot = false;

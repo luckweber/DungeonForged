@@ -488,7 +488,7 @@ void UDFAttributeSet::ProcessSecondWindAftermath()
 		FGameplayTagContainer Granted;
 		Granted.AddTag(FDFGameplayTags::State_Universal_SecondWindAvailable);
 		ASC->RemoveActiveEffectsWithGrantedTags(Granted);
-		ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Universal_SecondWindAvailable, 0);
+		ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Universal_SecondWindAvailable, 1);
 	}
 	bOutOfHealthBroadcasted = false;
 	OnSecondWind.Broadcast();

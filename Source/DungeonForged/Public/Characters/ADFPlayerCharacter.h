@@ -57,6 +57,8 @@ public:
 
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
+	virtual void Jump() override;
+
 	/** Cached from ADFPlayerState — authoritative ASC lives on PlayerState. */
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "GAS")
 	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;

@@ -182,6 +182,51 @@ void UDFComboComponent::ClearAbilityCancelWindow()
 	AllowedAbilityCancelTags.Reset();
 }
 
+bool UDFComboComponent::IsInCancelWindow() const
+{
+	if (bAbilityCancelWindowActive)
+	{
+		return true;
+	}
+	const ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(GetOwner());
+	const UAbilitySystemComponent* const ASC = PC ? PC->GetAbilitySystemComponent() : nullptr;
+	return ASC && FDFGameplayTags::State_Combat_AbilityCancelWindow_Open.IsValid()
+		&& ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Combat_AbilityCancelWindow_Open);
+}
+
+bool UDFComboComponent::HasAerialContinuation() const
+{
+	return AerialComboSteps.Num() > 0;
+}
+
+void UDFComboComponent::CancelCurrentMontage()
+{
+	if (UAnimInstance* const A = GetAnimInstance())
+	{
+		if (UAnimMontage* const Active = A->GetCurrentActiveMontage())
+		{
+			bSuppressBufferedSwingChainOnMontageEnd = true;
+			A->Montage_Stop(0.1f, Active);
+		}
+	}
+}
+
+void UDFComboComponent::RequestDeferredReset(const float GraceSeconds)
+{
+	if (UWorld* const W = GetWorld())
+	{
+		W->GetTimerManager().ClearTimer(DeferredResetTimer);
+		const float Delay = FMath::Max(0.01f, GraceSeconds);
+		W->GetTimerManager().SetTimer(
+			DeferredResetTimer, this, &UDFComboComponent::OnDeferredResetTimer, Delay, false);
+	}
+}
+
+void UDFComboComponent::OnDeferredResetTimer()
+{
+	ResetCombo();
+}
+
 bool UDFComboComponent::IsAbilityCancellable(const FGameplayTagContainer& AbilityTags) const
 {
 	if (AbilityTags.IsEmpty())
@@ -629,6 +674,10 @@ void UDFComboComponent::BufferComboInputAndTryAdvance()
 
 void UDFComboComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (UWorld* const W = GetWorld())
+	{
+		W->GetTimerManager().ClearTimer(DeferredResetTimer);
+	}
 	UnbindMontageEndDelegate();
 	if (UWorld* W = GetWorld())
 	{

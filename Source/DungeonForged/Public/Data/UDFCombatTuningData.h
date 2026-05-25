@@ -97,6 +97,27 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn")
 	bool bDodgeKeepFacingTargetOnLockOn = true;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0"))
+	float JumpZVelocity = 750.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float JumpAirControl = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0"))
+	float JumpGravityScale = 1.7f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "1.0"))
+	float JumpFallGravityMultiplier = 1.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0"))
+	float JumpStaminaCost = 10.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0"))
+	float JumpCooldown = 0.20f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0"))
+	float JumpLandingRecoveryWindow = 0.20f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|State")
 	float CombatExitDelay = 4.f;
 
