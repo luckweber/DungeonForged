@@ -111,7 +111,7 @@ void UDFBossAbility_PhaseTransitionSlam::RemovePlayerStunLock()
 			FGameplayTagContainer StunT;
 			StunT.AddTag(FDFGameplayTags::State_Stunned);
 			Pasc->RemoveActiveEffectsWithGrantedTags(StunT);
-			Pasc->RemoveLooseGameplayTag(FDFGameplayTags::UI_CinematicLock, 0);
+			Pasc->RemoveLooseGameplayTag(FDFGameplayTags::UI_CinematicLock, 1);
 		}
 	}
 }

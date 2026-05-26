@@ -6,6 +6,8 @@
 >
 > **Estado atual da base (AA+):** ver tabela de gaps em §1.
 >
+> **Implementação C++ (2026-05-18):** P0–P3 em código — `UDFImpactFramingComponent`, `UDFStyleRatingComponent`, `UDFLauncherComponent`, `FDFComboVariant`, cancel rules em `UDFCombatTuningData`, HermiteCubic em `UDFAnimCombatLibrary`, curve window + rollback em `UDFComboComponent`. Falta setup editor (montages, `DA_CombatTuning` cancel rules, `WBP_StyleRatingWidget`, anim curves).
+>
 > **Estilo deste guia:** cada seção tem ① Por que importa  ② Código C++  ③ Setup no Editor  ④ Validação.
 
 ---

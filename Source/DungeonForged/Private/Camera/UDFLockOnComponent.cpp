@@ -1,16 +1,48 @@
 // Source/DungeonForged/Private/Camera/UDFLockOnComponent.cpp
 
 #include "Camera/UDFLockOnComponent.h"
+
+#include "AbilitySystemBlueprintLibrary.h"
+#include "AbilitySystemComponent.h"
 #include "Camera/UDFCameraComponent.h"
 #include "Characters/ADFEnemyBase.h"
+#include "Combat/DFLockOnDebug.h"
+#include "DFAssetManager.h"
+#include "Data/UDFCombatTuningData.h"
+#include "DungeonForgedModule.h"
+#include "GAS/DFGameplayTags.h"
+#include "GAS/UDFAttributeSet.h"
 #include "UI/UDFLockOnWidget.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/Pawn.h"
-#include "AbilitySystemComponent.h"
-#include "GAS/UDFAttributeSet.h"
 #include "Engine/OverlapResult.h"
 #include "Engine/World.h"
 #include "CollisionQueryParams.h"
+
+namespace
+{
+static void ApplyTargetingTag(AActor* const Owner, const bool bAdd)
+{
+	if (!Owner || !FDFGameplayTags::State_Targeting.IsValid())
+	{
+		return;
+	}
+	UAbilitySystemComponent* const ASC =
+		UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Owner);
+	if (!ASC)
+	{
+		return;
+	}
+	if (bAdd)
+	{
+		ASC->AddLooseGameplayTag(FDFGameplayTags::State_Targeting);
+	}
+	else
+	{
+		ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Targeting, 1);
+	}
+}
+} // namespace
 
 UDFLockOnComponent::UDFLockOnComponent()
 {
@@ -22,7 +54,7 @@ UDFLockOnComponent::UDFLockOnComponent()
 void UDFLockOnComponent::BeginPlay()
 {
 	Super::BeginPlay();
-	if (AActor* O = GetOwner())
+	if (AActor* const O = GetOwner())
 	{
 		Camera = O->FindComponentByClass<UDFCameraComponent>();
 	}
@@ -31,21 +63,58 @@ void UDFLockOnComponent::BeginPlay()
 		UE_LOG(LogTemp, Warning, TEXT("UDFLockOnComponent: no UDFCameraComponent on %s — lock-on will not move the camera boom."),
 			*GetNameSafe(GetOwner()));
 	}
+
+	if (const UDFCombatTuningData* const Tuning = UDFAssetManager::GetCombatTuningDataSafe())
+	{
+		LockOnRange = Tuning->LockOnRange;
+		LockOnAngle = Tuning->LockOnConeAngle;
+		AutoBreakGraceDelay = Tuning->LockOnAutoBreakGraceDelay;
+		if (Camera)
+		{
+			Camera->SetRotationInterpSpeed(Tuning->LockOnCameraInterpSpeed);
+		}
+	}
 }
 
 void UDFLockOnComponent::TickComponent(
 	float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-	if (bIsLockedOn)
+
+	if (!bIsLockedOn)
 	{
-		if (!IsTargetValid(CurrentTarget.Get()))
+#if !UE_BUILD_SHIPPING
+		DFLockOnDebug::DrawLockOnDebug(this, GetWorld(), GetOwner());
+#endif
+		return;
+	}
+
+	if (!IsTargetValidForMaintain(CurrentTarget.Get()))
+	{
+		if (!IsOwnerDodging())
 		{
-			ReleaseLockOn();
-			return;
+			TimeTargetInvalid += DeltaTime;
+			if (TimeTargetInvalid >= AutoBreakGraceDelay)
+			{
+				DFLockOnDebug::Logf(TEXT("Auto-break target=%s invalidFor=%.2fs"),
+					*GetNameSafe(CurrentTarget.Get()), TimeTargetInvalid);
+				ReleaseLockOn();
+			}
+		}
+		else
+		{
+			TimeTargetInvalid = 0.f;
 		}
 		UpdateIndicator(DeltaTime);
+		return;
 	}
+
+	TimeTargetInvalid = 0.f;
+	UpdateIndicator(DeltaTime);
+
+#if !UE_BUILD_SHIPPING
+	DFLockOnDebug::DrawLockOnDebug(this, GetWorld(), GetOwner());
+#endif
 }
 
 bool UDFLockOnComponent::IsActorValidEnemyType(AActor* const Actor) const
@@ -97,7 +166,14 @@ bool UDFLockOnComponent::HasLineOfSight(AActor* const Target) const
 	return Hit.GetActor() == Target;
 }
 
-bool UDFLockOnComponent::IsTargetValid(AActor* const Target) const
+bool UDFLockOnComponent::IsOwnerDodging() const
+{
+	UAbilitySystemComponent* const ASC =
+		UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(GetOwner());
+	return ASC && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Dodging);
+}
+
+bool UDFLockOnComponent::IsTargetValidForMaintain(AActor* const Target) const
 {
 	if (!IsValid(Target) || !IsActorValidEnemyType(Target) || !GetOwner())
 	{
@@ -105,10 +181,6 @@ bool UDFLockOnComponent::IsTargetValid(AActor* const Target) const
 	}
 	const float Dist = FVector::Dist(GetOwner()->GetActorLocation(), Target->GetActorLocation());
 	if (Dist > LockOnRange + 1.f)
-	{
-		return false;
-	}
-	if (AngleFromForward(Target) > LockOnAngle * 0.5f + 0.5f)
 	{
 		return false;
 	}
@@ -127,6 +199,20 @@ bool UDFLockOnComponent::IsTargetValid(AActor* const Target) const
 		}
 	}
 	return true;
+}
+
+bool UDFLockOnComponent::IsTargetValidForAcquire(AActor* const Target) const
+{
+	if (!IsTargetValidForMaintain(Target))
+	{
+		return false;
+	}
+	return AngleFromForward(Target) <= LockOnAngle * 0.5f + 0.5f;
+}
+
+bool UDFLockOnComponent::IsTargetValid(AActor* const Target) const
+{
+	return IsTargetValidForAcquire(Target);
 }
 
 bool UDFLockOnComponent::BuildCandidatesInView(TArray<AActor*>& OutSorted) const
@@ -158,7 +244,7 @@ bool UDFLockOnComponent::BuildCandidatesInView(TArray<AActor*>& OutSorted) const
 	for (const FOverlapResult& R : Overlaps)
 	{
 		AActor* const A = R.GetActor();
-		if (!IsTargetValid(A))
+		if (!IsTargetValidForAcquire(A))
 		{
 			continue;
 		}
@@ -187,12 +273,15 @@ bool UDFLockOnComponent::TryLockOn()
 	TArray<AActor*> Sorted;
 	if (!BuildCandidatesInView(Sorted) || Sorted.Num() == 0)
 	{
+		DFLockOnDebug::Log(TEXT("TryLockOn FAIL — no valid target in range"));
 		return false;
 	}
 	AActor* const Pick = Sorted[0];
 	CurrentTarget = Pick;
 	bIsLockedOn = true;
+	TimeTargetInvalid = 0.f;
 	LockCycleIndex = 0;
+	ApplyTargetingTag(O, true);
 	if (Camera)
 	{
 		Camera->EnableLockOn(Pick);
@@ -203,6 +292,8 @@ bool UDFLockOnComponent::TryLockOn()
 		CandidateBuffer.Add(A);
 	}
 	EnsureLockOnWidget();
+	OnLockOnChanged.Broadcast(true);
+	DFLockOnDebug::Logf(TEXT("TryLockOn OK target=%s candidates=%d"), *GetNameSafe(Pick), Sorted.Num());
 	return true;
 }
 
@@ -241,10 +332,19 @@ void UDFLockOnComponent::CycleLockOnTarget(const float Direction)
 	{
 		Camera->EnableLockOn(Sorted[Next]);
 	}
+	DFLockOnDebug::Logf(TEXT("Cycle dir=%.0f -> %s"), Direction, *GetNameSafe(Sorted[Next]));
 }
 
 void UDFLockOnComponent::ReleaseLockOn()
 {
+	const bool bWasLocked = bIsLockedOn;
+	TimeTargetInvalid = 0.f;
+
+	if (bWasLocked)
+	{
+		ApplyTargetingTag(GetOwner(), false);
+	}
+
 	CurrentTarget = nullptr;
 	bIsLockedOn = false;
 	CandidateBuffer.Reset();
@@ -255,6 +355,11 @@ void UDFLockOnComponent::ReleaseLockOn()
 	if (LockOnWidget)
 	{
 		LockOnWidget->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (bWasLocked)
+	{
+		OnLockOnChanged.Broadcast(false);
+		DFLockOnDebug::Log(TEXT("ReleaseLockOn"));
 	}
 }
 

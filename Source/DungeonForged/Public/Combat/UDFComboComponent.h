@@ -2,6 +2,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "AlphaBlend.h"
 #include "Components/ActorComponent.h"
 #include "Data/DFDataTableStructs.h"
 #include "GameplayTagContainer.h"
@@ -10,6 +11,8 @@
 class UAnimMontage;
 class UDFMeleeTraceComponent;
 class UAnimInstance;
+class UAbilitySystemComponent;
+class UGameplayAbility;
 
 UCLASS(ClassGroup = (Combat), meta = (BlueprintSpawnableComponent))
 class DUNGEONFORGED_API UDFComboComponent : public UActorComponent
@@ -19,7 +22,7 @@ class DUNGEONFORGED_API UDFComboComponent : public UActorComponent
 public:
 	UDFComboComponent();
 
-	UPROPERTY(BlueprintReadOnly, Category = "Combat|Combo")
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Combat|Combo")
 	int32 CurrentComboStep = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo", meta = (ClampMin = "1"))
@@ -43,7 +46,7 @@ public:
 	 * Step locked for the next GA activation (survives ResetCombo / PrimeMeleeSwing / OnMontageEnd races).
 	 * -1 = use @c CurrentComboStep.
 	 */
-	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Combat|Combo")
+	UPROPERTY(ReplicatedUsing = OnRep_LockedComboActivationStep, BlueprintReadOnly, Category = "Combat|Combo")
 	int32 LockedComboActivationStep = -1;
 
 	/** @deprecated display / server sync mirror; use @c LockedComboActivationStep for activation. */
@@ -72,6 +75,10 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo")
 	TArray<FDFComboStep> ComboSteps;
+
+	/** Used when @c IsOwnerAirborne() and this array is non-empty. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Aerial")
+	TArray<FDFComboStep> AerialComboSteps;
 
 	/** Loops while primary attack is held before heavy tier commits (optional). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Heavy")
@@ -156,6 +163,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Combo|Animation", meta = (ClampMin = "0.0", ClampMax = "0.25"))
 	float ComboChainMontageStopBlendOutTime = 0.10f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Combo|Animation")
+	EAlphaBlendOption ComboChainBlendOption = EAlphaBlendOption::HermiteCubic;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Curve")
+	FName ComboWindowCurveName = TEXT("ComboWindow");
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Curve", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ComboWindowCurveThreshold = 0.5f;
+
+	/** When true, combo window opens/closes from anim curve; notifies remain fallback when curve is absent. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Curve")
+	bool bUseCurveInsteadOfNotify = false;
+
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
 	void OnAttackInput();
 
@@ -238,6 +258,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
 	int32 GetEffectiveMaxComboSteps() const;
 
+	/** Mid-chain melee swings skip Ability.Cooldown apply/check (last step still uses CD). */
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|GAS")
+	bool ShouldBypassMeleeAbilityCooldown() const;
+
 	/** Extends the active combo window after a confirmed hit (defaults to @c ComboRefreshOnHitExtension). */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
 	void NotifyOwnerHitConfirmed(float ExtensionSeconds = -1.f);
@@ -256,8 +280,41 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Cancel")
 	bool IsAbilityCancellable(const FGameplayTagContainer& AbilityTags) const;
 
+	/** True while an ability cancel notify window is open (jump-cancel, dodge-cancel, etc.). */
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Cancel")
+	bool IsInCancelWindow() const;
+
+	/** True when aerial combo steps are configured for this weapon. */
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Aerial")
+	bool HasAerialContinuation() const;
+
+	/** Stops the active attack montage without resetting combo counters. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Cancel")
+	void CancelCurrentMontage();
+
+	/** Resets combo after @a GraceSeconds unless a new swing chains in the meantime. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
+	void RequestDeferredReset(float GraceSeconds = 0.35f);
+
 	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
 	float ResolveChainBlendInForStep(int32 Step) const;
+
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
+	EAlphaBlendOption ResolveChainBlendOptionForStep(int32 Step) const;
+
+	/** Seconds to skip at the start of step @a Step's montage when chained. 0 = no skip. */
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
+	float ResolveChainStartOffsetForStep(int32 Step) const;
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
+	UAnimMontage* PickComboVariant(const TArray<FDFComboVariant>& Variants) const;
+
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Aerial")
+	bool IsOwnerAirborne() const;
+
+	/** Active step data (aerial vs grounded). */
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
+	bool GetActiveComboStep(int32 Step, FDFComboStep& OutStep) const;
 
 #if !UE_BUILD_SHIPPING
 	/** Used by melee GA + df.DebugCombat overlay. */
@@ -275,7 +332,13 @@ protected:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	UFUNCTION()
+	void OnRep_LockedComboActivationStep();
+
+	UFUNCTION()
 	void OnComboWindowTimerExpired();
+
+	void EvaluateComboCurveWindow();
+	UAnimMontage* ResolveStepMontageFromData(const FDFComboStep& StepData) const;
 
 	void PlayCurrentComboMontage();
 	void PrimeMeleeSwingAbilityChain();
@@ -283,6 +346,9 @@ protected:
 	bool ShouldRouteHeavyAttackThroughGAS() const;
 	bool TryActivatePrimaryMeleeGameplayAbility();
 	bool TryActivateHeavyAttackGameplayAbility();
+#if !UE_BUILD_SHIPPING
+	void LogPrimaryMeleeActivateFailure(UAbilitySystemComponent* ASC, TSubclassOf<UGameplayAbility> AbilityClass) const;
+#endif
 	void UnbindMontageEndDelegate();
 	void HandleMontageEndedInternal(class UAnimMontage* EndedMontage, bool bInterrupted);
 	UAnimInstance* GetAnimInstance() const;
@@ -294,8 +360,14 @@ protected:
 	bool ConsumeHeavyStamina();
 
 	FTimerHandle ComboWindowTimer;
+	FTimerHandle DeferredResetTimer;
+
+	UFUNCTION()
+	void OnDeferredResetTimer();
 	TObjectPtr<UAnimMontage> LastBoundMontageForEnd = nullptr;
 	bool bPlayingComboMontage = false;
+	/** Set while stopping a montage for GAS chain; blocks BufferedSwingChain on intentional interrupt. */
+	bool bSuppressBufferedSwingChainOnMontageEnd = false;
 	bool bHeavySwingPending = false;
 	bool bMaxHeavyPending = false;
 	float HeavyChargeStartTime = -1.f;
@@ -317,6 +389,8 @@ protected:
 	bool bPendingChargeReleaseMontage = false;
 	bool bAbilityCancelWindowActive = false;
 	FGameplayTagContainer AllowedAbilityCancelTags;
+	bool bSwingHitConfirmedThisActivation = false;
+	int32 LastRepLockedComboStep = -1;
 	void ApplyCombatTuningFromDataAsset();
 	void BufferComboInputAndTryAdvance();
 	void DrawCombatDebug() const;

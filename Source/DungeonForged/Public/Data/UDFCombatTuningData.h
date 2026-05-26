@@ -11,6 +11,24 @@ class UNiagaraSystem;
 class USoundBase;
 
 USTRUCT(BlueprintType)
+struct DUNGEONFORGED_API FDFCancelRule
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cancel")
+	FGameplayTagContainer FromAbilityTags;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cancel")
+	FGameplayTagContainer AllowedTargetTags;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cancel")
+	bool bRequireHitConfirmed = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cancel")
+	bool bAllowOnWhiff = true;
+};
+
+USTRUCT(BlueprintType)
 struct FDFImpactFeedbackAssets
 {
 	GENERATED_BODY()
@@ -57,6 +75,87 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge")
 	float DodgeCooldown = 0.7f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge", meta = (ClampMin = "0.0"))
+	float DodgeStaminaCost = 20.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn", meta = (ClampMin = "0.0"))
+	float LockOnRange = 1500.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn", meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	float LockOnConeAngle = 60.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn", meta = (ClampMin = "0.0"))
+	float LockOnAutoBreakGraceDelay = 0.4f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn", meta = (ClampMin = "1.0"))
+	float LockOnCameraInterpSpeed = 12.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LockOnWarningRangePercent = 0.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn")
+	bool bDodgeKeepFacingTargetOnLockOn = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0"))
+	float JumpZVelocity = 750.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float JumpAirControl = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0"))
+	float JumpGravityScale = 1.7f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "1.0"))
+	float JumpFallGravityMultiplier = 1.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0"))
+	float JumpStaminaCost = 10.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0"))
+	float JumpCooldown = 0.20f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0"))
+	float JumpLandingRecoveryWindow = 0.20f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float JumpCoyoteTime = 0.10f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0", ClampMax = "0.4"))
+	float JumpInputBufferDuration = 0.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float JumpApexCutScale = 0.40f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float SprintJumpHorizontalBoost = 1.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0"))
+	float JumpBufferGroundDistance = 250.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0"))
+	float DoubleJumpStaminaCost = 5.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DoubleJumpZScale = 0.85f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashStaminaCost = 15.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashDistance = 400.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashDuration = 0.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashCooldown = 0.40f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashIFrameDuration = 0.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashLandingRecoverySkipWindow = 0.50f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|State")
 	float CombatExitDelay = 4.f;
@@ -111,4 +210,8 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Finisher", meta = (ClampMin = "0.1"))
 	float FinisherInputWindowSec = 0.65f;
+
+	/** Directional cancel hierarchy (light→heavy, dodge always, etc.). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Cancel")
+	TArray<FDFCancelRule> CancelRules;
 };

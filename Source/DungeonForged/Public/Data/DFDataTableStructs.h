@@ -163,18 +163,47 @@ struct DUNGEONFORGED_API FDFAttributeInitTableRow : public FTableRowBase
 	TSubclassOf<UGameplayEffect> StartupGameplayEffect;
 };
 
+/** Weighted montage variant with optional tag filters (AAA variety). */
+USTRUCT(BlueprintType)
+struct DUNGEONFORGED_API FDFComboVariant
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
+	TObjectPtr<UAnimMontage> Montage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float Weight = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
+	FGameplayTagContainer RequiredAttackerTags;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
+	FGameplayTagContainer RequiredTargetTags;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
+	FGameplayTagContainer BlockedAttackerTags;
+};
+
 /** One combo chain step: light swing plus optional heavy finisher branch montage. */
 USTRUCT(BlueprintType)
 struct DUNGEONFORGED_API FDFComboStep
 {
 	GENERATED_BODY()
 
+	/** Legacy single montage; used when @c LightVariants is empty. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
 	TObjectPtr<UAnimMontage> LightMontage = nullptr;
 
-	/** Played instead of @c LightMontage when the player holds primary during the combo window (heavy finisher branch). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
+	TArray<FDFComboVariant> LightVariants;
+
+	/** Played instead of light when the player holds primary during the combo window (heavy finisher branch). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
 	TObjectPtr<UAnimMontage> HeavyBranchMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
+	TArray<FDFComboVariant> HeavyBranchVariants;
 
 	/** Per-step chain blend-in (seconds). Negative = use @c UDFComboComponent::ComboChainMontageBlendInTime. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo", meta = (ClampMin = "-1.0"))
@@ -183,6 +212,71 @@ struct DUNGEONFORGED_API FDFComboStep
 	/** Per-step chain blend-out (seconds). Negative = use component default. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo", meta = (ClampMin = "-1.0"))
 	float ChainBlendOutTime = -1.f;
+
+	/** 255 = use @c UDFComboComponent::ComboChainBlendOption. Otherwise @c EAlphaBlendOption value. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo", meta = (ClampMin = "0", ClampMax = "255"))
+	uint8 ChainBlendOptionOverride = 255;
+
+	/**
+	 * Start time (seconds) when this step chains (step > 0). Blends into this pose — do not use Montage_SetPosition.
+	 * Keep small (often 0.05–0.12); values near 0.25+ usually feel abrupt and fight the cross-fade.
+	 * 0 = play from start. Tip: set slightly before AN_TraceStart on the montage timeline.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo", meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float ChainStartTimeOffset = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Launch")
+	bool bIsLauncher = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Launch", meta = (EditCondition = "bIsLauncher"))
+	FVector LaunchVelocity = FVector(0.f, 0.f, 700.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Launch", meta = (EditCondition = "bIsLauncher"))
+	FVector SelfLaunchVelocity = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Launch",
+		meta = (EditCondition = "bIsLauncher", ClampMin = "0.0", ClampMax = "1.0"))
+	float TargetGravityScale = 0.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Launch",
+		meta = (EditCondition = "bIsLauncher", ClampMin = "0.1"))
+	float HangtimeSeconds = 1.5f;
+};
+
+/**
+ * Standalone combo definition row (e.g. DT_Combos).
+ * Exports cleanly as CSV/JSON — montage refs become asset paths in the export.
+ *
+ * Typical workflow:
+ *   1. Edit in editor (DT_Combos row editor) OR export as JSON, edit externally, reimport.
+ *   2. Reference from FDFItemTableRow::WeaponMeleeComboRow (preferred) or paste inline into
+ *      WeaponMeleeComboSteps (legacy).
+ *   3. Multiple items can point to the same combo row — share "Sword_Basic_Chain" across
+ *      every 1H sword variant without copy-pasting montages.
+ */
+USTRUCT(BlueprintType)
+struct DUNGEONFORGED_API FDFComboTableRow : public FTableRowBase
+{
+	GENERATED_BODY()
+
+	/** Display name shown in the row editor / debug overlays. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
+	FText DisplayName;
+
+	/** Optional weapon tag filter (e.g. Weapon.Sword.1H) — informational; not enforced at resolution time. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo", meta = (Categories = "Weapon"))
+	FGameplayTagContainer WeaponTagFilter;
+
+	/** Optional pipeline metadata; survives JSON/CSV round-trip. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Meta")
+	FString Author;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Meta", meta = (ClampMin = "1"))
+	int32 Version = 1;
+
+	/** The actual chain steps. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
+	TArray<FDFComboStep> Steps;
 };
 
 /** Item definition row (e.g. DT_Items). */
@@ -249,8 +343,19 @@ struct DUNGEONFORGED_API FDFItemTableRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat")
 	TArray<TObjectPtr<UAnimMontage>> WeaponMeleeComboMontages;
 
-	/** Per-step combo (light + optional heavy finisher). When non-empty, overrides @c WeaponMeleeComboMontages. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat")
+	/**
+	 * Preferred: handle to a row in DT_Combos. Reusable across items and exports as JSON/CSV.
+	 * When set (DataTable + RowName both valid), it overrides @c WeaponMeleeComboSteps below.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat",
+		meta = (RowType = "/Script/DungeonForged.DFComboTableRow"))
+	FDataTableRowHandle WeaponMeleeComboRow;
+
+	/**
+	 * Legacy / inline fallback: per-step combo (light + optional heavy finisher).
+	 * Used when @c WeaponMeleeComboRow is empty. When non-empty, overrides @c WeaponMeleeComboMontages.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat|Legacy")
 	TArray<FDFComboStep> WeaponMeleeComboSteps;
 
 	/** Loops on primary-attack hold before heavy tier commits (optional). */

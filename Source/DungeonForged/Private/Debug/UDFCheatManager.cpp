@@ -9,7 +9,13 @@
 #include "Boss/ADFBossBase.h"
 #include "Characters/ADFEnemyBase.h"
 #include "Characters/ADFPlayerCharacter.h"
+#include "Camera/UDFLockOnComponent.h"
+#include "Animation/UDFAnimInstance.h"
+#include "Combat/DFDodgeDebug.h"
+#include "Combat/DFJumpDebug.h"
+#include "Combat/DFLockOnDebug.h"
 #include "Combat/UDFMeleeTraceComponent.h"
+#include "Characters/UDFCharacterMovementComponent.h"
 #include "Debug/UDFDebugComponent.h"
 #include "Characters/ADFPlayerController.h"
 #include "Characters/ADFPlayerState.h"
@@ -1084,6 +1090,207 @@ static FAutoConsoleCommand GCmdMeleeDebug(
 	TEXT("df.MeleeDebug"),
 	TEXT("Toggle sphere-sweep melee debug durante o sweep. Preview continuo nos sockets: df.DebugMeleeWeapon 1|2. df.MeleeDebug [0|1|on|off] | collision — ShowFlag.Collision"),
 	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_meleedebug));
+
+static void Cmd_df_dodgedebug(TArray<FString> const& Args)
+{
+	IConsoleVariable* const Cv = IConsoleManager::Get().FindConsoleVariable(TEXT("df.DebugDodge"));
+	if (!Cv)
+	{
+		DF_LOG(Warning, "df.DodgeDebug: df.DebugDodge CVar missing (shipping build?)");
+		return;
+	}
+
+	if (Args.Num() > 0)
+	{
+		const FString A = Args[0].ToLower();
+		if (A == TEXT("dump"))
+		{
+			Cv->Set(1, ECVF_SetByConsole);
+			UWorld* const W = GetCheatWorld();
+			ADFPlayerCharacter* const P = GetLocalDFPawn(W);
+			UDFCharacterMovementComponent* const CMC = P ? Cast<UDFCharacterMovementComponent>(P->GetCharacterMovement()) : nullptr;
+			UAbilitySystemComponent* const ASC = GetLocalASC(W);
+			DFDodgeDebug::DumpLocalDodgeState(CMC, ASC);
+			DF_LOG(Log, "df.DodgeDebug dump: see Output Log filter [Dodge]");
+			return;
+		}
+		if (A == TEXT("0") || A == TEXT("off"))
+		{
+			Cv->Set(0, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("1") || A == TEXT("log"))
+		{
+			Cv->Set(1, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("2") || A == TEXT("draw") || A == TEXT("on"))
+		{
+			Cv->Set(2, ECVF_SetByConsole);
+		}
+		else
+		{
+			DF_LOG(Warning, "df.DodgeDebug: use [0|1|2|dump|log|draw|on|off]");
+			return;
+		}
+	}
+	else
+	{
+		const int32 Next = Cv->GetInt() >= 2 ? 0 : (Cv->GetInt() + 1);
+		Cv->Set(Next, ECVF_SetByConsole);
+	}
+
+	DF_LOG(Log, "df.DodgeDebug: df.DebugDodge=%d (0=off 1=log 2=log+draw) — filter Output Log: Dodge",
+		Cv->GetInt());
+	DF_LOG(Log, "df.DodgeDebug dump — estado CMC/ASC/stamina; showdebug AbilitySystem para tags");
+}
+
+static FAutoConsoleCommand GCmdDodgeDebug(
+	TEXT("df.DodgeDebug"),
+	TEXT("Dodge debug: toggle df.DebugDodge (0/1/2). Args: dump | 0 | 1 | 2 | log | draw | on | off. Log prefix [Dodge]."),
+	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_dodgedebug));
+
+static void Cmd_df_lockondebug(TArray<FString> const& Args)
+{
+	IConsoleVariable* const Cv = IConsoleManager::Get().FindConsoleVariable(TEXT("df.DebugLockOn"));
+	if (!Cv)
+	{
+		DF_LOG(Warning, "df.LockOnDebug: df.DebugLockOn CVar missing (shipping build?)");
+		return;
+	}
+
+	if (Args.Num() > 0)
+	{
+		const FString A = Args[0].ToLower();
+		if (A == TEXT("dump"))
+		{
+			Cv->Set(1, ECVF_SetByConsole);
+			UWorld* const W = GetCheatWorld();
+			if (ADFPlayerCharacter* const P = GetLocalDFPawn(W))
+			{
+				if (UDFLockOnComponent* const LOC = P->LockOnComponent)
+				{
+					const bool bLocked = LOC->IsLockedOn();
+					const AActor* const T = LOC->GetCurrentTarget();
+					DF_LOG(Log, "df.LockOnDebug dump: locked=%d target=%s range=%.0f",
+						bLocked ? 1 : 0, *GetNameSafe(T), LOC->GetLockOnRange());
+					DFLockOnDebug::DumpLocomotionAnimState(P, true);
+				}
+			}
+			return;
+		}
+		if (A == TEXT("0") || A == TEXT("off"))
+		{
+			Cv->Set(0, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("1") || A == TEXT("log"))
+		{
+			Cv->Set(1, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("2") || A == TEXT("draw") || A == TEXT("on"))
+		{
+			Cv->Set(2, ECVF_SetByConsole);
+		}
+		else
+		{
+			DF_LOG(Warning, "df.LockOnDebug: use [0|1|2|dump|log|draw|on|off]");
+			return;
+		}
+	}
+	else
+	{
+		const int32 Next = Cv->GetInt() >= 2 ? 0 : (Cv->GetInt() + 1);
+		Cv->Set(Next, ECVF_SetByConsole);
+	}
+
+	DF_LOG(Log, "df.LockOnDebug: df.DebugLockOn=%d (0=off 1=log 2=log+draw) — filter Output Log: LockOn",
+		Cv->GetInt());
+}
+
+static FAutoConsoleCommand GCmdLockOnDebug(
+	TEXT("df.LockOnDebug"),
+	TEXT("Lock-on debug: toggle df.DebugLockOn (0/1/2). Args: dump | 0 | 1 | 2 | log | draw | on | off."),
+	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_lockondebug));
+
+static void Cmd_df_jumpdebug(TArray<FString> const& Args)
+{
+	IConsoleVariable* const Cv = IConsoleManager::Get().FindConsoleVariable(TEXT("df.DebugJump"));
+	if (!Cv)
+	{
+		DF_LOG(Warning, "df.JumpDebug: df.DebugJump CVar missing (shipping build?)");
+		return;
+	}
+
+	if (Args.Num() > 0)
+	{
+		const FString A = Args[0].ToLower();
+		if (A == TEXT("dump"))
+		{
+			Cv->Set(1, ECVF_SetByConsole);
+			UWorld* const W = GetCheatWorld();
+			if (ADFPlayerCharacter* const P = GetLocalDFPawn(W))
+			{
+				if (USkeletalMeshComponent* const Mesh = P->GetMesh())
+				{
+					if (UUDFAnimInstance* const Anim = Cast<UUDFAnimInstance>(Mesh->GetAnimInstance()))
+					{
+						DF_LOG(Log, "[Jump|Dump] %s", *Anim->BuildLocomotionDebugString());
+						DF_LOG(Log, "[Jump|Dump|SM] %s", *Anim->BuildJumpTransitionDebugString());
+						DF_LOG(Log, "[Jump|Dump|Deep] %s", *Anim->BuildJumpDeepDebugString());
+					}
+				}
+				if (UDFCharacterMovementComponent* const CMC =
+					Cast<UDFCharacterMovementComponent>(P->GetCharacterMovement()))
+				{
+					DF_LOG(Log,
+						"[Jump|Dump] JumpZ=%.0f AirCtrl=%.2f Grav=%.2f CooldownRem=%.2f AirDodgeUsed=%d",
+						CMC->JumpZVelocity,
+						CMC->AirControl,
+						CMC->GravityScale,
+						CMC->GetJumpCooldownRemaining(),
+						CMC->bAirDodgeUsedThisJump ? 1 : 0);
+				}
+			}
+			return;
+		}
+		if (A == TEXT("0") || A == TEXT("off"))
+		{
+			Cv->Set(0, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("1") || A == TEXT("log"))
+		{
+			Cv->Set(1, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("2") || A == TEXT("hud"))
+		{
+			Cv->Set(2, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("3") || A == TEXT("trans") || A == TEXT("sm") || A == TEXT("on"))
+		{
+			Cv->Set(3, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("4") || A == TEXT("deep"))
+		{
+			Cv->Set(4, ECVF_SetByConsole);
+		}
+		else
+		{
+			DF_LOG(Warning, "df.JumpDebug: use [0|1|2|3|4|dump|log|hud|trans|deep|sm|on|off]");
+			return;
+		}
+	}
+	else
+	{
+		const int32 Next = Cv->GetInt() >= 4 ? 0 : (Cv->GetInt() + 1);
+		Cv->Set(Next, ECVF_SetByConsole);
+	}
+
+	DF_LOG(Log, "df.JumpDebug: df.DebugJump=%d (0=off 1=log 2=hud 3=trans 4=deep) — filter Output Log: Jump",
+		Cv->GetInt());
+}
+
+static FAutoConsoleCommand GCmdJumpDebug(
+	TEXT("df.JumpDebug"),
+	TEXT("Jump debug: toggle df.DebugJump (0-4). Args: dump | 0 | 1 | 2 | 3 | 4 | log | hud | trans | deep | sm | on | off."),
+	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_jumpdebug));
 
 } // namespace
 

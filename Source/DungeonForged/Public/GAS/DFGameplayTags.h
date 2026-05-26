@@ -49,6 +49,8 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Ability_Passive_Rogue_BleedMastery;
 	static FGameplayTag Ability_Movement_Sprint;
 	static FGameplayTag Ability_Movement_Dodge;
+	static FGameplayTag Ability_Movement_Jump;
+	static FGameplayTag Ability_Movement_AirDash;
 	// Warrior
 	static FGameplayTag Ability_Warrior_ShieldBash;
 	static FGameplayTag Ability_Warrior_WarCry;
@@ -152,6 +154,11 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag State_Exhausted;
 	static FGameplayTag State_Sprinting;
 	static FGameplayTag State_Dodging;
+	static FGameplayTag State_Jumping;
+	static FGameplayTag State_Falling;
+	static FGameplayTag State_DoubleJumping;
+	static FGameplayTag State_AirDashing;
+	static FGameplayTag State_Landing;
 	static FGameplayTag State_Attacking;
 	static FGameplayTag State_Casting;
 	/** Telegraph windup is active on an attacker (enemy). UI reads this to show "danger" indicators. */
@@ -272,6 +279,18 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Weapon_Dagger;
 	static FGameplayTag Weapon_Spear;
 	static FGameplayTag Weapon_Staff;
+
+	//~ Style rating move ids
+	static FGameplayTag Combat_Move_LightCombo_Step0;
+	static FGameplayTag Combat_Move_LightCombo_Step1;
+	static FGameplayTag Combat_Move_LightCombo_Step2;
+	static FGameplayTag Combat_Move_LightCombo_Step3;
+	static FGameplayTag Combat_Move_HeavyAttack;
+	static FGameplayTag Combat_Move_Parry;
+	static FGameplayTag Combat_Move_Dodge_Flawless;
+	static FGameplayTag Combat_Target_LowHealth;
+	static FGameplayTag State_Crouching;
+	static FGameplayTag State_Staggered;
 
 	//~ Damage source (melee typing for hit reactions / GE dynamic tags)
 	static FGameplayTag Damage_Source;

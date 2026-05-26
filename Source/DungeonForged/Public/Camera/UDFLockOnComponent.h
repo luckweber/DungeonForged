@@ -10,6 +10,8 @@ class AActor;
 class UDFCameraComponent;
 class UDFLockOnWidget;
 
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnUDFLockOnChanged, bool /* bIsLockedOn */);
+
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class DUNGEONFORGED_API UDFLockOnComponent : public UActorComponent
 {
@@ -45,6 +47,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|LockOn")
 	AActor* GetCurrentTarget() const { return CurrentTarget.Get(); }
 
+	UFUNCTION(BlueprintPure, Category = "DF|LockOn")
+	float GetLockOnRange() const { return LockOnRange; }
+
+	UFUNCTION(BlueprintPure, Category = "DF|LockOn")
+	float GetLockOnAngle() const { return LockOnAngle; }
+
+	/** Fired when lock-on is acquired (true) or released (false). */
+	FOnUDFLockOnChanged OnLockOnChanged;
+
 protected:
 	TWeakObjectPtr<AActor> CurrentTarget;
 	bool bIsLockedOn = false;
@@ -59,6 +70,12 @@ protected:
 	/** Full cone angle in front of the player (degrees). */
 	UPROPERTY(EditDefaultsOnly, Category = "DF|LockOn", meta = (ClampMin = "0.0", ClampMax = "180.0"))
 	float LockOnAngle = 60.f;
+
+	/** Grace period before auto-break when target leaves range/LOS (seconds). */
+	UPROPERTY(EditDefaultsOnly, Category = "DF|LockOn", meta = (ClampMin = "0.0"))
+	float AutoBreakGraceDelay = 0.4f;
+
+	float TimeTargetInvalid = 0.f;
 
 	/** If set, only this class and subclasses are valid lock targets (e.g. ADFEnemyBase). */
 	UPROPERTY(EditDefaultsOnly, Category = "DF|LockOn")
@@ -80,6 +97,11 @@ protected:
 
 	bool BuildCandidatesInView(TArray<AActor*>& OutSorted) const;
 	bool IsActorValidEnemyType(AActor* Actor) const;
+	/** Acquire / cycle: range + view cone + LOS + alive. */
+	bool IsTargetValidForAcquire(AActor* Target) const;
+	/** While locked: range + LOS + alive only (no cone — dodge/roll can leave the frontal arc). */
+	bool IsTargetValidForMaintain(AActor* Target) const;
+	bool IsOwnerDodging() const;
 	float AngleFromForward(AActor* Target) const;
 	bool HasLineOfSight(AActor* Target) const;
 	void EnsureLockOnWidget();

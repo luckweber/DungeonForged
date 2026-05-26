@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "AlphaBlend.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "DFAnimCombatLibrary.generated.h"
 
@@ -24,6 +25,8 @@ public:
 		UAnimInstance* AnimInstance,
 		UAnimMontage* Montage,
 		float PlayRate = 1.f,
-		float BlendInTime = 0.1f,
-		bool bStopAllMontages = true);
+		float BlendInTime = 0.12f,
+		bool bStopAllMontages = true,
+		EAlphaBlendOption BlendOption = EAlphaBlendOption::HermiteCubic,
+		float InTimeToStartMontageAt = 0.f);
 };

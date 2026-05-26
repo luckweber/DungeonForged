@@ -14,6 +14,18 @@ UANS_DFAbilityCancelWindow::UANS_DFAbilityCancelWindow()
 #if WITH_EDITORONLY_DATA
 	NotifyColor = FColor(90, 140, 255);
 #endif
+	if (FDFGameplayTags::Ability_Movement_Dodge.IsValid())
+	{
+		AllowedCancelTags.AddTag(FDFGameplayTags::Ability_Movement_Dodge);
+	}
+	if (FDFGameplayTags::Ability_Movement_Jump.IsValid())
+	{
+		AllowedCancelTags.AddTag(FDFGameplayTags::Ability_Movement_Jump);
+	}
+	if (FDFGameplayTags::Ability_Movement_AirDash.IsValid())
+	{
+		AllowedCancelTags.AddTag(FDFGameplayTags::Ability_Movement_AirDash);
+	}
 }
 
 FString UANS_DFAbilityCancelWindow::GetNotifyName_Implementation() const

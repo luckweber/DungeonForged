@@ -1,6 +1,10 @@
 // Source/DungeonForged/Private/Camera/UDFCameraComponent.cpp
 
 #include "Camera/UDFCameraComponent.h"
+
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemInterface.h"
+#include "GAS/DFGameplayTags.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -91,10 +95,25 @@ void UDFCameraComponent::TickCamera(float DeltaTime)
 	SmoothedSocketOffset = FMath::VInterpTo(SmoothedSocketOffset, TargetSocket, DeltaTime, InterpSpeed);
 	TargetOffset = SmoothedSocketOffset;
 
-	// 4) Lock-on rotation
+	// 4) Lock-on rotation (suppress during jump arc to avoid camera spin)
 	if (CurrentState == ECameraState::LockOn && LockOnTarget.IsValid())
 	{
-		UpdateLockOnRotation(DeltaTime);
+		bool bSuppressLockRotation = false;
+		if (APawn* const OwnerPawn = Cast<APawn>(GetOwner()))
+		{
+			if (IAbilitySystemInterface* const IAS = Cast<IAbilitySystemInterface>(OwnerPawn))
+			{
+				if (UAbilitySystemComponent* const ASC = IAS->GetAbilitySystemComponent())
+				{
+					bSuppressLockRotation = ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Jumping)
+						|| ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Falling);
+				}
+			}
+		}
+		if (!bSuppressLockRotation)
+		{
+			UpdateLockOnRotation(DeltaTime);
+		}
 	}
 }
 
@@ -177,6 +196,11 @@ void UDFCameraComponent::ExitCombatMode()
 	CombatBlendToArm = DefaultArmLength;
 	CombatBlendElapsed = 0.f;
 	bCombatBlendActive = true;
+}
+
+void UDFCameraComponent::SetRotationInterpSpeed(const float Speed)
+{
+	InterpSpeed = FMath::Max(1.f, Speed);
 }
 
 void UDFCameraComponent::EnableLockOn(AActor* Target)

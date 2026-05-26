@@ -2,6 +2,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Combat/DFDodgeTypes.h"
+#include "GameplayTagContainer.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "UObject/WeakObjectPtr.h"
 #include "UDFCharacterMovementComponent.generated.h"
@@ -64,6 +66,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "DF|Movement|Dodge")
 	bool bIsDodging = false;
 
+	/** Last cardinal dodge direction (set by UDFAbility_Dodge before impulse). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Movement|Dodge")
+	EDFDodgeDirection LastDodgeDirection = EDFDodgeDirection::Backward;
+
 	/** When true, stamina drain is handled by a periodic GameplayEffect (Sprint ability) instead of TickSprintStamina. */
 	UPROPERTY(Transient)
 	bool bSprintStaminaFromGameplayEffect = false;
@@ -82,23 +88,165 @@ public:
 	/** If not using periodic GE, drains SprintStaminaDrain * dt from the owner's ASC. At 0 stamina, stops sprint and applies optional exhaustion. */
 	void TickSprintStamina(float DeltaTime);
 
-	/** GAS: applies State.Dodging + dodge impulse; State.Invulnerable for IFrameDuration. Respects DodgeCooldown. */
-	UFUNCTION(BlueprintCallable, Category = "DF|Movement|Dodge")
-	void PerformDodge(const FVector& DirectionWorld);
+	/**
+	 * GAS dodge: tags, cooldown, timers. Optional programmatic MoveToForce (off when montage supplies root motion).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DF|Movement|Dodge", meta = (AdvancedDisplay = "bApplyProgrammaticDisplacement"))
+	void PerformDodge(const FVector& DirectionWorld, bool bApplyProgrammaticDisplacement = true);
 
 	/** Last movement input in world; if nearly zero, returns -Actor forward (backward). */
 	UFUNCTION(BlueprintCallable, Category = "DF|Movement|Dodge")
 	FVector GetDodgeDirection() const;
 
+	/** Seconds until PerformDodge accepts another impulse (0 if ready). */
+	UFUNCTION(BlueprintPure, Category = "DF|Movement|Dodge")
+	float GetDodgeCooldownRemaining() const;
+
+	/** Strafe (lock-on): face controller yaw; exploration: orient to movement. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Movement|Strafe")
+	void SetStrafeMode(bool bStrafe);
+
+	UPROPERTY(BlueprintReadOnly, Category = "DF|Movement|Strafe")
+	bool bIsStrafing = false;
+
+	// ── Jump tuning ─────────────────────────────────────────────────────
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0"))
+	float DFJumpZVelocity = 550.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DFAirControl = 0.35f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0"))
+	float DFGravityScale = 1.7f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "1.0"))
+	float DFFallGravityMultiplier = 1.25f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0"))
+	float DFJumpStaminaCost = 10.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0"))
+	float DFJumpCooldown = 0.20f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0"))
+	float DFLandingRecoveryWindow = 0.20f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float CoyoteTime = 0.10f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float JumpApexCutScale = 0.40f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "1.0"))
+	float SprintJumpHorizontalBoost = 1.25f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0"))
+	float JumpBufferGroundDistance = 250.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0"))
+	float DFDoubleJumpStaminaCost = 5.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DFDoubleJumpZScale = 0.85f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashDistance = 400.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashDuration = 0.25f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashCooldown = 0.40f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashLandingRecoverySkipWindow = 0.50f;
+
+	/**
+	 * Horizontal velocity retained on touch-down (0..1). At 0.4 the character keeps 40% of
+	 * its airborne XY speed at landing — the rest is shed instantly to stop "sliding".
+	 * Set to 1.0 to disable (preserve momentum, classic UE feel).
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump|Landing", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LandingHorizontalVelocityRetain = 0.4f;
+
+	/**
+	 * Braking deceleration applied while State.Landing tag is active.
+	 * Default UE value is 2048; bumping this to 4096 cuts the stop time in half.
+	 * Only active during the landing recovery window; reverts to normal afterwards.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump|Landing", meta = (ClampMin = "0.0"))
+	float LandingBrakingDeceleration = 4096.f;
+
+	/** One air dodge per jump arc; cleared on landing. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Movement|Jump")
+	bool bAirDodgeUsedThisJump = false;
+
+	/** Stash for AnimNotifyState_AerialHangtime (not replicated). */
+	float AerialHangtimeSavedGravity = -1.f;
+
+	UFUNCTION(BlueprintPure, Category = "DF|Movement|Jump")
+	float GetJumpCooldownRemaining() const;
+
+	UFUNCTION(BlueprintPure, Category = "DF|Movement|Jump")
+	bool IsWithinCoyoteWindow() const;
+
+	UFUNCTION(BlueprintPure, Category = "DF|Movement|Jump")
+	bool IsFallingNearGround(float MaxGroundDistance = -1.f) const;
+
+	/** Called by UDFAbility_AirDash when a dash starts (tracks landing recovery skip). */
+	void NotifyAirDashPerformed();
+
+	/** Public entry for coyote / double-jump when ACharacter::Jump cannot reach protected DoJump. */
+	bool RequestJump(bool bReplayingMoves = false);
+
+	/** Clears stale Jumping/Falling; removes Landing after recovery window. Call before jump input. */
+	void SyncJumpLooseTagsWhileGrounded(class UAbilitySystemComponent* ASC);
+
+private:
+	float NormalBrakingDecelerationWalking = -1.f;  // cached on first OnMovementModeChanged
+	bool bIsApplyingLandingBrake = false;
+
 	virtual FNetworkPredictionData_Client* GetPredictionData_Client() const override;
 	virtual void UpdateFromCompressedFlags(uint8 Flags) override;
 	virtual void OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode) override;
 	virtual void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+	virtual bool DoJump(bool bReplayingMoves) override;
 
 protected:
+	virtual void BeginPlay() override;
+
+	float DefaultBrakingFrictionFactor = 1.f;
+
 	float TimeLastDodge = -1.f;
+	float TimeLastJump = -1.f;
+	/** World time when we last landed (Falling → Walking). */
+	float TimeLastLanded = -1.f;
+	/** Ledge drop (not jump takeoff) — enables coyote window. */
+	float TimeLastLeftGround = -1.f;
+	float TimeLastAirDash = -1.f;
+	bool bCoyoteFromLedgeDrop = false;
+
+	bool TryConsumeStaminaForJumpCost(float Cost) const;
+	void ApplySprintJumpMomentumBoost();
 	FTimerHandle TimerHandle_EndDodging;
 	FTimerHandle TimerHandle_EndIFrame;
+	FTimerHandle TimerHandle_EndLanding;
+
+	void ApplyJumpTuningFromDataAsset();
+
+	/** Sets loose tag count to 0 (RemoveLooseGameplayTag Tag,0 removes nothing in UE5). */
+	void ClearLooseGameplayTagAll(class UAbilitySystemComponent* ASC, const FGameplayTag& Tag) const;
+
+	/** Removes every stack of airborne jump tags (Jumping / Falling). */
+	void ClearJumpAirborneLooseTags(class UAbilitySystemComponent* ASC) const;
+
+	void ClearJumpLandingLooseTag(class UAbilitySystemComponent* ASC) const;
+
+	/** Adds a loose tag only if not already present (prevents xN stacks). */
+	void AddJumpLooseTagOnce(class UAbilitySystemComponent* ASC, const FGameplayTag& Tag) const;
+
+	/** True after apex: State.Falling applied, State.Jumping cleared. */
+	bool bJumpFallingTagActive = false;
 
 	UFUNCTION()
 	void EndDodgingState();

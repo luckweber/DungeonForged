@@ -16,35 +16,44 @@
 #include "Combat/DFCombatDebug.h"
 #include "DungeonForgedModule.h"
 
+namespace
+{
+bool ShouldBypassMeleeComboCooldown(const FGameplayAbilityActorInfo* ActorInfo)
+{
+	if (!ActorInfo || !ActorInfo->AvatarActor.IsValid())
+	{
+		return false;
+	}
+	const ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(ActorInfo->AvatarActor.Get());
+	return PC && PC->Combo && PC->Combo->ShouldBypassMeleeAbilityCooldown();
+}
+}
+
 bool UDFAbility_Warrior_MeleeSwing::CanActivateAbility(const FGameplayAbilitySpecHandle Handle,
 	const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags,
 	const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const
 {
-	bool bSkipCooldownForComboChain = false;
-	if (ActorInfo)
+	return Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags);
+}
+
+bool UDFAbility_Warrior_MeleeSwing::CheckCooldown(const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo, FGameplayTagContainer* OptionalRelevantTags) const
+{
+	if (ShouldBypassMeleeComboCooldown(ActorInfo))
 	{
-		if (const ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(ActorInfo->AvatarActor.Get()))
-		{
-			if (const UDFComboComponent* const Combo = PC->Combo)
-			{
-				bSkipCooldownForComboChain = Combo->CurrentComboStep > 0
-					|| Combo->LockedComboActivationStep > 0
-					|| Combo->PendingComboActivationStep > 0
-					|| Combo->bComboWindowActive
-					|| Combo->bComboInputBuffered
-					|| Combo->bComboChainAdvancePending;
-			}
-		}
+		return true;
 	}
-	if (!bSkipCooldownForComboChain)
+	return Super::CheckCooldown(Handle, ActorInfo, OptionalRelevantTags);
+}
+
+void UDFAbility_Warrior_MeleeSwing::ApplyCooldown(const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
+{
+	if (ShouldBypassMeleeComboCooldown(ActorInfo))
 	{
-		return Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags);
+		return;
 	}
-	const float SavedCooldown = BaseCooldown;
-	const_cast<UDFAbility_Warrior_MeleeSwing*>(this)->BaseCooldown = 0.f;
-	const bool bCan = Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags);
-	const_cast<UDFAbility_Warrior_MeleeSwing*>(this)->BaseCooldown = SavedCooldown;
-	return bCan;
+	Super::ApplyCooldown(Handle, ActorInfo, ActivationInfo);
 }
 
 UDFAbility_Warrior_MeleeSwing::UDFAbility_Warrior_MeleeSwing()
@@ -155,7 +164,10 @@ void UDFAbility_Warrior_MeleeSwing::ActivateAbility(const FGameplayAbilitySpecHa
 	}
 
 	const bool bChainSwing = ComboStep > 0;
-	const float ChainBlendIn = Combo ? Combo->ResolveChainBlendInForStep(ComboStep) : 0.08f;
+	const float ChainBlendIn = Combo ? Combo->ResolveChainBlendInForStep(ComboStep) : 0.12f;
+	const EAlphaBlendOption BlendOpt = Combo
+		? Combo->ResolveChainBlendOptionForStep(ComboStep)
+		: EAlphaBlendOption::HermiteCubic;
 
 	UAnimInstance* AnimInst = nullptr;
 	if (ACharacter* const Char = Cast<ACharacter>(GetAvatarActorFromActorInfo()))
@@ -169,7 +181,16 @@ void UDFAbility_Warrior_MeleeSwing::ActivateAbility(const FGameplayAbilitySpecHa
 		// bStopAllMontages=false: PrepareForComboChainActivation already stopped the previous swing with the
 		// configured blend-out time. Letting StopAllMontages fire here would override that with the asset's
 		// default blend-out and kill the cross-fade.
-		const float Len = UDFAnimCombatLibrary::PlayMontageWithBlendIn(AnimInst, MontToPlay, 1.f, ChainBlendIn, false);
+		const float MontageLen = MontToPlay->GetPlayLength();
+		float ChainStartOffset = Combo ? Combo->ResolveChainStartOffsetForStep(ComboStep) : 0.f;
+		// Leave tail for hit window + recovery; large offsets break cross-fade if applied via SetPosition after play.
+		constexpr float MinMontageTailSec = 0.2f;
+		if (MontageLen > KINDA_SMALL_NUMBER && ChainStartOffset > 0.f)
+		{
+			ChainStartOffset = FMath::Clamp(ChainStartOffset, 0.f, FMath::Max(0.f, MontageLen - MinMontageTailSec));
+		}
+		const float Len = UDFAnimCombatLibrary::PlayMontageWithBlendIn(
+			AnimInst, MontToPlay, 1.f, ChainBlendIn, false, BlendOpt, ChainStartOffset);
 #if !UE_BUILD_SHIPPING
 		if (Combo)
 		{

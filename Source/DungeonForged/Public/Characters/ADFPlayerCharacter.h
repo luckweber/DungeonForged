@@ -21,6 +21,9 @@ class UDFLockOnComponent;
 class UDFCameraComponent;
 class UDFComboComponent;
 class UDFComboPointsComponent;
+class UDFImpactFramingComponent;
+class UDFLauncherComponent;
+class UDFStyleRatingComponent;
 class UDFHitReactionComponent;
 class UDFInteractionComponent;
 class UDFMeleeTraceComponent;
@@ -53,6 +56,9 @@ public:
 	ADFPlayerCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+
+	virtual void Jump() override;
+	virtual void StopJumping() override;
 
 	/** Cached from ADFPlayerState — authoritative ASC lives on PlayerState. */
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "GAS")
@@ -89,6 +95,15 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	TObjectPtr<UDFComboComponent> Combo;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	TObjectPtr<UDFImpactFramingComponent> ImpactFraming;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	TObjectPtr<UDFLauncherComponent> Launcher;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	TObjectPtr<UDFStyleRatingComponent> StyleRating;
 
 	/** GAS: builder/finisher combo points (Rogue, etc.). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|GAS")
@@ -354,6 +369,15 @@ public:
 	void HandleDodgePressed();
 
 	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
+	void HandleLockOnToggle();
+
+	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
+	void HandleCycleLockOnLeft();
+
+	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
+	void HandleCycleLockOnRight();
+
+	UFUNCTION(BlueprintCallable, Category = "Input|Handlers")
 	void HandleEquipmentWeaponTogglePressed();
 
 protected:
@@ -369,6 +393,7 @@ protected:
 
 	void TryActivateByGameplayTagName(const FName& TagName);
 	void CancelAbilitiesByGameplayTagName(const FName& TagName);
+	void BindLockOnStrafeFromTargeting();
 
 	void SetupModularMeshPart(USkeletalMeshComponent* Part);
 	void RegisterModularSlotsWithEquipment();
@@ -392,6 +417,7 @@ protected:
 private:
 	/** OnEquipmentChanged bound once; cleared in EndPlay. */
 	bool bModularEquipmentDelegateBound = false;
+	bool bLockOnStrafeDelegateBound = false;
 
 	bool bHasWeaponRSocket = false;
 	bool bHasWeaponLSocket = false;
@@ -424,4 +450,15 @@ private:
 	void OnRep_CurrentAbilitySlots();
 
 	void BroadcastAbilityBarSlotsChanged();
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0", ClampMax = "0.4"))
+	float JumpInputBufferDuration = 0.15f;
+
+	float JumpInputBufferedUntil = -1.f;
+
+	void BufferJumpInput();
+	void TryConsumeBufferedJump();
+
+	UFUNCTION()
+	void OnDFMovementModeChanged(EMovementMode NewMode, EMovementMode PreviousMode, uint8 PreviousCustomMode);
 };

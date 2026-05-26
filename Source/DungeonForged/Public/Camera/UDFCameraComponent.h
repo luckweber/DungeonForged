@@ -59,6 +59,10 @@ public:
 
 	AActor* GetLockOnTarget() const { return LockOnTarget.Get(); }
 
+	/** Lock-on camera yaw/pitch follow speed (also applied from combat tuning at lock-on BeginPlay). */
+	UFUNCTION(BlueprintCallable, Category = "DF|Camera")
+	void SetRotationInterpSpeed(float Speed);
+
 protected:
 	/** Spring arm / shoulder defaults */
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Camera|Framing", meta = (ClampMin = "0.0"))
