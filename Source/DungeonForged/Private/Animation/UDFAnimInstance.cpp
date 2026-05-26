@@ -151,17 +151,21 @@ void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 		GroundedTime = 0.f;
 	}
 
-	const bool bValidTakeoff = bNowInAir && !bWasInAirPreviousFrame && !bJumpArcActive
-		&& GroundedTimeBeforeThisFrame >= MinGroundedTimeBeforeJump;
+	const bool bNewAirborneFrame = bNowInAir && !bWasInAirPreviousFrame;
+	const bool bStableGroundBeforeTakeoff = GroundedTimeBeforeThisFrame >= MinGroundedTimeBeforeJump;
+	const bool bValidTakeoff = bNewAirborneFrame && bStableGroundBeforeTakeoff;
 
 	if (bValidTakeoff)
 	{
 		bJumpArcActive = true;
 		bHasPassedJumpApex = false;
+		bIsLongFallLanding = false;
+		bIsLanding = false;
+		LandingRecoveryTimer = 0.f;
 		JumpLoopPhaseTime = 0.f;
 		CachedJumpLoopPhaseTimeAtLand = 0.f;
-		DetermineMovementDirection(bStrafeForDir);
-		LastJumpDirection = Speed > 50.f ? MovementDirection : EDFMovementDirection::None;
+		PredictedLandingDistance = LandPredictionTraceMax;
+		CaptureTakeoffJumpDirection(bStrafeForDir);
 		AirTime = 0.f;
 		if (UAnimSequenceBase* const StartAnim = GetJumpStartAnim())
 		{
@@ -171,16 +175,30 @@ void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 		{
 			CachedJumpStartPlayTime = JumpStartMinPlayTime;
 		}
-		DFJumpDebug::Logf(TEXT("Takeoff dir=%d speed=%.0f StartLen=%.3fs"), static_cast<int32>(LastJumpDirection), Speed,
-			CachedJumpStartPlayTime);
+		DFJumpDebug::Logf(TEXT("Takeoff dir=%d speed=%.0f StartLen=%.3fs StartToLoopAt=%.3fs"),
+			static_cast<int32>(LastJumpDirection), Speed, CachedJumpStartPlayTime, ComputeStartToLoopTime());
+	}
+	else if (bNewAirborneFrame && !bJumpArcActive)
+	{
+		// Ledge drop / step-off with brief ground contact — still drive jump SM transitions.
+		bJumpArcActive = true;
+		bIsLongFallLanding = false;
+		bIsLanding = false;
+		LandingRecoveryTimer = 0.f;
+		CachedJumpLoopPhaseTimeAtLand = 0.f;
+		PredictedLandingDistance = LandPredictionTraceMax;
+		CaptureTakeoffJumpDirection(bStrafeForDir);
+		AirTime = 0.f;
+		CachedJumpStartPlayTime = JumpStartMinPlayTime;
+		bHasPassedJumpApex = VerticalVelocity <= JumpApexVelocityThreshold;
+		JumpLoopPhaseTime = bHasPassedJumpApex ? JumpLoopLandMinPhaseTime : 0.f;
+		DFJumpDebug::Logf(TEXT("Airborne (quick) dir=%d vz=%.0f loopPhase=%.3fs"),
+			static_cast<int32>(LastJumpDirection), VerticalVelocity, JumpLoopPhaseTime);
 	}
 	else if (bNowInAir && bJumpArcActive)
 	{
 		AirTime += DeltaSeconds;
-		// Use the same Clamp(anim, [min, max]) as UpdateJumpTransitionHints so LoopPhase
-		// starts accumulating in sync with bTransition_JumpStartToLoop firing.
-		const float StartToLoopAt = FMath::Clamp(CachedJumpStartPlayTime, JumpStartMinPlayTime, JumpStartMaxPlayTime);
-		// Also start loop phase if physics says we passed apex even before time window — early exit.
+		const float StartToLoopAt = ComputeStartToLoopTime();
 		const bool bPastApexExitable = bHasPassedJumpApex
 			&& VerticalVelocity < JumpApexVelocityThreshold
 			&& AirTime >= JumpStartMinPlayTime;
@@ -191,6 +209,7 @@ void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 	}
 	else if (bWasInAirPreviousFrame && !bNowInAir && bJumpArcActive && !bIsLanding)
 	{
+		bIsLongFallLanding = AirTime >= LongFallAirTimeThreshold;
 		CachedJumpLoopPhaseTimeAtLand = JumpLoopPhaseTime;
 		bIsLanding = true;
 		AirTime = 0.f;
@@ -204,12 +223,22 @@ void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 		{
 			Recovery = FMath::Max(Recovery, LandAnim->GetPlayLength() * JumpLandRecoveryAnimFraction);
 		}
+		// Short hops / double jump: cap recovery so Loop does not linger on the ground.
+		if (CachedJumpLoopPhaseTimeAtLand < JumpLoopLandMinPhaseTime)
+		{
+			Recovery = FMath::Min(Recovery, JumpLandRecoveryMinTime * 0.5f);
+		}
 		LandingRecoveryTimer = Recovery;
 		DFJumpDebug::Logf(TEXT("Landed dir=%d loopPhase=%.3fs recovery=%.3fs"),
 			static_cast<int32>(LastJumpDirection), CachedJumpLoopPhaseTimeAtLand, LandingRecoveryTimer);
 	}
 
-	if (!bNowInAir && (!bJumpArcActive || GroundedTime >= MinGroundedTimeBeforeJump))
+	if (!bNowInAir && bJumpArcActive && !bIsLanding && GroundedTime >= JumpArcGroundedExitTime)
+	{
+		bJumpArcActive = false;
+		bJumpArcEndLatch = false;
+	}
+	else if (!bNowInAir && (!bJumpArcActive || GroundedTime >= MinGroundedTimeBeforeJump))
 	{
 		bHasPassedJumpApex = false;
 	}
@@ -222,7 +251,32 @@ void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 	bIsJumping = bNowInAir && !bHasPassedJumpApex;
 	bIsFalling = bNowInAir && bHasPassedJumpApex;
 
-	if (bIsFalling && OwningCharacter)
+	bIsDoubleJumping = false;
+	if (OwningCharacter)
+	{
+		if (IAbilitySystemInterface* const IAS = Cast<IAbilitySystemInterface>(OwningCharacter))
+		{
+			if (UAbilitySystemComponent* const ASC = IAS->GetAbilitySystemComponent())
+			{
+				bIsDoubleJumping = ASC->HasMatchingGameplayTag(FDFGameplayTags::State_DoubleJumping);
+			}
+		}
+	}
+
+	if (bIsDoubleJumping && !bWasDoubleJumpingPreviousFrame && bJumpArcActive && bNowInAir)
+	{
+		AirTime = 0.f;
+		JumpLoopPhaseTime = 0.f;
+		bHasPassedJumpApex = false;
+		if (UAnimSequenceBase* const DJStart = GetJumpDoubleStartAnim())
+		{
+			CachedJumpStartPlayTime = DJStart->GetPlayLength();
+		}
+		DFJumpDebug::Logf(TEXT("DoubleJump reset StartToLoopAt=%.3fs"), ComputeStartToLoopTime());
+	}
+	bWasDoubleJumpingPreviousFrame = bIsDoubleJumping;
+
+	if (bIsInAir && bHasPassedJumpApex && VerticalVelocity <= JumpApexVelocityThreshold && OwningCharacter)
 	{
 		PredictedLandingDistance = LandPredictionTraceMax;
 		if (UWorld* const W = OwningCharacter->GetWorld())
@@ -635,9 +689,20 @@ UAnimSequenceBase* UUDFAnimInstance::GetJumpLandAnim() const
 	return ActiveAnimSet.ResolveJumpLand(LastJumpDirection);
 }
 
+UAnimSequenceBase* UUDFAnimInstance::GetJumpDoubleStartAnim() const
+{
+	return ActiveAnimSet.ResolveJumpDoubleStart();
+}
+
+UAnimSequenceBase* UUDFAnimInstance::GetJumpDoubleLoopAnim() const
+{
+	return ActiveAnimSet.ResolveJumpDoubleLoop();
+}
+
 float UUDFAnimInstance::GetLandPreparationAlpha() const
 {
-	if (!bIsFalling || LandPreparationThreshold <= KINDA_SMALL_NUMBER)
+	if (!bIsInAir || !bHasPassedJumpApex || VerticalVelocity > JumpApexVelocityThreshold
+		|| LandPreparationThreshold <= KINDA_SMALL_NUMBER)
 	{
 		return 0.f;
 	}
@@ -656,15 +721,44 @@ void UUDFAnimInstance::NotifyLandingRecoveryEnd()
 	LandingRecoveryTimer = 0.f;
 }
 
+float UUDFAnimInstance::ComputeStartToLoopTime() const
+{
+	return FMath::Max(JumpStartMinPlayTime, CachedJumpStartPlayTime);
+}
+
+void UUDFAnimInstance::CaptureTakeoffJumpDirection(const bool bStrafeForDir)
+{
+	if (Speed > 50.f)
+	{
+		DetermineMovementDirection(bStrafeForDir);
+		LastJumpDirection = MovementDirection;
+		return;
+	}
+
+	if (DFCharacterMovement)
+	{
+		const FVector WorldInput = DFCharacterMovement->GetLastInputVector();
+		if (WorldInput.SizeSquared2D() > 100.f)
+		{
+			const FRotator YawRot(0.f, OwningCharacter->GetActorRotation().Yaw, 0.f);
+			const float SavedDirection = Direction;
+			Direction = UKismetAnimationLibrary::CalculateDirection(WorldInput, YawRot);
+			DetermineMovementDirection(bStrafeForDir);
+			LastJumpDirection = MovementDirection;
+			Direction = SavedDirection;
+			return;
+		}
+	}
+
+	LastJumpDirection = EDFMovementDirection::None;
+}
+
 void UUDFAnimInstance::UpdateJumpTransitionHints()
 {
 	const float LandPrepAlpha = GetLandPreparationAlpha();
-	const bool bJustLanded = bWasInAirPreviousFrame && !bIsInAir && bJumpArcActive;
-	// Clamp the start-to-loop time within configured min/max bounds.
-	// Using Max(Min, CachedAnim) caused forward jumps (anim 0.75s) to never finish before landing (~0.6s airtime).
-	// Now: clamp the anim length to [MinPlayTime, MaxPlayTime] — short anims floor at Min, long ones cap at Max.
-	const float StartToLoopAt = FMath::Clamp(CachedJumpStartPlayTime, JumpStartMinPlayTime, JumpStartMaxPlayTime);
+	const float StartToLoopAt = ComputeStartToLoopTime();
 	const bool bInJumpStartWindow = AirTime < StartToLoopAt;
+	const bool bGroundedStable = !bIsInAir && GroundedTime >= JumpArcGroundedExitTime;
 
 	// Hold Loco→Start for the full start clip; Start→Loop when the clip would finish (not physics apex).
 	bTransition_LocomotionToJumpStart = bJumpArcActive && bIsInAir && bInJumpStartWindow;
@@ -683,16 +777,19 @@ void UUDFAnimInstance::UpdateJumpTransitionHints()
 		&& JumpLoopPhaseTime >= JumpLoopPrepMinPhaseTime
 		&& LandPrepAlpha >= JumpLandPrepAlphaThreshold;
 
-	bTransition_JumpLoopToLand = bJustLanded
-		&& CachedJumpLoopPhaseTimeAtLand >= JumpLoopLandMinPhaseTime;
+	// Sustained through landing recovery. No min loop phase — if SM is in Jump Loop, it must exit on touch-down
+	// even when loopPhase < LandMin (short hop / late Start->Loop crossfade). JumpStart->Land covers Start state.
+	bTransition_JumpLoopToLand = !bIsInAir && bIsLanding;
 
-	// Emergency direct path: if the player landed while still in JumpStart (short-airtime jumps where the
-	// start anim never finished), bypass Loop and go straight to Land — otherwise the SM stays stuck.
-	// AnimBP must wire: JumpStart → Land using this transition flag.
-	bTransition_JumpStartToLand = bJustLanded && CachedJumpLoopPhaseTimeAtLand < JumpLoopLandMinPhaseTime;
+	// Emergency direct path: landed while SM is still in JumpStart (short-airtime / long-fall step-off).
+	bTransition_JumpStartToLand = !bIsInAir && bIsLanding
+		&& CachedJumpLoopPhaseTimeAtLand < JumpLoopLandMinPhaseTime;
 
-	// Only while finishing a jump arc (not idle on Locomotion).
-	bTransition_LandToLocomotion = bJumpArcActive && !bIsInAir && !bIsLanding;
+	// Exit Land once recovery ends; keep true after arc timeout so a missed Land->Loco still fires.
+	bTransition_LandToLocomotion = !bIsInAir && !bIsLanding && (bJumpArcActive || bGroundedStable);
+
+	// Escape Jump Start/Loop when grounded — persists even after bJumpArcActive clears (prevents permanent SM stick).
+	bTransition_JumpGroundedExit = !bIsInAir && !bIsLanding && bGroundedStable;
 
 	if (bTransition_LandToLocomotion)
 	{
@@ -737,6 +834,7 @@ void UUDFAnimInstance::LogJumpTransitionEdges()
 	LogEdge(TEXT("Loop->LandPrep"), bTransition_JumpLoopToLandPrep, bPrevTransition_LoopToLandPrep);
 	LogEdge(TEXT("Loop->Land"), bTransition_JumpLoopToLand, bPrevTransition_LoopToLand);
 	LogEdge(TEXT("Land->Loco"), bTransition_LandToLocomotion, bPrevTransition_LandToLoco);
+	LogEdge(TEXT("GroundedExit"), bTransition_JumpGroundedExit, bPrevTransition_JumpGroundedExit);
 }
 
 bool UUDFAnimInstance::IsPrimaryMeshAnimInstance() const
@@ -758,7 +856,7 @@ FString UUDFAnimInstance::BuildJumpTransitionDebugString() const
 {
 	const float LandPrepAlpha = GetLandPreparationAlpha();
 	return FString::Printf(
-		TEXT("[Jump|SM] Loco>Start=%s Start>Loop=%s Start>Land=%s Loop>Prep=%s Loop>Land=%s Land>Loco=%s\n")
+		TEXT("[Jump|SM] Loco>Start=%s Start>Loop=%s Start>Land=%s Loop>Prep=%s Loop>Land=%s Land>Loco=%s GndExit=%s\n")
 		TEXT("  J=%d F=%d InAir=%d Apex=%d Arc=%d L=%d | Vz=%.0f Air=%.2fs Gnd=%.2fs PredLand=%.0f Alpha=%.2f\n")
 		TEXT("  StartMin=%.2fs StartMax=%.2fs ApexRise=%.2fs ApexVz=%.0f | LoopPhase=%.2fs PrepMin=%.2fs LandMin=%.2fs\n")
 		TEXT("  Blends: Loco>Start=%.2fs Start>Loop=%.2fs Loop>Land=%.2fs Land>Loco=%.2fs | Dir=%d"),
@@ -768,6 +866,7 @@ FString UUDFAnimInstance::BuildJumpTransitionDebugString() const
 		OnOff(bTransition_JumpLoopToLandPrep),
 		OnOff(bTransition_JumpLoopToLand),
 		OnOff(bTransition_LandToLocomotion),
+		OnOff(bTransition_JumpGroundedExit),
 		bIsJumping ? 1 : 0,
 		bIsFalling ? 1 : 0,
 		bIsInAir ? 1 : 0,
@@ -981,8 +1080,8 @@ FString BuildActiveMontageDebugLine(UAnimInstance* Anim)
 FString UUDFAnimInstance::BuildJumpDeepDebugString()
 {
 	const float LandPrepAlpha = GetLandPreparationAlpha();
-	const bool bInJumpStartWindow = AirTime < FMath::Max(JumpStartMinPlayTime, CachedJumpStartPlayTime);
-	const float StartToLoopAt = FMath::Max(JumpStartMinPlayTime, CachedJumpStartPlayTime);
+	const float StartToLoopAt = ComputeStartToLoopTime();
+	const bool bInJumpStartWindow = AirTime < StartToLoopAt;
 	const float StartToLoopIn = FMath::Max(0.f, StartToLoopAt - AirTime);
 
 	UAnimSequenceBase* const StartAnim = GetJumpStartAnim();

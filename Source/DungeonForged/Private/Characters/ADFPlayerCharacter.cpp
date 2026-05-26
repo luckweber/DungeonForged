@@ -22,6 +22,8 @@
 #include "GAS/Effects/UGE_StaminaRegen.h"
 #include "Combat/DFDodgeDebug.h"
 #include "Combat/DFJumpDebug.h"
+#include "DFAssetManager.h"
+#include "Data/UDFCombatTuningData.h"
 #include "Combat/DFLockOnDebug.h"
 #include "Combat/UDFComboComponent.h"
 #include "Combat/UDFComboPointsComponent.h"
@@ -89,6 +91,9 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 		Move->bOrientRotationToMovement = true;
 		Move->bUseControllerDesiredRotation = false;
 	}
+
+	JumpMaxCount = 2;
+	JumpMaxHoldTime = 0.f;
 
 	CameraBoom = CreateDefaultSubobject<UDFCameraComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
@@ -529,6 +534,15 @@ void ADFPlayerCharacter::BeginPlay()
 	RefreshWeaponTraceForMelee();
 	RefreshMeleeLoadoutAfterEquipmentChange();
 	BindLockOnStrafeFromTargeting();
+
+	if (const UDFCombatTuningData* const Tuning = UDFAssetManager::GetCombatTuningDataSafe())
+	{
+		JumpInputBufferDuration = Tuning->JumpInputBufferDuration;
+	}
+	if (UDFCharacterMovementComponent* const CMC = Cast<UDFCharacterMovementComponent>(GetCharacterMovement()))
+	{
+		CMC->OnDFMovementModeChanged.AddUObject(this, &ADFPlayerCharacter::OnDFMovementModeChanged);
+	}
 }
 
 void ADFPlayerCharacter::SetupModularMeshPart(USkeletalMeshComponent* const Part)
@@ -602,16 +616,49 @@ void ADFPlayerCharacter::OnEquipmentEvent(const EEquipmentSlot Slot, const FName
 	}
 }
 
+void ADFPlayerCharacter::BufferJumpInput()
+{
+	if (UWorld* const W = GetWorld())
+	{
+		JumpInputBufferedUntil = W->GetTimeSeconds() + JumpInputBufferDuration;
+		DFJumpDebug::Logf(TEXT("Jump BUFFERED until %.3fs"), JumpInputBufferedUntil);
+	}
+}
+
+void ADFPlayerCharacter::TryConsumeBufferedJump()
+{
+	if (!GetWorld() || JumpInputBufferedUntil < 0.f)
+	{
+		return;
+	}
+	if (GetWorld()->GetTimeSeconds() > JumpInputBufferedUntil)
+	{
+		JumpInputBufferedUntil = -1.f;
+		return;
+	}
+	JumpInputBufferedUntil = -1.f;
+	DFJumpDebug::Log(TEXT("Jump BUFFER consumed"));
+	Jump();
+}
+
+void ADFPlayerCharacter::OnDFMovementModeChanged(
+	const EMovementMode NewMode, const EMovementMode /*PreviousMode*/, const uint8 /*PreviousCustomMode*/)
+{
+	if (NewMode == MOVE_Walking)
+	{
+		TryConsumeBufferedJump();
+	}
+}
+
 void ADFPlayerCharacter::Jump()
 {
 	if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponent())
 	{
-		if (UDFCharacterMovementComponent* const CMC = Cast<UDFCharacterMovementComponent>(GetCharacterMovement()))
+		UDFCharacterMovementComponent* const CMC = Cast<UDFCharacterMovementComponent>(GetCharacterMovement());
+
+		if (CMC && !CMC->IsFalling())
 		{
-			if (!CMC->IsFalling())
-			{
-				CMC->SyncJumpLooseTagsWhileGrounded(ASC);
-			}
+			CMC->SyncJumpLooseTagsWhileGrounded(ASC);
 		}
 
 		static const FGameplayTagContainer HardBlockers = []()
@@ -621,12 +668,23 @@ void ADFPlayerCharacter::Jump()
 			C.AddTag(FDFGameplayTags::State_Stunned);
 			C.AddTag(FDFGameplayTags::State_Dodging);
 			C.AddTag(FDFGameplayTags::State_Exhausted);
-			C.AddTag(FDFGameplayTags::State_Landing);
 			return C;
 		}();
 		if (ASC->HasAnyMatchingGameplayTags(HardBlockers))
 		{
 			DFJumpDebug::Log(TEXT("Jump blocked (hard tag)"));
+			return;
+		}
+
+		if (ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Landing))
+		{
+			BufferJumpInput();
+			return;
+		}
+
+		if (CMC && CMC->IsFalling() && CMC->IsFallingNearGround())
+		{
+			BufferJumpInput();
 			return;
 		}
 
@@ -644,8 +702,35 @@ void ADFPlayerCharacter::Jump()
 				Combo->CancelCurrentMontage();
 			}
 		}
+
+		if (CMC)
+		{
+			const bool bCoyote = CMC->IsWithinCoyoteWindow();
+			const bool bDoubleJump = CMC->IsFalling() && JumpCurrentCount > 0 && JumpCurrentCount < JumpMaxCount;
+			if (bCoyote || bDoubleJump)
+			{
+				bPressedJump = true;
+				if (CMC->RequestJump(false))
+				{
+					return;
+				}
+			}
+		}
 	}
 	Super::Jump();
+}
+
+void ADFPlayerCharacter::StopJumping()
+{
+	Super::StopJumping();
+	if (UDFCharacterMovementComponent* const CMC = Cast<UDFCharacterMovementComponent>(GetCharacterMovement()))
+	{
+		if (CMC->IsFalling() && CMC->Velocity.Z > 0.f && CMC->JumpApexCutScale > 0.f)
+		{
+			CMC->Velocity.Z *= CMC->JumpApexCutScale;
+			DFJumpDebug::Logf(TEXT("Apex cut Vz=%.0f"), CMC->Velocity.Z);
+		}
+	}
 }
 
 void ADFPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -1080,7 +1165,27 @@ void ADFPlayerCharacter::HandleDodgePressed()
 #if !UE_BUILD_SHIPPING
 	if (DFDodgeDebug::IsLogEnabled())
 	{
-		DFDodgeDebug::Log(TEXT("Input dodge pressed -> TryActivate Ability.Movement.Dodge"));
+		DFDodgeDebug::Log(TEXT("Input dodge pressed"));
+	}
+#endif
+	if (const UDFCharacterMovementComponent* const CMC = Cast<UDFCharacterMovementComponent>(GetCharacterMovement()))
+	{
+		if (CMC->IsFalling())
+		{
+#if !UE_BUILD_SHIPPING
+			if (DFDodgeDebug::IsLogEnabled())
+			{
+				DFDodgeDebug::Log(TEXT("  -> TryActivate Ability.Movement.AirDash"));
+			}
+#endif
+			TryActivateByGameplayTagName(FName("Ability.Movement.AirDash"));
+			return;
+		}
+	}
+#if !UE_BUILD_SHIPPING
+	if (DFDodgeDebug::IsLogEnabled())
+	{
+		DFDodgeDebug::Log(TEXT("  -> TryActivate Ability.Movement.Dodge"));
 	}
 #endif
 	TryActivateByGameplayTagName(FName("Ability.Movement.Dodge"));

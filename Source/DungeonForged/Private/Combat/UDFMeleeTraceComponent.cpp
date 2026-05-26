@@ -16,6 +16,7 @@
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "GameplayEffect.h"
 #include "GameplayEffectTypes.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -1561,6 +1562,13 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 					if (!StepData.SelfLaunchVelocity.IsNearlyZero())
 					{
 						LauncherComp->ApplySelfLaunch(StepData.SelfLaunchVelocity);
+					}
+					else if (ACharacter* const OwnerChar = Cast<ACharacter>(Owner))
+					{
+						if (!OwnerChar->GetCharacterMovement()->IsFalling())
+						{
+							OwnerChar->Jump();
+						}
 					}
 				}
 			}

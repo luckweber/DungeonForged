@@ -83,3 +83,21 @@ UAnimSequenceBase* FUDAnimSet::ResolveJumpLoop() const
 	}
 	return JumpLoopAnim;
 }
+
+UAnimSequenceBase* FUDAnimSet::ResolveJumpDoubleStart() const
+{
+	if (JumpSet.DoubleJump_Start)
+	{
+		return JumpSet.DoubleJump_Start;
+	}
+	return ResolveJumpStart(EDFMovementDirection::None);
+}
+
+UAnimSequenceBase* FUDAnimSet::ResolveJumpDoubleLoop() const
+{
+	if (JumpSet.DoubleJump_Loop)
+	{
+		return JumpSet.DoubleJump_Loop;
+	}
+	return ResolveJumpLoop();
+}

@@ -23,6 +23,7 @@
 - [12. Checklist de Quality Bar AAA](#12-checklist-de-quality-bar-aaa)
 - [13. Tabela de arquivos a tocar](#13-tabela-de-arquivos-a-tocar)
 - [14. Próximos passos sugeridos](#14-próximos-passos-sugeridos)
+- [15. Análise dos logs runtime (`df.JumpDebug`)](#15-análise-dos-logs-runtime-dfjumpdebug)
 
 ---
 
@@ -939,6 +940,36 @@ Use como **definition of done** ao final de cada fase.
 
 ---
 
+## 15. Status de implementação (C++ — 2026-05-25)
+
+| Fase | Item | Status | Notas |
+|------|------|--------|-------|
+| **1** | Coyote time | ✅ | `CoyoteTime`, `IsWithinCoyoteWindow()`, `RequestJump()` |
+| **1** | Jump input buffer | ✅ | `JumpInputBufferDuration`, soft `State.Landing` |
+| **1** | Variable jump (apex cut) | ✅ | `StopJumping()` + `JumpApexCutScale` |
+| **1** | Soft landing gate | ✅ | Landing → buffer, não hard block |
+| **1** | Sprint → jump momentum | ✅ | `SprintJumpHorizontalBoost` em `DoJump` |
+| **1** | Long-fall threshold | ✅ | `bIsLongFallLanding` no AnimInstance |
+| **2** | Double jump | ✅ | `JumpMaxCount=2`, `DFDoubleJumpZScale`, tags |
+| **2** | AnimSet double jump | ✅ | `DoubleJump_Start/Loop` + `GetJumpDouble*` |
+| **2** | AnimBP double state | ⏳ Editor | Wire `bIsDoubleJumping` no SM |
+| **3** | Air dash GA | ✅ | `UDFAbility_AirDash` — grant na DT |
+| **3** | Dodge só no chão | ✅ | Air usa AirDash |
+| **3** | Landing skip pós dash | ✅ | `AirDashLandingRecoverySkipWindow` |
+| **4** | Launcher auto-jump | ✅ | Sem `SelfLaunchVelocity` → `Jump()` |
+| **4** | Aerial hangtime notify | ✅ | `AnimNotifyState_AerialHangtime` |
+| **4** | Aerial combo montages | ⏳ Content | Infra `AerialComboSteps` já existe |
+| **5** | Camera / rumble / VFX | ⏳ | Fora do scope deste commit |
+
+**Editor / content pendente:**
+1. `DA_CombatTuning` — rever novos campos (coyote, buffer, air dash, double jump).
+2. `DT_Abilities` — adicionar row `UDFAbility_AirDash` + input bind.
+3. `ABP_JSHeroCharacter` — estado Double Jump + `bIsLongFallLanding` no Land.
+4. JumpSet — assign `DoubleJump_Start` (pode reusar Start ou clip dedicado).
+5. Montages aéreas — colocar `ANS_DFAbilityCancelWindow` + `AnimNotifyState_AerialHangtime`.
+
+---
+
 ## Referências cruzadas no projeto
 
 - [`docs/improvements/17_JumpSystem.md`](../improvements/17_JumpSystem.md) — sistema direcional de pulo (§16 Combate Aéreo, §17 Launcher→TrackingJump, §18 Troubleshooting)
@@ -963,3 +994,211 @@ Use como **definition of done** ao final de cada fase.
 7. Anti-gravity hangtime durante swing aéreo
 
 **Investimento estimado:** 12-18 dias de dev. **Maior ROI:** Fase 1 (1-2 dias, 80% do "feel AAA grounded"). Comece por aí.
+
+---
+
+## 15. Análise dos logs runtime (`df.JumpDebug`)
+
+> **Captura:** sessão de play real ~120s, com `df.JumpDebug 3+4 dump` (incluindo `[Jump|Deep]` snapshots).
+> **O que mudou desde a análise inicial:** o usuário **já implementou parte da Fase 1** — vejo `Apex cut Vz=...` e `Jump BUFFERED until ...` nos logs, então **variable jump height e jump input buffer já estão funcionando**. Ainda restam coyote time, sprint→jump momentum e long-fall threshold.
+
+### 15.1 O que está funcionando ✅
+
+| Sistema | Evidência no log |
+|---|---|
+| **Variable jump (apex cut)** | `[Jump] Apex cut Vz=233` (Vz cai de 730 → 233 ao soltar botão) |
+| **Jump input buffer** | `[Jump] Jump BUFFERED until 121.620s` → `[Jump] Jump BUFFER consumed` |
+| **Captura de direção no takeoff** | `Takeoff dir=1 speed=540 StartLen=0.750s` (forward jump = `Jump_Combat_Start_F_0`) |
+| **Fall gravity multiplier** | Vz vai de +730 → +234 (rising lento) → −556 (falling rápido) — boost pós-apex visível |
+| **Pré-blend Loop→LandPrep** | `Loop->Prep=ON` aparece quando `PredLand=20 Alpha=0.92` (perto do chão) |
+| **Land direcional** | `Jump_Combat_End_F_0_Seq` é usado quando `dir=1` (forward landing) |
+| **Sync de loose tags grounded** | `Transition OFF: Land->Loco` limpa estados corretamente |
+
+### 15.2 Bugs detectados nos logs 🐛
+
+#### Bug #1 (CRÍTICO) — **State Machine do AnimBP fica "stuck" em Jump Loop**
+
+Repetidamente vejo o SM travado em `Jump Loop` com `elapsed` crescendo absurdamente, **mesmo com o player já no chão**:
+
+```log
+[Jump] Transition OFF: Land->Loco
+[Jump] DoJump OK JumpZ=750
+[Jump|Deep]   SM[1] State=Jump Loop elapsed=2.078s weight=1.00   ← deveria estar em Locomotion!
+```
+
+E em outra captura, o SM permanece em "Jump Loop" por **3.5+ segundos**, atravessando múltiplos pulos:
+
+```log
+[Jump|Deep]   SM[1] State=Jump Loop elapsed=3.127s weight=1.00
+[Jump|Deep]   SM[1] State=Jump Loop elapsed=3.370s weight=1.00
+[Jump|Deep]   SM[1] State=Jump Loop elapsed=3.548s weight=1.00
+[Jump|Deep]   SM[1] State=Jump Loop elapsed=3.627s weight=1.00
+```
+
+**Diagnóstico:**
+- Os flags `bTransition_*` no C++ disparam corretamente (`READY → ON → OFF`).
+- Mas o State Machine no `ABP_DungeonForged` **não está consumindo esses flags** — provavelmente as regras de transição no AnimGraph estão usando outras condições (ex: `bIsFalling`, `bIsLanding`) que entram em race com chain-jumps via buffer.
+- O sintoma só aparece em **chain-jumps** (buffer consumed → takeoff antes do Land state completar a entrada).
+
+**Fix sugerido (no AnimBP):**
+- Abrir `ABP_JSHeroCharacter` ou equivalente.
+- Em cada transição do SM `Locomotion → JumpStart → JumpLoop → Land → Locomotion`, trocar a condição para usar **exclusivamente** o flag correspondente do AnimInstance:
+  - Locomotion → JumpStart: `bTransition_LocomotionToJumpStart`
+  - JumpStart → JumpLoop: `bTransition_JumpStartToLoop`
+  - JumpLoop → Land: `bTransition_JumpLoopToLand`
+  - Land → Locomotion: `bTransition_LandToLocomotion`
+  - **Adicionar:** Jump Loop → JumpStart (re-entry para chain-jump): condition `bTransition_LocomotionToJumpStart && bJumpArcActive` (já existe — só wire).
+- Garantir `Blend Logic = Standard Blend` e `Transition Priority Order` correto (priorizar Land→Loco quando há buffer consumed).
+
+#### Bug #2 (ALTO) — **`State.Landing` tag não é limpa no takeoff bufferizado**
+
+Logo após `Jump BUFFER consumed` e novo `DoJump OK`, vejo:
+
+```log
+[Jump|Deep]   J=1 F=0 InAir=1 Apex=0 Arc=1 L=1 | Vz=722 Air=0.02s
+```
+
+`L=1` (`State.Landing` ativo) **enquanto o player está subindo com Vz=722**. O takeoff Walking→Falling deveria limpar `State.Landing`, mas em [`UDFCharacterMovementComponent.cpp:200-228`](../../Source/DungeonForged/Private/Characters/UDFCharacterMovementComponent.cpp) o branch só adiciona `State.Jumping/Falling` sem chamar `ClearJumpLandingLooseTag(ASC)`.
+
+**Fix:**
+
+```cpp
+// UDFCharacterMovementComponent::OnMovementModeChanged
+if (PreviousMovementMode == MOVE_Walking && NewMode == MOVE_Falling)
+{
+    bJumpFallingTagActive = false;
+    if (ASC)
+    {
+        ClearJumpLandingLooseTag(ASC);  // ← ADICIONAR: limpa stale Landing
+        if (Velocity.Z > 1.f)
+        {
+            AddJumpLooseTagOnce(ASC, FDFGameplayTags::State_Jumping);
+        }
+        // ...
+    }
+}
+```
+
+E também cancelar o `TimerHandle_EndLanding` para não disparar depois do takeoff e limpar a tag *Jumping* por engano.
+
+#### Bug #3 (ALTO) — **`PredictedLandingDistance` stale durante subida**
+
+```log
+J=1 F=0 InAir=1 Apex=0 Arc=1 L=1 | Vz=722 Air=0.02s Gnd=0.00s PredLand=20 Alpha=0.92
+```
+
+Vz=722 (subindo!), mas `PredLand=20 Alpha=0.92` (sistema acha que vai aterrissar em 20cm). Isso vai disparar `Loop→LandPrep` no frame seguinte mesmo o player tendo acabado de iniciar um pulo novo.
+
+**Causa:** o `else` que reseta `PredictedLandingDistance = LandPredictionTraceMax` **provavelmente não está sendo executado durante `bIsJumping` (Vz > 0)** — só durante grounded. O snapshot stale do frame anterior persiste.
+
+**Fix em `UDFAnimInstance.cpp` (NativeUpdateAnimation):**
+
+```cpp
+// Predict landing distance only while falling AND in air
+if (bIsFalling && bIsInAir && OwningCharacter)
+{
+    // line trace logic
+}
+else
+{
+    PredictedLandingDistance = LandPredictionTraceMax;  // sempre reseta quando não-falling
+}
+```
+
+E adicionar uma guarda no takeoff frame:
+
+```cpp
+if (!bWasInAir && bNowInAir)
+{
+    // ... existing capture of direction, AirTime reset ...
+    PredictedLandingDistance = LandPredictionTraceMax;  // ← reset no takeoff
+}
+```
+
+#### Bug #4 (MÉDIO) — **`bJumpArcActive` (Arc=1) persiste por longo tempo no Locomotion**
+
+```log
+[Jump|Deep]   J=0 F=0 InAir=0 Apex=0 Arc=1 L=0 | Vz=0 Air=0.00s Gnd=0.36s
+```
+
+Player grounded há 0.36s, sem Landing, mas `Arc=1`. O `bJumpArcActive` está pendurado.
+
+**Fix:** o latch `bJumpArcActive` deveria ser liberado quando `bTransition_LandToLocomotion` dispara (já existe no log) ou quando `GroundedTime > LandingRecoveryWindow + 0.05`.
+
+Em `UDFAnimInstance.cpp`:
+
+```cpp
+// No final de NativeUpdateAnimation, depois das transitions
+if (bTransition_LandToLocomotion || (GroundedTime > LandingRecoveryWindow + 0.05f))
+{
+    bJumpArcActive = false;
+}
+```
+
+#### Bug #5 (BAIXO) — **`JumpStartMinPlayTime` mismatch com Forward anim**
+
+```log
+[Jump|Deep] Tune| JumpStartMinPlayTime (0.420s) differs from Start anim (0.750s) — using max at runtime (0.750s)
+```
+
+O sistema lida bem (usa max), mas o tuning configurado (`0.420s`) corresponde ao Jump_Start_0 (idle, 0.417s) e não considera que o Forward jump tem **0.750s**. Resultado: a transição Start→Loop fica esperando 750ms quando o player jumps forward, mas o pulo (`Air time`) só dura ~0.50s → o player **aterrissa antes do Loop sequer começar** (e o sintoma é que o "Jump Loop" anim nunca é visível em pulos curtos forward).
+
+Vejo isso explícito no log:
+```log
+[Jump] Landed dir=1 loopPhase=0.084s recovery=0.350s   ← landed com loopPhase=0.084s = nunca chegou ao Loop visualmente
+```
+
+**Fix:**
+- Tornar `JumpStartMinPlayTime` por direção (ou auto-detectar pelo `GetJumpStartAnim()->GetPlayLength()` no takeoff — você já cachea `CachedJumpStartPlayTime`).
+- Garantir que o gate de Start→Loop usa `CachedJumpStartPlayTime` (real) em vez de `JumpStartMinPlayTime` (configurado).
+- Alternativa: reduzir o `Jump_Combat_Start_F_0` para ~0.42s no editor (re-time da anim), igualando o idle. Para AAA, **ambas devem ter mesma duração** — facilita o tuning e elimina branches.
+
+### 15.3 Findings de tuning observados (sanity)
+
+| Métrica | Observado no log | Comentário |
+|---|---|---|
+| Jump Z velocity inicial | `Vz=730-734` | Subiu de 550 → 750 no `DA_CombatTuning`. ✅ |
+| Apex cut residual | `Vz=177-289` (var.) | Tap rápido = ~180, hold longo = ~290. Range saudável. |
+| Air time (jump padrão) | ~0.50s | OK para `JumpZ=750`, `Gravity=1.7`, `FallMult=1.25`. |
+| Air time (long jump observado) | 0.95s | Vejo um pulo que durou 0.95s — provavelmente cima de plataforma. Long-fall threshold (1.2s) ainda não acionou. |
+| Forward jump dist horizontal | `speed=540` no takeoff | Idêntico a sprint speed; sem boost de sprint→jump (G11 ainda pendente). |
+| Land recovery window | 0.350s | Confirmado em todos os "recovery=0.350s". Bom range. |
+| `Direction` no Land | `dir=0` idle, `dir=1` forward | Captura correta no takeoff, persistente. ✅ |
+
+### 15.4 Prioridade revisada (após logs)
+
+Com Apex Cut e Jump Buffer já implementados, a prioridade **muda**:
+
+| # | Item | Prioridade | Razão |
+|---|---|---|---|
+| 1 | **Fix Bug #1 (AnimBP SM stuck)** | 🔴 P0 — agora | Bloqueia qualquer trabalho aéreo futuro |
+| 2 | **Fix Bug #2 (State.Landing stale)** | 🔴 P0 — agora | Bug de tag pode bloquear abilities |
+| 3 | **Fix Bug #3 (PredLand stale)** | 🟠 P1 | Visual: Land Prep dispara prematuro |
+| 4 | **Fix Bug #4 (JumpArcActive latch)** | 🟡 P2 | Cosmético; debug overlay |
+| 5 | **Fix Bug #5 (StartLen mismatch)** | 🟠 P1 | Forward jump nunca mostra Loop visualmente |
+| 6 | Coyote time (Fase 1, §5.1) | 🟠 P1 | Continua sendo win de feel |
+| 7 | Sprint→jump momentum (Fase 1, §5.5) | 🟡 P2 | Win simples mas menor que coyote |
+| 8 | Long-fall anim threshold (Fase 1, §5.6) | 🟡 P2 | Polish; pulo de 0.95s já existe nos logs |
+| 9 | Double jump (Fase 2) | 🟠 P1 | Maior win de skill-ceiling |
+| 10 | Air dash (Fase 3) | 🟡 P2 | Após estabilidade do single+double |
+
+### 15.5 Checklist de regressão após os fixes
+
+Use `df.JumpDebug 3+4 dump` e verifique:
+
+- [ ] **Pulo simples (idle)**: SM passa por `Locomotion → JumpStart → JumpLoop → Land → Locomotion` em ordem, sem ficar stuck.
+- [ ] **Pulo forward (W pressionado)**: idem, mas com `Jump_Combat_Start_F_0` e `Jump_Combat_End_F_0`.
+- [ ] **Chain-jump (jump → bufferizar segundo jump → tocar chão)**: SM transita `Land → Locomotion → JumpStart` (não fica em Jump Loop).
+- [ ] **Apex cut**: solte o botão na subida → `Vz` cai abruptamente (já validado nos logs).
+- [ ] **`State.Landing` no `L=` flag**: deve ser 0 sempre que `J=1` ou `F=1` (no ar).
+- [ ] **`PredLand` no flag**: deve ser `1000` (max trace) quando `J=1` (subindo) ou grounded; só baixa quando `F=1` (falling).
+- [ ] **`Arc` no flag**: cai para 0 quando `Land→Loco` completa OU `GroundedTime > 0.4s`.
+- [ ] **Tune mismatch warning**: não deve mais aparecer (`JumpStartMinPlayTime differs from Start anim`).
+
+### 15.6 Sumário runtime
+
+**Boa notícia:** Apex cut + Jump Buffer funcionam. Você já tem **2 dos 7 gaps Tier-S resolvidos** (Variable Jump + Jump Buffer). Faltam 5 (coyote, double jump, air dash, aerial combo real, anti-grav hangtime).
+
+**Má notícia:** Há 5 bugs ativos no estado atual — sendo 2 deles **críticos** (AnimBP SM stuck + State.Landing stale). Esses **precisam ser resolvidos antes** de adicionar double jump / air dash, senão o caos vai se multiplicar com novas mecânicas aéreas.
+
+**Recomendação imediata:** dedicar 1 dia para os 5 bugs (todos são 5-30 linhas de fix cada). Depois prosseguir com Coyote Time (15min) e então Double Jump (Fase 2).

@@ -58,6 +58,7 @@ public:
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
 	virtual void Jump() override;
+	virtual void StopJumping() override;
 
 	/** Cached from ADFPlayerState — authoritative ASC lives on PlayerState. */
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "GAS")
@@ -449,4 +450,15 @@ private:
 	void OnRep_CurrentAbilitySlots();
 
 	void BroadcastAbilityBarSlotsChanged();
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0", ClampMax = "0.4"))
+	float JumpInputBufferDuration = 0.15f;
+
+	float JumpInputBufferedUntil = -1.f;
+
+	void BufferJumpInput();
+	void TryConsumeBufferedJump();
+
+	UFUNCTION()
+	void OnDFMovementModeChanged(EMovementMode NewMode, EMovementMode PreviousMode, uint8 PreviousCustomMode);
 };

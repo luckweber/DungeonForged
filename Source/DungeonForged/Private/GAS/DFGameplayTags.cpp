@@ -31,6 +31,7 @@ FGameplayTag FDFGameplayTags::Ability_Passive_Rogue_BleedMastery;
 FGameplayTag FDFGameplayTags::Ability_Movement_Sprint;
 FGameplayTag FDFGameplayTags::Ability_Movement_Dodge;
 FGameplayTag FDFGameplayTags::Ability_Movement_Jump;
+FGameplayTag FDFGameplayTags::Ability_Movement_AirDash;
 FGameplayTag FDFGameplayTags::Ability_Warrior_ShieldBash;
 FGameplayTag FDFGameplayTags::Ability_Warrior_WarCry;
 FGameplayTag FDFGameplayTags::Ability_Warrior_Whirlwind;
@@ -116,6 +117,8 @@ FGameplayTag FDFGameplayTags::State_Sprinting;
 FGameplayTag FDFGameplayTags::State_Dodging;
 FGameplayTag FDFGameplayTags::State_Jumping;
 FGameplayTag FDFGameplayTags::State_Falling;
+FGameplayTag FDFGameplayTags::State_DoubleJumping;
+FGameplayTag FDFGameplayTags::State_AirDashing;
 FGameplayTag FDFGameplayTags::State_Landing;
 FGameplayTag FDFGameplayTags::State_Attacking;
 FGameplayTag FDFGameplayTags::State_Casting;
@@ -308,6 +311,7 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(Ability_Movement_Sprint)(FName("Ability.Movement.Sprint"), FString("Sprint (hold) movement ability."));
 	DF_TAG(Ability_Movement_Dodge)(FName("Ability.Movement.Dodge"), FString("Dodge / roll."));
 	DF_TAG(Ability_Movement_Jump)(FName("Ability.Movement.Jump"), FString("Jump identifier (reserved)."));
+	DF_TAG(Ability_Movement_AirDash)(FName("Ability.Movement.AirDash"), FString("Air dash / aerial dodge."));
 
 	DF_TAG(Ability_Warrior_ShieldBash)(FName("Ability.Warrior.ShieldBash"), FString("Warrior: shield bash."));
 	DF_TAG(Ability_Warrior_WarCry)(FName("Ability.Warrior.WarCry"), FString("Warrior: war cry AOE buff."));
@@ -395,6 +399,8 @@ void FDFGameplayTags::RegisterGameplayTags()
 	DF_TAG(State_Dodging)(FName("State.Dodging"), FString("Invuln window / roll."));
 	DF_TAG(State_Jumping)(FName("State.Jumping"), FString("Character is going up after a jump."));
 	DF_TAG(State_Falling)(FName("State.Falling"), FString("Character is falling (post-apex or off ledge)."));
+	DF_TAG(State_DoubleJumping)(FName("State.DoubleJumping"), FString("Second jump impulse active."));
+	DF_TAG(State_AirDashing)(FName("State.AirDashing"), FString("Air dash displacement active."));
 	DF_TAG(State_Landing)(FName("State.Landing"), FString("Character is in landing recovery window."));
 	DF_TAG(State_Attacking)(FName("State.Attacking"), FString("In melee/weapon attack window; upper body or combo."));
 	DF_TAG(State_Casting)(FName("State.Casting"), FString("Charging or casting a spell/ability with cast anim."));

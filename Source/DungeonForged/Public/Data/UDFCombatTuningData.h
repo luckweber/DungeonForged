@@ -118,6 +118,45 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0"))
 	float JumpLandingRecoveryWindow = 0.20f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float JumpCoyoteTime = 0.10f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0", ClampMax = "0.4"))
+	float JumpInputBufferDuration = 0.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float JumpApexCutScale = 0.40f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float SprintJumpHorizontalBoost = 1.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0"))
+	float JumpBufferGroundDistance = 250.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0"))
+	float DoubleJumpStaminaCost = 5.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DoubleJumpZScale = 0.85f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashStaminaCost = 15.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashDistance = 400.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashDuration = 0.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashCooldown = 0.40f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashIFrameDuration = 0.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashLandingRecoverySkipWindow = 0.50f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|State")
 	float CombatExitDelay = 4.f;
 

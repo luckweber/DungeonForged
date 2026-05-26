@@ -50,6 +50,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Jump")
 	UAnimSequenceBase* GetJumpLandAnim() const;
 
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Jump")
+	UAnimSequenceBase* GetJumpDoubleStartAnim() const;
+
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Jump")
+	UAnimSequenceBase* GetJumpDoubleLoopAnim() const;
+
 	/** Alpha 0..1 for early land blend: 1 when close to ground while falling. */
 	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Jump")
 	float GetLandPreparationAlpha() const;
@@ -75,6 +81,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
 	bool bTransition_JumpLoopToLandPrep = false;
 
+	/** Grounded escape from Jump Start/Loop when AnimBP missed Land (wire Loop/Start → Loco). Stays true while grounded. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
+	bool bTransition_JumpGroundedExit = false;
+
 	/** Suggested crossfade durations (seconds) — tune in Class Defaults, read in df.JumpDebug 3. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Blend", meta = (ClampMin = "0.0"))
 	float JumpBlend_LocoToStart = 0.15f;
@@ -95,9 +105,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Debug", meta = (ClampMin = "0.0"))
 	float JumpStartMinPlayTime = 0.42f;
 
-	/** Force Start→Loop if still in air after this (safety if MinPlayTime is too high). */
+	/** Force Start→Loop if still in air after this (safety cap for very long start clips). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Debug", meta = (ClampMin = "0.0"))
-	float JumpStartMaxPlayTime = 0.45f;
+	float JumpStartMaxPlayTime = 0.85f;
+
+	/** End stale jump arc when grounded without landing recovery (prevents Arc=1 stuck). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Debug", meta = (ClampMin = "0.0"))
+	float JumpArcGroundedExitTime = 0.12f;
 
 	/** Min rising air time before velocity can latch apex (avoids Vz≈0 flicker on takeoff). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Debug", meta = (ClampMin = "0.0"))
@@ -130,6 +144,17 @@ public:
 	/** Seconds in loop phase this jump (after start clip ends); debug / AnimBP. */
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
 	float JumpLoopPhaseTime = 0.f;
+
+	/** True when GAS State.DoubleJumping is active (second jump impulse). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
+	bool bIsDoubleJumping = false;
+
+	/** Set on landing when air time exceeded LongFallAirTimeThreshold. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
+	bool bIsLongFallLanding = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions", meta = (ClampMin = "0.0"))
+	float LongFallAirTimeThreshold = 1.2f;
 
 	/** Stable rising phase (latched until apex); use for debug / AnimBP. */
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
@@ -338,6 +363,8 @@ private:
 	void UpdateJumpTransitionHints();
 	void LogJumpTransitionEdges();
 	bool IsPrimaryMeshAnimInstance() const;
+	void CaptureTakeoffJumpDirection(bool bStrafeForDir);
+	float ComputeStartToLoopTime() const;
 
 	bool bPrevTransition_LocoToStart = false;
 	bool bPrevTransition_StartToLoop = false;
@@ -345,8 +372,10 @@ private:
 	bool bPrevTransition_LoopToLand = false;
 	bool bPrevTransition_LandToLoco = false;
 	bool bPrevTransition_LoopToLandPrep = false;
+	bool bPrevTransition_JumpGroundedExit = false;
 
 	bool bWasInAirPreviousFrame = false;
+	bool bWasDoubleJumpingPreviousFrame = false;
 	float GroundedTime = 0.f;
 	bool bJumpArcEndLatch = false;
 	float JumpDeepLogTimer = 0.f;

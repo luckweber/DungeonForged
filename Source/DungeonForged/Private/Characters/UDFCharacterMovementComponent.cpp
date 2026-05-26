@@ -97,10 +97,95 @@ void UDFCharacterMovementComponent::ApplyJumpTuningFromDataAsset()
 		DFJumpStaminaCost = Tuning->JumpStaminaCost;
 		DFJumpCooldown = Tuning->JumpCooldown;
 		DFLandingRecoveryWindow = Tuning->JumpLandingRecoveryWindow;
+		CoyoteTime = Tuning->JumpCoyoteTime;
+		JumpApexCutScale = Tuning->JumpApexCutScale;
+		SprintJumpHorizontalBoost = Tuning->SprintJumpHorizontalBoost;
+		JumpBufferGroundDistance = Tuning->JumpBufferGroundDistance;
+		DFDoubleJumpStaminaCost = Tuning->DoubleJumpStaminaCost;
+		DFDoubleJumpZScale = Tuning->DoubleJumpZScale;
+		AirDashDistance = Tuning->AirDashDistance;
+		AirDashDuration = Tuning->AirDashDuration;
+		AirDashCooldown = Tuning->AirDashCooldown;
+		AirDashLandingRecoverySkipWindow = Tuning->AirDashLandingRecoverySkipWindow;
 	}
 	JumpZVelocity = DFJumpZVelocity;
 	AirControl = DFAirControl;
 	GravityScale = DFGravityScale;
+}
+
+bool UDFCharacterMovementComponent::IsWithinCoyoteWindow() const
+{
+	if (!bCoyoteFromLedgeDrop || TimeLastLeftGround < 0.f)
+	{
+		return false;
+	}
+	const UWorld* const W = GetWorld();
+	if (!W || MovementMode != MOVE_Falling)
+	{
+		return false;
+	}
+	return (W->GetTimeSeconds() - TimeLastLeftGround) <= CoyoteTime;
+}
+
+bool UDFCharacterMovementComponent::IsFallingNearGround(const float MaxGroundDistance) const
+{
+	if (!IsFalling() || !CharacterOwner)
+	{
+		return false;
+	}
+	const float Threshold = MaxGroundDistance > 0.f ? MaxGroundDistance : JumpBufferGroundDistance;
+	const FVector Start = CharacterOwner->GetActorLocation() + FVector(0.f, 0.f, 40.f);
+	const FVector End = Start - FVector(0.f, 0.f, 5000.f);
+	FHitResult Hit;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(JumpBufferGround), false, CharacterOwner.Get());
+	if (CharacterOwner->GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params))
+	{
+		const float Dist = FMath::Max(0.f, Start.Z - Hit.ImpactPoint.Z);
+		return Dist <= Threshold;
+	}
+	return false;
+}
+
+void UDFCharacterMovementComponent::NotifyAirDashPerformed()
+{
+	if (UWorld* const W = GetWorld())
+	{
+		TimeLastAirDash = W->GetTimeSeconds();
+	}
+	bAirDodgeUsedThisJump = true;
+}
+
+bool UDFCharacterMovementComponent::TryConsumeStaminaForJumpCost(const float Cost) const
+{
+	if (Cost <= 0.f || !CharacterOwner)
+	{
+		return true;
+	}
+	if (IAbilitySystemInterface* const IAS = Cast<IAbilitySystemInterface>(CharacterOwner))
+	{
+		if (UAbilitySystemComponent* const ASC = IAS->GetAbilitySystemComponent())
+		{
+			if (UDFAttributeSet* const Attrs = const_cast<UDFAttributeSet*>(ASC->GetSet<UDFAttributeSet>()))
+			{
+				if (Attrs->GetStamina() < Cost)
+				{
+					DFJumpDebug::Logf(TEXT("DoJump SKIP stamina=%.1f need=%.1f"), Attrs->GetStamina(), Cost);
+					return false;
+				}
+				Attrs->SetStamina(Attrs->GetStamina() - Cost);
+			}
+		}
+	}
+	return true;
+}
+
+void UDFCharacterMovementComponent::ApplySprintJumpMomentumBoost()
+{
+	if (bIsSprinting && SprintJumpHorizontalBoost > 1.f)
+	{
+		Velocity.X *= SprintJumpHorizontalBoost;
+		Velocity.Y *= SprintJumpHorizontalBoost;
+	}
 }
 
 float UDFCharacterMovementComponent::GetJumpCooldownRemaining() const
@@ -113,6 +198,11 @@ float UDFCharacterMovementComponent::GetJumpCooldownRemaining() const
 	return FMath::Max(0.f, DFJumpCooldown - (W->GetTimeSeconds() - TimeLastJump));
 }
 
+bool UDFCharacterMovementComponent::RequestJump(const bool bReplayingMoves)
+{
+	return DoJump(bReplayingMoves);
+}
+
 bool UDFCharacterMovementComponent::DoJump(const bool bReplayingMoves)
 {
 	if (GetJumpCooldownRemaining() > 0.f)
@@ -121,34 +211,90 @@ bool UDFCharacterMovementComponent::DoJump(const bool bReplayingMoves)
 		return false;
 	}
 
-	if (DFJumpStaminaCost > 0.f && CharacterOwner)
+	ACharacter* const Char = Cast<ACharacter>(CharacterOwner);
+	if (!Char)
 	{
-		if (IAbilitySystemInterface* const IAS = Cast<IAbilitySystemInterface>(CharacterOwner))
+		return false;
+	}
+
+	const bool bCoyote = IsWithinCoyoteWindow();
+	const bool bDoubleJump = IsFalling() && Char->JumpCurrentCount >= 1 && !bCoyote;
+	const bool bGroundedJump = IsMovingOnGround() || MovementMode == MOVE_Walking;
+
+	if (!bGroundedJump && !bCoyote && !bDoubleJump)
+	{
+		DFJumpDebug::Log(TEXT("DoJump SKIP not grounded/coyote/double"));
+		return false;
+	}
+
+	const float StaminaCost = bDoubleJump ? DFDoubleJumpStaminaCost : DFJumpStaminaCost;
+	if (!TryConsumeStaminaForJumpCost(StaminaCost))
+	{
+		return false;
+	}
+
+	auto FinishJumpImpulse = [this, Char]() -> bool
+	{
+		ApplySprintJumpMomentumBoost();
+		if (UWorld* const W = GetWorld())
+		{
+			TimeLastJump = W->GetTimeSeconds();
+		}
+		if (!IsFalling())
+		{
+			bAirDodgeUsedThisJump = false;
+		}
+		bCoyoteFromLedgeDrop = false;
+		DFJumpDebug::Logf(TEXT("DoJump OK JumpZ=%.0f Vz=%.0f"), JumpZVelocity, Velocity.Z);
+		return true;
+	};
+
+	if (bDoubleJump)
+	{
+		Velocity.Z = 0.f;
+		const float ImpulseZ = JumpZVelocity * DFDoubleJumpZScale;
+		Velocity.Z = ImpulseZ;
+		Char->JumpCurrentCount++;
+		if (IAbilitySystemInterface* const IAS = Cast<IAbilitySystemInterface>(Char))
 		{
 			if (UAbilitySystemComponent* const ASC = IAS->GetAbilitySystemComponent())
 			{
-				if (UDFAttributeSet* const Attrs = const_cast<UDFAttributeSet*>(ASC->GetSet<UDFAttributeSet>()))
-				{
-					if (Attrs->GetStamina() < DFJumpStaminaCost)
-					{
-						DFJumpDebug::Logf(TEXT("DoJump SKIP stamina=%.1f need=%.1f"),
-							Attrs->GetStamina(), DFJumpStaminaCost);
-						return false;
-					}
-					Attrs->SetStamina(Attrs->GetStamina() - DFJumpStaminaCost);
-				}
+				ClearLooseGameplayTagAll(ASC, FDFGameplayTags::State_DoubleJumping);
+				AddJumpLooseTagOnce(ASC, FDFGameplayTags::State_DoubleJumping);
+				ClearJumpAirborneLooseTags(ASC);
+				AddJumpLooseTagOnce(ASC, FDFGameplayTags::State_Jumping);
+				bJumpFallingTagActive = false;
 			}
 		}
+		return FinishJumpImpulse();
+	}
+
+	if (bCoyote)
+	{
+		Velocity.Z = FMath::Max(Velocity.Z, JumpZVelocity);
+		Char->JumpCurrentCount = FMath::Max(1, Char->JumpCurrentCount + 1);
+		if (IAbilitySystemInterface* const IAS = Cast<IAbilitySystemInterface>(Char))
+		{
+			if (UAbilitySystemComponent* const ASC = IAS->GetAbilitySystemComponent())
+			{
+				ClearJumpAirborneLooseTags(ASC);
+				AddJumpLooseTagOnce(ASC, FDFGameplayTags::State_Jumping);
+				bJumpFallingTagActive = false;
+			}
+		}
+		return FinishJumpImpulse();
 	}
 
 	const bool bOk = Super::DoJump(bReplayingMoves);
 	if (bOk)
 	{
+		ApplySprintJumpMomentumBoost();
 		if (UWorld* const W = GetWorld())
 		{
 			TimeLastJump = W->GetTimeSeconds();
 		}
 		bAirDodgeUsedThisJump = false;
+		bCoyoteFromLedgeDrop = false;
 		DFJumpDebug::Logf(TEXT("DoJump OK JumpZ=%.0f"), JumpZVelocity);
 	}
 	return bOk;
@@ -200,8 +346,36 @@ void UDFCharacterMovementComponent::OnMovementModeChanged(EMovementMode Previous
 	if (PreviousMovementMode == MOVE_Walking && NewMode == MOVE_Falling)
 	{
 		bJumpFallingTagActive = false;
+		UWorld* const W = GetWorld();
+		if (W)
+		{
+			if (Velocity.Z <= 1.f)
+			{
+				TimeLastLeftGround = W->GetTimeSeconds();
+				bCoyoteFromLedgeDrop = true;
+			}
+			else
+			{
+				bCoyoteFromLedgeDrop = false;
+			}
+		}
 		if (ASC)
 		{
+			// Chain-jumps via buffer can leave State.Landing from the previous arc — clear on any takeoff/leave-ground.
+			ClearJumpLandingLooseTag(ASC);
+			if (Velocity.Z > 1.f)
+			{
+				if (W)
+				{
+					W->GetTimerManager().ClearTimer(TimerHandle_EndLanding);
+				}
+				if (bIsApplyingLandingBrake && NormalBrakingDecelerationWalking >= 0.f)
+				{
+					BrakingDecelerationWalking = NormalBrakingDecelerationWalking;
+					bIsApplyingLandingBrake = false;
+				}
+			}
+
 			// Going up after jump → Jumping; ledge drop / step-off → Falling directly.
 			if (Velocity.Z > 1.f)
 			{
@@ -230,9 +404,26 @@ void UDFCharacterMovementComponent::OnMovementModeChanged(EMovementMode Previous
 	{
 		bAirDodgeUsedThisJump = false;
 		bJumpFallingTagActive = false;
+		bCoyoteFromLedgeDrop = false;
+		if (ASC)
+		{
+			ClearLooseGameplayTagAll(ASC, FDFGameplayTags::State_DoubleJumping);
+			ClearLooseGameplayTagAll(ASC, FDFGameplayTags::State_AirDashing);
+		}
 		if (UWorld* const W = GetWorld())
 		{
 			TimeLastLanded = W->GetTimeSeconds();
+		}
+
+		float LandingRecoveryDuration = DFLandingRecoveryWindow;
+		if (UWorld* const W = GetWorld())
+		{
+			if (TimeLastAirDash >= 0.f
+				&& (W->GetTimeSeconds() - TimeLastAirDash) <= AirDashLandingRecoverySkipWindow)
+			{
+				LandingRecoveryDuration = 0.f;
+				DFJumpDebug::Log(TEXT("Landed — skip recovery (recent air dash)"));
+			}
 		}
 
 		// ── Landing impulse damping ──────────────────────────────────────────
@@ -257,37 +448,47 @@ void UDFCharacterMovementComponent::OnMovementModeChanged(EMovementMode Previous
 		{
 			ClearJumpAirborneLooseTags(ASC);
 			ClearJumpLandingLooseTag(ASC);
-			AddJumpLooseTagOnce(ASC, FDFGameplayTags::State_Landing);
+			if (LandingRecoveryDuration > 0.f)
+			{
+				AddJumpLooseTagOnce(ASC, FDFGameplayTags::State_Landing);
+			}
 		}
 		if (UWorld* const W = GetWorld())
 		{
 			W->GetTimerManager().ClearTimer(TimerHandle_EndLanding);
-			W->GetTimerManager().SetTimer(
-				TimerHandle_EndLanding,
-				[this]()
-				{
-					if (!CharacterOwner)
+			if (LandingRecoveryDuration > 0.f)
+			{
+				W->GetTimerManager().SetTimer(
+					TimerHandle_EndLanding,
+					[this]()
 					{
-						return;
-					}
-					// Restore normal braking when landing window expires.
-					if (bIsApplyingLandingBrake && NormalBrakingDecelerationWalking >= 0.f)
-					{
-						BrakingDecelerationWalking = NormalBrakingDecelerationWalking;
-						bIsApplyingLandingBrake = false;
-					}
-					if (IAbilitySystemInterface* const I = Cast<IAbilitySystemInterface>(CharacterOwner))
-					{
-						if (UAbilitySystemComponent* const A = I->GetAbilitySystemComponent())
+						if (!CharacterOwner)
 						{
-							ClearJumpLandingLooseTag(A);
+							return;
 						}
-					}
-				},
-				DFLandingRecoveryWindow,
-				false);
+						if (bIsApplyingLandingBrake && NormalBrakingDecelerationWalking >= 0.f)
+						{
+							BrakingDecelerationWalking = NormalBrakingDecelerationWalking;
+							bIsApplyingLandingBrake = false;
+						}
+						if (IAbilitySystemInterface* const I = Cast<IAbilitySystemInterface>(CharacterOwner))
+						{
+							if (UAbilitySystemComponent* const A = I->GetAbilitySystemComponent())
+							{
+								ClearJumpLandingLooseTag(A);
+							}
+						}
+					},
+					LandingRecoveryDuration,
+					false);
+				DFJumpDebug::Log(TEXT("Landed — State.Landing window started"));
+			}
+			else if (bIsApplyingLandingBrake && NormalBrakingDecelerationWalking >= 0.f)
+			{
+				BrakingDecelerationWalking = NormalBrakingDecelerationWalking;
+				bIsApplyingLandingBrake = false;
+			}
 		}
-		DFJumpDebug::Log(TEXT("Landed — State.Landing window started"));
 	}
 }
 

@@ -22,6 +22,10 @@ UANS_DFAbilityCancelWindow::UANS_DFAbilityCancelWindow()
 	{
 		AllowedCancelTags.AddTag(FDFGameplayTags::Ability_Movement_Jump);
 	}
+	if (FDFGameplayTags::Ability_Movement_AirDash.IsValid())
+	{
+		AllowedCancelTags.AddTag(FDFGameplayTags::Ability_Movement_AirDash);
+	}
 }
 
 FString UANS_DFAbilityCancelWindow::GetNotifyName_Implementation() const

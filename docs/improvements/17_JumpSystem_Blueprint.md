@@ -451,7 +451,9 @@ Em **Class Defaults** do `ABP_JSHeroCharacter` → categoria **DF | Locomotion |
 | `bTransition Locomotion To Jump Start` | Locomotion → Jump Start |
 | `bTransition Jump Start To Loop` | Jump Start → Jump Loop |
 | `bTransition Jump Loop To Land` | Jump Loop → Land |
+| `bTransition Jump Start To Land` | Jump Start → Land (pulo curto / queda longa) |
 | `bTransition Land To Locomotion` | Land → Locomotion |
+| **`bTransition Jump Grounded Exit`** | **Jump Loop / Jump Start → Locomotion (escape obrigatório)** |
 | `bTransition Jump Loop To Land Prep` | (opcional) Loop → blend pré-land |
 
 **Blend durations** (mesma categoria **Blend**): copia os valores do HUD para o **Duration** de cada seta no SM.
@@ -469,7 +471,9 @@ Em **Class Defaults** do `ABP_JSHeroCharacter` → categoria **DF | Locomotion |
 |---|---|
 | Loco→Start usa só `bIsJumping` | OK, mas **`bIsInAir`** é mais fiável no 1.º frame |
 | Start→Loop dispara aos **0.08s** ainda a subir | **`Jump Start To Loop Min Air Time`** = **0.20**; regra = **`bTransition Jump Start To Loop`** |
-| Logs `Loop->Land` / `Land->Loco` no chão | Corrigido no C++ — só disparam no **landing edge** |
+| Logs `Loop->Land` / `Land->Loco` no chão | Corrigido no C++ — flags **sustentadas** durante recovery / chão estável |
+| **Preso em Jump Loop no chão (GndExit=off, elapsed alto)** | Falta transição **Jump Loop → Locomotion** com **`bTransition Jump Grounded Exit`** (blend 0.10s). Repete para **Jump Start → Locomotion**. |
+| `Land->Loco=ON` mas SM ainda em Jump Loop | A transição Land→Loco só sai do estado **Land** — usa **GndExit** para sair do Loop |
 | Start cortado no apex (flicker J/F) | **`bHasPassedJumpApex`** — fase estável; ver `Apex=1` no HUD |
 | Loco→Start blend curto demais | **`Jump Blend Loco To Start`** = **0.15**; Start→Loop = **0.18** |
 
@@ -479,8 +483,10 @@ Em **Class Defaults** do `ABP_JSHeroCharacter` → categoria **DF | Locomotion |
 |---|---|
 | Loco → Start | `bTransition Locomotion To Jump Start` (= no ar, antes do apex, `AirTime < StartMax`) |
 | Start → Loop | `bTransition Jump Start To Loop` (= apex passou **e** `AirTime >= 0.20`, ou `AirTime >= StartMax`) |
-| Loop → Land | `bTransition Jump Loop To Land` (= frame de aterragem) |
-| Land → Loco | `bTransition Land To Locomotion` (= chão **e** recovery acabou) |
+| Loop → Land | `bTransition Jump Loop To Land` (= aterrou; **sem** gate de loopPhase — curto ou longo) |
+| Start → Land | `bTransition Jump Start To Land` (= aterrou com `loopPhase < LandMin` **e** SM ainda em Start) |
+| Land → Loco | `bTransition Land To Locomotion` (= chão **e** recovery acabou; persiste após timeout do arco) |
+| **Loop / Start → Loco (escape)** | **`bTransition Jump Grounded Exit`** (= chão estável ≥ `JumpArcGroundedExitTime`, recovery acabou) |
 
 `Jump Start Max Play Time` default **0.42s** ≈ duração do `Jump_Combat_Start_0` (24 frames @ 60fps).
 

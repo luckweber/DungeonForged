@@ -131,6 +131,36 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0"))
 	float DFLandingRecoveryWindow = 0.20f;
 
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float CoyoteTime = 0.10f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float JumpApexCutScale = 0.40f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "1.0"))
+	float SprintJumpHorizontalBoost = 1.25f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0"))
+	float JumpBufferGroundDistance = 250.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0"))
+	float DFDoubleJumpStaminaCost = 5.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DFDoubleJumpZScale = 0.85f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashDistance = 400.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashDuration = 0.25f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashCooldown = 0.40f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump|AirDash", meta = (ClampMin = "0.0"))
+	float AirDashLandingRecoverySkipWindow = 0.50f;
+
 	/**
 	 * Horizontal velocity retained on touch-down (0..1). At 0.4 the character keeps 40% of
 	 * its airborne XY speed at landing — the rest is shed instantly to stop "sliding".
@@ -151,8 +181,23 @@ public:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Movement|Jump")
 	bool bAirDodgeUsedThisJump = false;
 
+	/** Stash for AnimNotifyState_AerialHangtime (not replicated). */
+	float AerialHangtimeSavedGravity = -1.f;
+
 	UFUNCTION(BlueprintPure, Category = "DF|Movement|Jump")
 	float GetJumpCooldownRemaining() const;
+
+	UFUNCTION(BlueprintPure, Category = "DF|Movement|Jump")
+	bool IsWithinCoyoteWindow() const;
+
+	UFUNCTION(BlueprintPure, Category = "DF|Movement|Jump")
+	bool IsFallingNearGround(float MaxGroundDistance = -1.f) const;
+
+	/** Called by UDFAbility_AirDash when a dash starts (tracks landing recovery skip). */
+	void NotifyAirDashPerformed();
+
+	/** Public entry for coyote / double-jump when ACharacter::Jump cannot reach protected DoJump. */
+	bool RequestJump(bool bReplayingMoves = false);
 
 	/** Clears stale Jumping/Falling; removes Landing after recovery window. Call before jump input. */
 	void SyncJumpLooseTagsWhileGrounded(class UAbilitySystemComponent* ASC);
@@ -176,6 +221,13 @@ protected:
 	float TimeLastJump = -1.f;
 	/** World time when we last landed (Falling → Walking). */
 	float TimeLastLanded = -1.f;
+	/** Ledge drop (not jump takeoff) — enables coyote window. */
+	float TimeLastLeftGround = -1.f;
+	float TimeLastAirDash = -1.f;
+	bool bCoyoteFromLedgeDrop = false;
+
+	bool TryConsumeStaminaForJumpCost(float Cost) const;
+	void ApplySprintJumpMomentumBoost();
 	FTimerHandle TimerHandle_EndDodging;
 	FTimerHandle TimerHandle_EndIFrame;
 	FTimerHandle TimerHandle_EndLanding;

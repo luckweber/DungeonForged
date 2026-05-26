@@ -73,9 +73,9 @@ bool UDFAbility_Dodge::CanActivateAbility(const FGameplayAbilitySpecHandle Handl
 			? Cast<UDFCharacterMovementComponent>(Char->GetCharacterMovement())
 			: nullptr)
 		{
-			if (CMC->IsFalling() && CMC->bAirDodgeUsedThisJump)
+			if (CMC->IsFalling())
 			{
-				DFDodgeDebug::Log(TEXT("CanActivate FAIL air dodge already used this jump"));
+				DFDodgeDebug::Log(TEXT("CanActivate FAIL airborne — use AirDash"));
 				return false;
 			}
 		}

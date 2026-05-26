@@ -49,6 +49,12 @@ struct DUNGEONFORGED_API FUDJumpAnimSet
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Jump|Land")
 	TObjectPtr<UAnimSequenceBase> Land_Right;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Jump|Double")
+	TObjectPtr<UAnimSequenceBase> DoubleJump_Start;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Jump|Double")
+	TObjectPtr<UAnimSequenceBase> DoubleJump_Loop;
+
 	UAnimSequenceBase* ResolveStart(const EDFMovementDirection Dir) const;
 	UAnimSequenceBase* ResolveLand(const EDFMovementDirection Dir) const;
 
@@ -99,6 +105,8 @@ struct DUNGEONFORGED_API FUDAnimSet
 	UAnimSequenceBase* ResolveJumpStart(const EDFMovementDirection Dir) const;
 	UAnimSequenceBase* ResolveJumpLand(const EDFMovementDirection Dir) const;
 	UAnimSequenceBase* ResolveJumpLoop() const;
+	UAnimSequenceBase* ResolveJumpDoubleStart() const;
+	UAnimSequenceBase* ResolveJumpDoubleLoop() const;
 
 	bool IsValid() const
 	{

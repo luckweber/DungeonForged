@@ -50,6 +50,7 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Ability_Movement_Sprint;
 	static FGameplayTag Ability_Movement_Dodge;
 	static FGameplayTag Ability_Movement_Jump;
+	static FGameplayTag Ability_Movement_AirDash;
 	// Warrior
 	static FGameplayTag Ability_Warrior_ShieldBash;
 	static FGameplayTag Ability_Warrior_WarCry;
@@ -155,6 +156,8 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag State_Dodging;
 	static FGameplayTag State_Jumping;
 	static FGameplayTag State_Falling;
+	static FGameplayTag State_DoubleJumping;
+	static FGameplayTag State_AirDashing;
 	static FGameplayTag State_Landing;
 	static FGameplayTag State_Attacking;
 	static FGameplayTag State_Casting;
