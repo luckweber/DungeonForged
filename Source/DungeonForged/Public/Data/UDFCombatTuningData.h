@@ -143,10 +143,10 @@ public:
 	float AirDashStaminaCost = 15.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|AirDash", meta = (ClampMin = "0.0"))
-	float AirDashDistance = 400.f;
+	float AirDashDistance = 520.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|AirDash", meta = (ClampMin = "0.0"))
-	float AirDashDuration = 0.25f;
+	float AirDashDuration = 0.22f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|AirDash", meta = (ClampMin = "0.0"))
 	float AirDashCooldown = 0.40f;

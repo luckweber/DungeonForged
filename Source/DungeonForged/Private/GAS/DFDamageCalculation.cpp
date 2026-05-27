@@ -39,6 +39,13 @@ void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExe
 		return;
 	}
 
+	// Hard i-frame gate: dodge / air dash / shield buffs grant State.Invulnerable; skip all damage math.
+	if (FDFGameplayTags::State_Invulnerable.IsValid()
+		&& TargetASC->HasMatchingGameplayTag(FDFGameplayTags::State_Invulnerable))
+	{
+		return;
+	}
+
 	FAggregatorEvaluateParameters EvalParams;
 	const FGameplayEffectSpec& Spec = ExecutionParams.GetOwningSpec();
 	EvalParams.SourceTags = Spec.CapturedSourceTags.GetAggregatedTags();

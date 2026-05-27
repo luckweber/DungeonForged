@@ -67,6 +67,18 @@ public:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
 	bool bTransition_JumpStartToLoop = false;
 
+	/** Locomotion → Jump Loop when past start window (air dash resume / mid-fall re-entry). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
+	bool bTransition_LocomotionToJumpLoop = false;
+
+	/** Jump Loop → Locomotion when grounded (wire instead of inverting KeepLoop in AnimBP). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
+	bool bTransition_JumpLoopToLocomotion = false;
+
+	/** Block Jump Loop / Jump Start → Locomotion while still airborne (wire as NOT on escape transitions). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
+	bool bKeepJumpLoopWhileAirborne = false;
+
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Jump|Transitions")
 	bool bTransition_JumpLoopToLand = false;
 
@@ -91,6 +103,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Blend", meta = (ClampMin = "0.0"))
 	float JumpBlend_StartToLoop = 0.18f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Blend", meta = (ClampMin = "0.0"))
+	float JumpBlend_LocoToLoop = 0.12f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Jump|Transitions|Blend", meta = (ClampMin = "0.0"))
 	float JumpBlend_LoopToLand = 0.20f;
@@ -166,6 +181,10 @@ public:
 
 	void NotifyLandingRecoveryBegin(float Duration);
 	void NotifyLandingRecoveryEnd();
+
+	/** Re-sync jump arc to fall loop after air dash hang (altitude lock freezes Vz). */
+	UFUNCTION(BlueprintCallable, Category = "DF|Locomotion|Jump")
+	void NotifyAirDashEndedWhileAirborne();
 
 #if !UE_BUILD_SHIPPING
 	/** One-line locomotion / blend space state for df.LockOnDebug. */
@@ -263,6 +282,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion")
 	bool bIsDodging = false;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion")
+	bool bIsAirDashing = false;
 
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion")
 	EDFDodgeDirection LastDodgeDirection = EDFDodgeDirection::Backward;
@@ -365,8 +387,16 @@ private:
 	bool IsPrimaryMeshAnimInstance() const;
 	void CaptureTakeoffJumpDirection(bool bStrafeForDir);
 	float ComputeStartToLoopTime() const;
+	bool IsPastApexExitableForJumpLoop() const;
+	void PlayFallLoopSlotAfterAirDash();
+	void StopFallLoopSlotOverlay();
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Locomotion|Jump|AirDash")
+	FName FallLoopOverlaySlotName = FName(TEXT("DefaultSlot"));
 
 	bool bPrevTransition_LocoToStart = false;
+	bool bPrevTransition_LocoToLoop = false;
+	bool bPrevTransition_LoopToLoco = false;
 	bool bPrevTransition_StartToLoop = false;
 	bool bPrevTransition_StartToLand = false;
 	bool bPrevTransition_LoopToLand = false;
@@ -383,6 +413,9 @@ private:
 	float CachedJumpStartPlayTime = 0.42f;
 	/** Snapshot at touchdown for Loop->Land gate. */
 	float CachedJumpLoopPhaseTimeAtLand = 0.f;
+	float AirDashResumeFallLoopLatchTime = 0.f;
+	bool bFallLoopOverlayActive = false;
+	TObjectPtr<UAnimMontage> FallLoopOverlayMontage = nullptr;
 
 	void SyncEquippedWeaponAnimLayerFromOwner();
 

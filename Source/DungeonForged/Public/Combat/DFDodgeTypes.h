@@ -8,9 +8,23 @@
 #include "DFDodgeTypes.generated.h"
 
 class UAnimMontage;
+class UAnimSequenceBase;
 
 /** True if montage (or its sequences) uses root motion. Implemented in DFDodgeTypes.cpp. */
 DUNGEONFORGED_API bool DFMontageHasRootMotion(const UAnimMontage* Montage);
+
+/** First anim sequence referenced by the montage's primary slot track. */
+DUNGEONFORGED_API UAnimSequenceBase* DFGetPrimaryMontageSequence(const UAnimMontage* Montage);
+
+/** First slot track name on the montage (matches AnimBP slot node name). */
+inline FName DFGetMontagePrimarySlotName(const UAnimMontage* Montage)
+{
+	if (Montage && Montage->SlotAnimTracks.Num() > 0)
+	{
+		return Montage->SlotAnimTracks[0].SlotName;
+	}
+	return NAME_None;
+}
 
 /** Octant order matches atan2(Right, Forward) snapped to 45° sectors. */
 UENUM(BlueprintType)

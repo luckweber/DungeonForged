@@ -20,6 +20,7 @@
 #include "Combat/UDFCombatSpectacleSubsystem.h"
 #include "Combat/UDFStaminaExhaustionComponent.h"
 #include "GAS/Effects/UGE_StaminaRegen.h"
+#include "Combat/DFAirDashDebug.h"
 #include "Combat/DFDodgeDebug.h"
 #include "Combat/DFJumpDebug.h"
 #include "DFAssetManager.h"
@@ -1173,7 +1174,11 @@ void ADFPlayerCharacter::HandleDodgePressed()
 		if (CMC->IsFalling())
 		{
 #if !UE_BUILD_SHIPPING
-			if (DFDodgeDebug::IsLogEnabled())
+			if (DFAirDashDebug::IsLogEnabled())
+			{
+				DFAirDashDebug::Log(TEXT("Input -> TryActivate Ability.Movement.AirDash"));
+			}
+			else if (DFDodgeDebug::IsLogEnabled())
 			{
 				DFDodgeDebug::Log(TEXT("  -> TryActivate Ability.Movement.AirDash"));
 			}

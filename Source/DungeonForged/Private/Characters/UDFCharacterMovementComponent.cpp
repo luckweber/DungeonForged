@@ -2,6 +2,7 @@
 #include "Characters/UDFCharacterMovementComponent.h"
 
 #include "Characters/ADFPlayerCharacter.h"
+#include "Combat/DFAirDashDebug.h"
 #include "Combat/DFDodgeDebug.h"
 #include "Combat/DFJumpDebug.h"
 #include "Combat/UDFComboComponent.h"
@@ -107,6 +108,14 @@ void UDFCharacterMovementComponent::ApplyJumpTuningFromDataAsset()
 		AirDashDuration = Tuning->AirDashDuration;
 		AirDashCooldown = Tuning->AirDashCooldown;
 		AirDashLandingRecoverySkipWindow = Tuning->AirDashLandingRecoverySkipWindow;
+		if (Tuning->DodgeCooldown > 0.f)
+		{
+			DodgeCooldown = Tuning->DodgeCooldown;
+		}
+		if (Tuning->DodgeIFrameDuration > 0.f)
+		{
+			IFrameDuration = Tuning->DodgeIFrameDuration;
+		}
 	}
 	JumpZVelocity = DFJumpZVelocity;
 	AirControl = DFAirControl;
@@ -153,6 +162,101 @@ void UDFCharacterMovementComponent::NotifyAirDashPerformed()
 		TimeLastAirDash = W->GetTimeSeconds();
 	}
 	bAirDodgeUsedThisJump = true;
+}
+
+float UDFCharacterMovementComponent::GetAirDashCooldownRemaining() const
+{
+	const UWorld* const W = GetWorld();
+	if (!W || TimeLastAirDash < 0.f || AirDashCooldown <= 0.f)
+	{
+		return 0.f;
+	}
+	return FMath::Max(0.f, AirDashCooldown - (W->GetTimeSeconds() - TimeLastAirDash));
+}
+
+void UDFCharacterMovementComponent::BeginAirDashAltitudeLock(const float LockedWorldZ)
+{
+	bAirDashAltitudeLockActive = true;
+	AirDashLockedWorldZ = LockedWorldZ;
+	GravityScale = 0.f;
+	Velocity.Z = 0.f;
+}
+
+void UDFCharacterMovementComponent::ClearAirDashAltitudeLock()
+{
+	bAirDashAltitudeLockActive = false;
+	AirDashLockedWorldZ = 0.f;
+}
+
+void UDFCharacterMovementComponent::BeginAirDashDrive(const FVector& DirWorld, const float Distance,
+	const float Duration, const float LockedWorldZ)
+{
+	BeginAirDashAltitudeLock(LockedWorldZ);
+	bAirDashDriveActive = true;
+	AirDashDriveDir = DirWorld.GetSafeNormal2D();
+	AirDashDriveSpeed = Distance / FMath::Max(Duration, 0.01f);
+	if (UWorld* const W = GetWorld())
+	{
+		AirDashDriveEndTime = W->GetTimeSeconds() + Duration;
+	}
+	SavedAirDashMaxAcceleration = MaxAcceleration;
+	MaxAcceleration = 0.f;
+	Velocity = AirDashDriveDir * AirDashDriveSpeed;
+	Velocity.Z = 0.f;
+	DFAirDashDebug::Logf(TEXT("Drive start dir=%s speed=%.0f dur=%.2fs"),
+		*AirDashDriveDir.ToCompactString(), AirDashDriveSpeed, Duration);
+}
+
+void UDFCharacterMovementComponent::EndAirDashDriveImpulse()
+{
+	if (!bAirDashDriveActive)
+	{
+		return;
+	}
+
+	bAirDashDriveActive = false;
+	AirDashDriveDir = FVector::ZeroVector;
+	AirDashDriveSpeed = 0.f;
+	AirDashDriveEndTime = -1.f;
+	Velocity.X = 0.f;
+	Velocity.Y = 0.f;
+	Velocity.Z = 0.f;
+	DFAirDashDebug::Log(TEXT("Drive impulse end — hang (altitude lock until ability ends)"));
+}
+
+void UDFCharacterMovementComponent::EndAirDashDrive(const float ExitVelocityRetain)
+{
+	if (!bAirDashDriveActive && !bAirDashAltitudeLockActive)
+	{
+		return;
+	}
+
+	const float Retain = FMath::Clamp(ExitVelocityRetain, 0.f, 1.f);
+	FVector ExitVel = Velocity;
+	ExitVel.Z = 0.f;
+	if (Retain <= KINDA_SMALL_NUMBER)
+	{
+		ExitVel = FVector::ZeroVector;
+	}
+	else if (!FMath::IsNearlyEqual(Retain, 1.f))
+	{
+		ExitVel *= Retain;
+	}
+	Velocity.X = ExitVel.X;
+	Velocity.Y = ExitVel.Y;
+
+	if (IsFalling() && FMath::Abs(Velocity.Z) <= 1.f)
+	{
+		Velocity.Z = -150.f;
+	}
+
+	bAirDashDriveActive = false;
+	AirDashDriveDir = FVector::ZeroVector;
+	AirDashDriveSpeed = 0.f;
+	AirDashDriveEndTime = -1.f;
+	MaxAcceleration = SavedAirDashMaxAcceleration > 0.f ? SavedAirDashMaxAcceleration : MaxAcceleration;
+	ClearAirDashAltitudeLock();
+	DFAirDashDebug::Logf(TEXT("Drive end retain=%.2f vel=%s"), Retain, *Velocity.ToCompactString());
 }
 
 bool UDFCharacterMovementComponent::TryConsumeStaminaForJumpCost(const float Cost) const
@@ -403,6 +507,7 @@ void UDFCharacterMovementComponent::OnMovementModeChanged(EMovementMode Previous
 	else if (PreviousMovementMode == MOVE_Falling && NewMode == MOVE_Walking)
 	{
 		bAirDodgeUsedThisJump = false;
+		EndAirDashDrive(AirDashExitVelocityRetain);
 		bJumpFallingTagActive = false;
 		bCoyoteFromLedgeDrop = false;
 		if (ASC)
@@ -496,6 +601,34 @@ void UDFCharacterMovementComponent::TickComponent(
 	float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	if (bAirDashDriveActive && GetWorld())
+	{
+		if (GetWorld()->GetTimeSeconds() >= AirDashDriveEndTime)
+		{
+			EndAirDashDriveImpulse();
+		}
+		else
+		{
+			Velocity = AirDashDriveDir * AirDashDriveSpeed;
+			Velocity.Z = 0.f;
+			GravityScale = 0.f;
+		}
+	}
+
+	if (bAirDashAltitudeLockActive && UpdatedComponent)
+	{
+		FVector Loc = UpdatedComponent->GetComponentLocation();
+		if (!FMath::IsNearlyEqual(Loc.Z, AirDashLockedWorldZ, 0.5f))
+		{
+			Loc.Z = AirDashLockedWorldZ;
+			UpdatedComponent->SetWorldLocation(Loc, false, nullptr, ETeleportType::None);
+		}
+		Velocity.Z = 0.f;
+		GravityScale = 0.f;
+		DFAirDashDebug::DrawPathPoint(GetWorld(), Loc, FColor::Orange);
+	}
+
 	RefreshMaxWalkSpeed();
 	if (bIsSprinting)
 	{
@@ -505,7 +638,10 @@ void UDFCharacterMovementComponent::TickComponent(
 	if (MovementMode == MOVE_Falling)
 	{
 		const float ZVel = Velocity.Z;
-		GravityScale = (ZVel < 0.f) ? (DFGravityScale * DFFallGravityMultiplier) : DFGravityScale;
+		if (!bAirDashAltitudeLockActive)
+		{
+			GravityScale = (ZVel < 0.f) ? (DFGravityScale * DFFallGravityMultiplier) : DFGravityScale;
+		}
 
 		if (!bJumpFallingTagActive && ZVel <= 1.f && CharacterOwner)
 		{
