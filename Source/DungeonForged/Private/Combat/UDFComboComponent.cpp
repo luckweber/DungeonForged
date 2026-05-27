@@ -196,7 +196,21 @@ bool UDFComboComponent::IsInCancelWindow() const
 
 bool UDFComboComponent::HasAerialContinuation() const
 {
-	return AerialComboSteps.Num() > 0;
+	// Only preserve combo across takeoff when aerial assets exist AND combo is mid-chain
+	// (CurrentStep > 0 or a window/buffer is active). Avoids holding stale state on every jump.
+	if (AerialComboSteps.Num() <= 0)
+	{
+		return false;
+	}
+	if (CurrentComboStep > 0 || bComboWindowActive || bComboInputBuffered || bSwingInputBuffered)
+	{
+		return true;
+	}
+	if (LockedComboActivationStep > 0 || bComboChainAdvancePending)
+	{
+		return true;
+	}
+	return false;
 }
 
 void UDFComboComponent::CancelCurrentMontage()
@@ -596,6 +610,7 @@ void UDFComboComponent::BeginPlay()
 			MeleeTrace = O->FindComponentByClass<UDFMeleeTraceComponent>();
 		}
 	}
+	ApplyCombatTuningFromDataAsset();
 	SetComponentTickEnabled(true);
 }
 

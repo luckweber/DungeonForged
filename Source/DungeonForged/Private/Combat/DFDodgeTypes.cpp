@@ -30,3 +30,17 @@ bool DFMontageHasRootMotion(const UAnimMontage* Montage)
 	}
 	return false;
 }
+
+UAnimSequenceBase* DFGetPrimaryMontageSequence(const UAnimMontage* Montage)
+{
+	if (!Montage || Montage->SlotAnimTracks.Num() == 0)
+	{
+		return nullptr;
+	}
+	const FAnimTrack& Track = Montage->SlotAnimTracks[0].AnimTrack;
+	if (Track.AnimSegments.Num() == 0)
+	{
+		return nullptr;
+	}
+	return Track.AnimSegments[0].GetAnimReference().Get();
+}

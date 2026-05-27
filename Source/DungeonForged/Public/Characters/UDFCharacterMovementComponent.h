@@ -102,6 +102,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Movement|Dodge")
 	float GetDodgeCooldownRemaining() const;
 
+	/** Seconds until another air dash is allowed (0 if ready). Combined with the per-jump latch. */
+	UFUNCTION(BlueprintPure, Category = "DF|Movement|Jump|AirDash")
+	float GetAirDashCooldownRemaining() const;
+
 	/** Strafe (lock-on): face controller yaw; exploration: orient to movement. */
 	UFUNCTION(BlueprintCallable, Category = "DF|Movement|Strafe")
 	void SetStrafeMode(bool bStrafe);
@@ -110,8 +114,10 @@ public:
 	bool bIsStrafing = false;
 
 	// ── Jump tuning ─────────────────────────────────────────────────────
+	// Defaults below mirror UDFCombatTuningData; tuning asset (DA_CombatTuning) overrides at BeginPlay
+	// via ApplyJumpTuningFromDataAsset(). Keep both in sync to avoid editor / runtime mismatch.
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0"))
-	float DFJumpZVelocity = 550.f;
+	float DFJumpZVelocity = 750.f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float DFAirControl = 0.35f;
@@ -150,10 +156,10 @@ public:
 	float DFDoubleJumpZScale = 0.85f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump|AirDash", meta = (ClampMin = "0.0"))
-	float AirDashDistance = 400.f;
+	float AirDashDistance = 520.f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump|AirDash", meta = (ClampMin = "0.0"))
-	float AirDashDuration = 0.25f;
+	float AirDashDuration = 0.22f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump|AirDash", meta = (ClampMin = "0.0"))
 	float AirDashCooldown = 0.40f;
@@ -196,6 +202,30 @@ public:
 	/** Called by UDFAbility_AirDash when a dash starts (tracks landing recovery skip). */
 	void NotifyAirDashPerformed();
 
+	/** Keeps world Z flat during air dash (strips anim RM vertical drift). Cleared when dash ends. */
+	void BeginAirDashAltitudeLock(float LockedWorldZ);
+	void ClearAirDashAltitudeLock();
+
+	bool IsAirDashAltitudeLocked() const { return bAirDashAltitudeLockActive; }
+
+	/**
+	 * Authoritative air-dash displacement: locks Z, zeroes gravity/acceleration, drives XY velocity for Duration.
+	 * Movement stays independent of montage root motion (montage is visual-only).
+	 */
+	void BeginAirDashDrive(const FVector& DirWorld, float Distance, float Duration, float LockedWorldZ);
+
+	/** Ends drive, restores acceleration, optionally retains a fraction of dash XY speed. */
+	void EndAirDashDrive(float ExitVelocityRetain = 0.15f);
+
+	/** Stops horizontal impulse but keeps altitude lock (hang until ability ends). */
+	void EndAirDashDriveImpulse();
+
+	bool IsAirDashDriveActive() const { return bAirDashDriveActive; }
+
+	/** Fraction of dash XY speed kept when the dash ends (0 = stop dead, 1 = full momentum). */
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Jump|AirDash", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float AirDashExitVelocityRetain = 0.15f;
+
 	/** Public entry for coyote / double-jump when ACharacter::Jump cannot reach protected DoJump. */
 	bool RequestJump(bool bReplayingMoves = false);
 
@@ -224,6 +254,13 @@ protected:
 	/** Ledge drop (not jump takeoff) — enables coyote window. */
 	float TimeLastLeftGround = -1.f;
 	float TimeLastAirDash = -1.f;
+	bool bAirDashAltitudeLockActive = false;
+	float AirDashLockedWorldZ = 0.f;
+	bool bAirDashDriveActive = false;
+	FVector AirDashDriveDir = FVector::ZeroVector;
+	float AirDashDriveSpeed = 0.f;
+	float AirDashDriveEndTime = -1.f;
+	float SavedAirDashMaxAcceleration = 0.f;
 	bool bCoyoteFromLedgeDrop = false;
 
 	bool TryConsumeStaminaForJumpCost(float Cost) const;

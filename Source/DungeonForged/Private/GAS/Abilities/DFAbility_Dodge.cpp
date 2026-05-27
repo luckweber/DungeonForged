@@ -78,6 +78,11 @@ bool UDFAbility_Dodge::CanActivateAbility(const FGameplayAbilitySpecHandle Handl
 				DFDodgeDebug::Log(TEXT("CanActivate FAIL airborne — use AirDash"));
 				return false;
 			}
+			if (CMC->GetDodgeCooldownRemaining() > 0.f)
+			{
+				DFDodgeDebug::Logf(TEXT("CanActivate FAIL cooldown rem=%.2f"), CMC->GetDodgeCooldownRemaining());
+				return false;
+			}
 		}
 	}
 	return true;
