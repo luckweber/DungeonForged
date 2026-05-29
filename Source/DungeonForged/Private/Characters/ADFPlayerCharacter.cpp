@@ -35,6 +35,7 @@
 #include "Combat/UDFMeleeAimComponent.h"
 #include "Combat/UDFMeleeTraceComponent.h"
 #include "MotionWarpingComponent.h"
+#include "CharacterTrajectoryComponent.h"
 #include "Interaction/UDFInteractionComponent.h"
 #include "Dungeon/Traps/UDFTrapDetectionComponent.h"
 #include "Audio/UDFAudioComponent.h"
@@ -103,6 +104,7 @@ ADFPlayerCharacter::ADFPlayerCharacter(const FObjectInitializer& ObjectInitializ
 	MeleeTrace = CreateDefaultSubobject<UDFMeleeTraceComponent>(TEXT("MeleeTrace"));
 	MeleeAim = CreateDefaultSubobject<UDFMeleeAimComponent>(TEXT("MeleeAim"));
 	MotionWarping = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarping"));
+	CharacterTrajectory = CreateDefaultSubobject<UCharacterTrajectoryComponent>(TEXT("CharacterTrajectory"));
 	Combo = CreateDefaultSubobject<UDFComboComponent>(TEXT("Combo"));
 	ImpactFraming = CreateDefaultSubobject<UDFImpactFramingComponent>(TEXT("ImpactFraming"));
 	Launcher = CreateDefaultSubobject<UDFLauncherComponent>(TEXT("Launcher"));
@@ -216,7 +218,7 @@ void ADFPlayerCharacter::CaptureMeleeComboMontagesBaselineOnce()
 	{
 		return;
 	}
-	CachedMeleeComboMontagesBaselineSnapshot = Combo->ComboMontages;
+	Combo->CaptureBaselineSnapshot(CachedMeleeComboMontagesBaselineSnapshot);
 	bMeleeComboMontagesBaselineCaptured = true;
 }
 
@@ -260,10 +262,8 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 
 	auto AssignComboBaseline = [&]()
 	{
-		if (!CachedMeleeComboMontagesBaselineSnapshot.IsEmpty())
-		{
-			Combo->ComboMontages = CachedMeleeComboMontagesBaselineSnapshot;
-		}
+		// Restores ALL soft refs (combo + heavy + directional + windup) captured at startup.
+		Combo->RestoreFromBaselineSnapshot(CachedMeleeComboMontagesBaselineSnapshot);
 	};
 
 	auto ApplyEquippedWeaponMeleeProfile = [&](const FDFItemTableRow& WRow)
@@ -302,13 +302,13 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 		else if (WRow.WeaponMeleeComboMontages.Num() > 0)
 		{
 			Combo->ClearComboStepData();
-			Combo->ComboMontages = WRow.WeaponMeleeComboMontages;
+			Combo->SetComboMontagesFromSoftRefs(WRow.WeaponMeleeComboMontages);
 			Combo->MaxComboSteps = FMath::Max(Combo->MaxComboSteps, WRow.WeaponMeleeComboMontages.Num());
 		}
 		else if (ClassRow && ClassRow->ArmedMeleeComboMontagesFallback.Num() > 0)
 		{
 			Combo->ClearComboStepData();
-			Combo->ComboMontages = ClassRow->ArmedMeleeComboMontagesFallback;
+			Combo->SetComboMontagesFromSoftRefs(ClassRow->ArmedMeleeComboMontagesFallback);
 		}
 		else
 		{
@@ -316,30 +316,30 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 			AssignComboBaseline();
 		}
 
-		if (WRow.WeaponChargeWindupMontage)
+		if (!WRow.WeaponChargeWindupMontage.IsNull())
 		{
-			Combo->ChargeWindupMontage = WRow.WeaponChargeWindupMontage;
+			Combo->SetChargeWindupMontageFromSoft(WRow.WeaponChargeWindupMontage);
 		}
-		else if (ClassRow && ClassRow->ArmedChargeWindupMontageFallback)
+		else if (ClassRow && !ClassRow->ArmedChargeWindupMontageFallback.IsNull())
 		{
-			Combo->ChargeWindupMontage = ClassRow->ArmedChargeWindupMontageFallback;
+			Combo->SetChargeWindupMontageFromSoft(ClassRow->ArmedChargeWindupMontageFallback);
 		}
 		else
 		{
-			Combo->ChargeWindupMontage = nullptr;
+			Combo->SetChargeWindupMontage(nullptr);
 		}
 
-		if (WRow.WeaponHeavyChargeReleaseMontage)
+		if (!WRow.WeaponHeavyChargeReleaseMontage.IsNull())
 		{
-			Combo->HeavyChargeReleaseMontage = WRow.WeaponHeavyChargeReleaseMontage;
+			Combo->SetHeavyChargeReleaseMontageFromSoft(WRow.WeaponHeavyChargeReleaseMontage);
 		}
-		else if (ClassRow && ClassRow->ArmedHeavyChargeReleaseMontageFallback)
+		else if (ClassRow && !ClassRow->ArmedHeavyChargeReleaseMontageFallback.IsNull())
 		{
-			Combo->HeavyChargeReleaseMontage = ClassRow->ArmedHeavyChargeReleaseMontageFallback;
+			Combo->SetHeavyChargeReleaseMontageFromSoft(ClassRow->ArmedHeavyChargeReleaseMontageFallback);
 		}
 		else
 		{
-			Combo->HeavyChargeReleaseMontage = nullptr;
+			Combo->SetHeavyChargeReleaseMontage(nullptr);
 		}
 
 		if (WRow.WeaponDamageSourceTag.IsValid())
@@ -374,47 +374,45 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 			MeleeTrace->MeleeDamageGameplayEffect = CachedDefaultMeleeTraceDamageGameplayEffect;
 		}
 
-		if (WRow.WeaponHeavyAttackMontage)
+		if (!WRow.WeaponHeavyAttackMontage.IsNull())
 		{
-			Combo->HeavyAttackMontage = WRow.WeaponHeavyAttackMontage;
+			Combo->SetHeavyAttackMontageFromSoft(WRow.WeaponHeavyAttackMontage);
 		}
-		else if (ClassRow && ClassRow->ArmedHeavyAttackMontageFallback)
+		else if (ClassRow && !ClassRow->ArmedHeavyAttackMontageFallback.IsNull())
 		{
-			Combo->HeavyAttackMontage = ClassRow->ArmedHeavyAttackMontageFallback;
+			Combo->SetHeavyAttackMontageFromSoft(ClassRow->ArmedHeavyAttackMontageFallback);
 		}
 		else
 		{
-			Combo->HeavyAttackMontage = nullptr;
+			Combo->SetHeavyAttackMontage(nullptr);
 		}
 
 		// Max heavy tier (highest charge threshold). Falls back: weapon → class → normal heavy.
-		if (WRow.WeaponMaxHeavyAttackMontage)
+		if (!WRow.WeaponMaxHeavyAttackMontage.IsNull())
 		{
-			Combo->MaxHeavyAttackMontage = WRow.WeaponMaxHeavyAttackMontage;
+			Combo->SetMaxHeavyAttackMontageFromSoft(WRow.WeaponMaxHeavyAttackMontage);
 		}
-		else if (ClassRow && ClassRow->ArmedMaxHeavyAttackMontageFallback)
+		else if (ClassRow && !ClassRow->ArmedMaxHeavyAttackMontageFallback.IsNull())
 		{
-			Combo->MaxHeavyAttackMontage = ClassRow->ArmedMaxHeavyAttackMontageFallback;
+			Combo->SetMaxHeavyAttackMontageFromSoft(ClassRow->ArmedMaxHeavyAttackMontageFallback);
 		}
 		else
 		{
-			Combo->MaxHeavyAttackMontage = nullptr;
+			Combo->SetMaxHeavyAttackMontage(nullptr);
 		}
 
 		// Directional combo overrides — class-driven only (no per-weapon directional for now).
-		Combo->BackwardComboMontages = ClassRow
-			? ClassRow->ArmedBackwardMeleeComboMontagesFallback
-			: TArray<TObjectPtr<UAnimMontage>>();
-		Combo->SideComboMontages = ClassRow
-			? ClassRow->ArmedSideMeleeComboMontagesFallback
-			: TArray<TObjectPtr<UAnimMontage>>();
+		Combo->SetBackwardComboMontagesFromSoftRefs(
+			ClassRow ? ClassRow->ArmedBackwardMeleeComboMontagesFallback : TArray<TSoftObjectPtr<UAnimMontage>>());
+		Combo->SetSideComboMontagesFromSoftRefs(
+			ClassRow ? ClassRow->ArmedSideMeleeComboMontagesFallback : TArray<TSoftObjectPtr<UAnimMontage>>());
 	};
 
 	if (!Equipment || Equipment->IsSlotEmpty(EEquipmentSlot::Weapon))
 	{
 		if (ClassRow && ClassRow->UnarmedMeleeComboMontages.Num() > 0)
 		{
-			Combo->ComboMontages = ClassRow->UnarmedMeleeComboMontages;
+			Combo->SetComboMontagesFromSoftRefs(ClassRow->UnarmedMeleeComboMontages);
 		}
 		else
 		{
@@ -427,10 +425,10 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 			MeleeTrace->MeleeDamageGameplayEffect = CachedDefaultMeleeTraceDamageGameplayEffect;
 		}
 
-		Combo->HeavyAttackMontage = nullptr;
-		Combo->MaxHeavyAttackMontage = nullptr;
-		Combo->ChargeWindupMontage = nullptr;
-		Combo->HeavyChargeReleaseMontage = nullptr;
+		Combo->SetHeavyAttackMontage(nullptr);
+		Combo->SetMaxHeavyAttackMontage(nullptr);
+		Combo->SetChargeWindupMontage(nullptr);
+		Combo->SetHeavyChargeReleaseMontage(nullptr);
 		Combo->ClearComboStepData();
 		if (bMeleeTraceDamageBaselineCaptured)
 		{
@@ -438,12 +436,10 @@ void ADFPlayerCharacter::RefreshMeleeLoadoutFromClassAndEquipment()
 		}
 		MeleeTrace->ActiveTraceShape = EDFMeleeTraceShape::Sphere;
 		// Directional fallbacks may still exist for unarmed combos in class data.
-		Combo->BackwardComboMontages = ClassRow
-			? ClassRow->ArmedBackwardMeleeComboMontagesFallback
-			: TArray<TObjectPtr<UAnimMontage>>();
-		Combo->SideComboMontages = ClassRow
-			? ClassRow->ArmedSideMeleeComboMontagesFallback
-			: TArray<TObjectPtr<UAnimMontage>>();
+		Combo->SetBackwardComboMontagesFromSoftRefs(
+			ClassRow ? ClassRow->ArmedBackwardMeleeComboMontagesFallback : TArray<TSoftObjectPtr<UAnimMontage>>());
+		Combo->SetSideComboMontagesFromSoftRefs(
+			ClassRow ? ClassRow->ArmedSideMeleeComboMontagesFallback : TArray<TSoftObjectPtr<UAnimMontage>>());
 
 		return;
 	}

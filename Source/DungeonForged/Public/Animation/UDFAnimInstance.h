@@ -56,6 +56,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Jump")
 	UAnimSequenceBase* GetJumpDoubleLoopAnim() const;
 
+	// ── 8-way Start / Loop / Stop locomotion ──
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Directional")
+	UAnimSequenceBase* GetLocomotionStartAnim() const;
+
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Directional")
+	UAnimSequenceBase* GetLocomotionLoopAnim() const;
+
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Directional")
+	UAnimSequenceBase* GetLocomotionStopAnim() const;
+
 	/** Alpha 0..1 for early land blend: 1 when close to ground while falling. */
 	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Jump")
 	float GetLandPreparationAlpha() const;
@@ -333,6 +343,130 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion")
 	EDFMovementDirection MovementDirection = EDFMovementDirection::Forward;
 
+	// ── 8-way Start / Loop / Stop state ──
+	/** Snapshot taken on Idle→Start; locked through Start playback. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	EDFMovementDirection LocomotionStartDirection = EDFMovementDirection::Forward;
+
+	/** Snapshot taken on Loop→Stop; locked through Stop playback. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	EDFMovementDirection LocomotionStopDirection = EDFMovementDirection::Forward;
+
+	/** Current gait (Idle/Walk/Run/Sprint) based on speed thresholds. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	EDFGait Gait = EDFGait::Idle;
+
+	/** True when player is providing input AND velocity is rising or steady. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	bool bIsAccelerating = false;
+
+	/** Edge: true on the frame Idle → Start should fire. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	bool bTransition_IdleToStart = false;
+
+	/** Edge: true on the frame Start → Loop should fire (Start anim ending or input held long enough). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	bool bTransition_StartToLoop = false;
+
+	/** Edge: true when input released and still moving. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	bool bTransition_LoopToStop = false;
+
+	/** Edge: true when Stop finished and speed ~= 0. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	bool bTransition_StopToIdle = false;
+
+	/** Cached time since Start was triggered (for fallback Start→Loop). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	float LocomotionStartElapsed = 0.f;
+
+	/** Walk threshold (cm/s); below = Idle, between Walk/Run thresholds = Walk. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Directional|Tuning", meta = (ClampMin = "0.0"))
+	float WalkSpeedThreshold = 50.f;
+
+	/** Run threshold (cm/s); above this = Run gait set. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Directional|Tuning", meta = (ClampMin = "0.0"))
+	float RunSpeedThreshold = 350.f;
+
+	/** Idle speed deadband (cm/s); below this counts as stopped for Stop→Idle. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Directional|Tuning", meta = (ClampMin = "0.0"))
+	float IdleSpeedDeadband = 5.f;
+
+	/** Max time spent in Start before forcing Start→Loop (safety cap). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Directional|Tuning", meta = (ClampMin = "0.0"))
+	float StartMaxPlayTime = 0.45f;
+
+	// ── Distance Matching ──
+	/** Distance accumulated since the last Idle→Start (0 while stopped). Feed into Distance Matching node. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|DistanceMatching")
+	float DistanceMatchingDistance = 0.f;
+
+	/** Velocity at takeoff (XY plane). Useful for predicting deceleration distance. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|DistanceMatching")
+	float DistanceMatchingStartSpeed = 0.f;
+
+	// ── Stride Warping ──
+	/** Computed alpha for Stride Warping node (1 = full warp, 0 = none). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|StrideWarping")
+	float StrideWarpingAlpha = 0.f;
+
+	/** Authored speed of Loop animations (cm/s) — Stride Warping divides actual / authored. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|StrideWarping", meta = (ClampMin = "1.0"))
+	float AuthoredLoopSpeed = 400.f;
+
+	/** Min speed to engage stride warping (avoid warping during deceleration tail). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|StrideWarping", meta = (ClampMin = "0.0"))
+	float StrideWarpingMinSpeed = 150.f;
+
+	// ── Turn In Place ──
+	/** Accumulated yaw offset (deg) between aim/control rotation and actor — drains via TIP montages. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|TurnInPlace")
+	float RootYawOffset = 0.f;
+
+	/** Yaw delta (deg) this frame; sign = direction of rotation. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|TurnInPlace")
+	float YawDeltaThisFrame = 0.f;
+
+	/** Should a TIP animation play this frame? (auto: |RootYawOffset| > threshold while idle) */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|TurnInPlace")
+	bool bTransition_TurnInPlace = false;
+
+	/** Direction of the queued TIP (positive = right, negative = left). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|TurnInPlace")
+	float TurnInPlaceDirection = 0.f;
+
+	/** Threshold (deg) to trigger a turn in place. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
+	float TurnInPlaceTriggerYaw = 60.f;
+
+	/** Yaw drained per second while playing TIP (smooth fallback if not using anim curve). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
+	float TurnInPlaceYawInterpSpeed = 360.f;
+
+	// ── Foot Locker / Plant ──
+	/** True when the left foot should be locked to its plant point (curve-driven from anim). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|IK")
+	bool bLeftFootPlanted = false;
+
+	/** True when the right foot should be locked to its plant point. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|IK")
+	bool bRightFootPlanted = false;
+
+	/** Anim curve name fed by Sequence (1 = planted, 0 = free). Default matches Lyra convention. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|IK")
+	FName FootPlantCurveLeft = FName(TEXT("FootPlant_L"));
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|IK")
+	FName FootPlantCurveRight = FName(TEXT("FootPlant_R"));
+
+	// ── Aim Offset blend control ──
+	/** Alpha 0..1 for AimOffset overlay (1 while strafing / locked-on, 0 free exploration). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|AimOffset")
+	float AimOffsetAlpha = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|AimOffset", meta = (ClampMin = "0.0"))
+	float AimOffsetInterpSpeed = 8.f;
+
 	/** Traced distance from actor to walkable hit below; useful for landing / air blend. */
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|IK")
 	float GroundDistance = 0.f;
@@ -390,6 +524,20 @@ private:
 	bool IsPastApexExitableForJumpLoop() const;
 	void PlayFallLoopSlotAfterAirDash();
 	void StopFallLoopSlotOverlay();
+	void UpdateDirectionalLocomotion(float DeltaSeconds);
+	void UpdateDistanceMatching(float DeltaSeconds);
+	void UpdateStrideWarping(float DeltaSeconds);
+	void UpdateTurnInPlace(float DeltaSeconds);
+	void UpdateFootPlantCurves();
+	void UpdateAimOffsetBlend(float DeltaSeconds);
+
+	/** Notify TIP montage / state that we consumed N degrees of root yaw offset this tick. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Locomotion|TurnInPlace")
+	void ConsumeRootYawOffset(float ConsumedYaw);
+
+	/** True when caller (gameplay / lock-on) wants AimOffset overlay active. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Locomotion|AimOffset")
+	void SetAimOffsetEnabled(bool bEnabled) { bAimOffsetRequested = bEnabled; }
 
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Locomotion|Jump|AirDash")
 	FName FallLoopOverlaySlotName = FName(TEXT("DefaultSlot"));
@@ -416,6 +564,12 @@ private:
 	float AirDashResumeFallLoopLatchTime = 0.f;
 	bool bFallLoopOverlayActive = false;
 	TObjectPtr<UAnimMontage> FallLoopOverlayMontage = nullptr;
+
+	// Locomotion polish runtime state
+	float PreviousActorYaw = 0.f;            // for YawDeltaThisFrame
+	float DistanceMatchingAccum = 0.f;        // raw XY distance integrator while moving
+	bool bAimOffsetRequested = false;         // gameplay toggles this
+	bool bWasAcceleratingPreviousFrame = false; // edge detection for Idle↔Start / Loop→Stop
 
 	void SyncEquippedWeaponAnimLayerFromOwner();
 

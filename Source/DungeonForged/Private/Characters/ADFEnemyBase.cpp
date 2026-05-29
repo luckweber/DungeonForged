@@ -504,7 +504,7 @@ void ADFEnemyBase::InitializeFromDataTable(UDataTable* EnemyTable, FName RowName
 	}
 	bDeferAIForSpawnBirth = false;
 
-	const bool bPlaySpawnBirth = Row->SpawnBirthMontage != nullptr;
+	const bool bPlaySpawnBirth = !Row->SpawnBirthMontage.IsNull();
 	const bool bDeferBT = bPlaySpawnBirth && Row->bDelayAIUntilSpawnBirthMontageFinishes;
 
 	bDeathDetectionArmed = false;
@@ -568,15 +568,16 @@ void ADFEnemyBase::InitializeFromDataTable(UDataTable* EnemyTable, FName RowName
 	// Base stats applied — safe to react to Health <= 0.
 	bDeathDetectionArmed = true;
 
-	if (bPlaySpawnBirth)
+	UAnimMontage* const SpawnBirthLoaded = bPlaySpawnBirth ? Row->SpawnBirthMontage.LoadSynchronous() : nullptr;
+	if (bPlaySpawnBirth && SpawnBirthLoaded)
 	{
-		Multicast_PlaySpawnBirthMontage(Row->SpawnBirthMontage.Get());
+		Multicast_PlaySpawnBirthMontage(SpawnBirthLoaded);
 	}
 
-	if (bDeferBT)
+	if (bDeferBT && SpawnBirthLoaded)
 	{
 		bDeferAIForSpawnBirth = true;
-		const float Dur = FMath::Max(0.05f, Row->SpawnBirthMontage->GetPlayLength());
+		const float Dur = FMath::Max(0.05f, SpawnBirthLoaded->GetPlayLength());
 		if (UWorld* const W = GetWorld())
 		{
 			W->GetTimerManager().SetTimer(SpawnBirthBTDelayTimer, this, &ADFEnemyBase::OnSpawnBirthMontageDelayElapsed, Dur, false);

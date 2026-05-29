@@ -386,9 +386,15 @@ void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 	{
 		DetermineMovementDirection(bShouldStrafe);
 	}
+	UpdateDirectionalLocomotion(DeltaSeconds);
+	UpdateDistanceMatching(DeltaSeconds);
+	UpdateStrideWarping(DeltaSeconds);
 	CalculateLean(DeltaSeconds);
-	CalculateAimOffsets();
+	CalculateAimOffsets();          // populates AimYaw / AimPitch — TIP depends on this
+	UpdateTurnInPlace(DeltaSeconds); // must run after CalculateAimOffsets
+	UpdateAimOffsetBlend(DeltaSeconds);
 	UpdateFootIK(DeltaSeconds);
+	UpdateFootPlantCurves();
 	SyncEquippedWeaponAnimLayerFromOwner();
 }
 
@@ -571,6 +577,202 @@ void UUDFAnimInstance::CalculateAimOffsets()
 	const FRotator Delta = UKismetMathLibrary::NormalizedDeltaRotator(ControlRot, OwningCharacter->GetActorRotation());
 	AimPitch = FMath::Clamp(Delta.Pitch, -90.f, 90.f);
 	AimYaw = FMath::Clamp(Delta.Yaw, -180.f, 180.f);
+}
+
+void UUDFAnimInstance::UpdateDirectionalLocomotion(const float DeltaSeconds)
+{
+	if (bIsInAir)
+	{
+		Gait = EDFGait::Idle;
+		bIsAccelerating = false;
+		bTransition_IdleToStart = false;
+		bTransition_StartToLoop = false;
+		bTransition_LoopToStop = false;
+		bTransition_StopToIdle = false;
+		return;
+	}
+
+	const float CurrentSpeed = Speed;
+	if (CurrentSpeed >= RunSpeedThreshold)
+	{
+		Gait = bIsSprinting ? EDFGait::Sprint : EDFGait::Run;
+	}
+	else if (CurrentSpeed >= WalkSpeedThreshold)
+	{
+		Gait = EDFGait::Walk;
+	}
+	else
+	{
+		Gait = EDFGait::Idle;
+	}
+
+	FVector InputVec = FVector::ZeroVector;
+	if (DFCharacterMovement)
+	{
+		InputVec = DFCharacterMovement->GetLastInputVector();
+	}
+	const bool bHasInput = InputVec.SizeSquared2D() > 0.01f;
+	const bool bMoving = CurrentSpeed > IdleSpeedDeadband;
+	bIsAccelerating = bHasInput && bMoving;
+
+	// Tracks whether we are mid Start-phase (not yet promoted to Loop).
+	const bool bInStartPhase = LocomotionStartElapsed > 0.f && LocomotionStartElapsed < StartMaxPlayTime;
+
+	// All flags are level-triggered (high while the AnimBP transition condition holds);
+	// AnimBP only consumes the rising edge anyway. NOTE: bTransition_IdleToStart is the
+	// ONLY one fired strictly on the rising edge (snapshot of start direction).
+	bTransition_IdleToStart = false;
+	bTransition_StartToLoop = false;
+	bTransition_LoopToStop = false;
+	bTransition_StopToIdle = false;
+
+	// Idle → Start rising edge: input pressed while we were not in Start phase OR fully stopped.
+	const bool bEligibleForRestart = !bInStartPhase && !bWasAcceleratingPreviousFrame;
+	if (bHasInput && bMoving && bEligibleForRestart)
+	{
+		LocomotionStartDirection = MovementDirection;
+		LocomotionStartElapsed = 0.f;
+		bTransition_IdleToStart = true;
+	}
+
+	// Tick start-phase timer while we still have input AND have not yet reached Loop.
+	if (bHasInput && (LocomotionStartElapsed > 0.f || bTransition_IdleToStart))
+	{
+		LocomotionStartElapsed += DeltaSeconds;
+		if (LocomotionStartElapsed >= StartMaxPlayTime)
+		{
+			bTransition_StartToLoop = true;
+		}
+	}
+
+	// Loop → Stop: input released while still moving. Snapshot direction ONCE on the falling edge.
+	const bool bJustReleasedInput = !bHasInput && bWasAcceleratingPreviousFrame;
+	if (bJustReleasedInput && bMoving)
+	{
+		LocomotionStopDirection = MovementDirection;
+	}
+	if (!bHasInput && bMoving)
+	{
+		bTransition_LoopToStop = true;
+	}
+
+	// Fully stopped: reset Start timer so the next Idle→Start rising edge fires correctly.
+	if (!bMoving && !bHasInput)
+	{
+		bTransition_StopToIdle = true;
+		LocomotionStartElapsed = 0.f;
+	}
+
+	bWasAcceleratingPreviousFrame = bIsAccelerating;
+}
+
+void UUDFAnimInstance::UpdateDistanceMatching(const float DeltaSeconds)
+{
+	// Reset on idle / takeoff. Capture takeoff speed when entering Start.
+	if (bTransition_IdleToStart)
+	{
+		DistanceMatchingAccum = 0.f;
+		DistanceMatchingStartSpeed = Speed;
+	}
+
+	const bool bMoving = Speed > IdleSpeedDeadband;
+	if (bMoving && !bIsInAir)
+	{
+		DistanceMatchingAccum += Speed * DeltaSeconds;
+	}
+	else if (!bMoving)
+	{
+		DistanceMatchingAccum = 0.f;
+	}
+	DistanceMatchingDistance = DistanceMatchingAccum;
+}
+
+void UUDFAnimInstance::UpdateStrideWarping(const float DeltaSeconds)
+{
+	// Engage stride warping only when moving above the min threshold and grounded.
+	if (bIsInAir || Speed < StrideWarpingMinSpeed || AuthoredLoopSpeed <= KINDA_SMALL_NUMBER)
+	{
+		StrideWarpingAlpha = FMath::FInterpTo(StrideWarpingAlpha, 0.f, DeltaSeconds, 10.f);
+		return;
+	}
+	StrideWarpingAlpha = FMath::FInterpTo(StrideWarpingAlpha, 1.f, DeltaSeconds, 8.f);
+}
+
+void UUDFAnimInstance::UpdateTurnInPlace(const float DeltaSeconds)
+{
+	bTransition_TurnInPlace = false;
+	TurnInPlaceDirection = 0.f;
+
+	ACharacter* const Owner = OwningCharacter.Get();
+	if (!Owner)
+	{
+		YawDeltaThisFrame = 0.f;
+		RootYawOffset = 0.f;
+		return;
+	}
+
+	// Track raw actor-yaw delta for diagnostics (root motion / TIP montage drives it).
+	const float CurrentActorYaw = Owner->GetActorRotation().Yaw;
+	YawDeltaThisFrame = FMath::FindDeltaAngleDegrees(PreviousActorYaw, CurrentActorYaw);
+	PreviousActorYaw = CurrentActorYaw;
+
+	const bool bGroundedIdle = !bIsInAir && Speed <= IdleSpeedDeadband && !bIsAccelerating;
+	if (!bGroundedIdle)
+	{
+		// While moving: locomotion absorbs the orientation — bleed the offset out smoothly.
+		RootYawOffset = FMath::FInterpTo(RootYawOffset, 0.f, DeltaSeconds, TurnInPlaceYawInterpSpeed * 0.25f);
+		return;
+	}
+
+	// While idle, the offset between Aim (controller) and Body (actor) IS the root-yaw offset.
+	// As the TIP montage rotates the actor (root motion or notify), AimYaw shrinks naturally,
+	// which in turn shrinks RootYawOffset — the system is self-correcting.
+	// AimYaw is populated by CalculateAimOffsets which runs immediately before this function.
+	RootYawOffset = AimYaw;
+
+	if (FMath::Abs(RootYawOffset) > TurnInPlaceTriggerYaw)
+	{
+		bTransition_TurnInPlace = true;
+		TurnInPlaceDirection = FMath::Sign(RootYawOffset);
+	}
+}
+
+void UUDFAnimInstance::ConsumeRootYawOffset(const float ConsumedYaw)
+{
+	RootYawOffset -= ConsumedYaw;
+	RootYawOffset = FMath::UnwindDegrees(RootYawOffset);
+}
+
+void UUDFAnimInstance::UpdateFootPlantCurves()
+{
+	// Anim notify curves named FootPlantCurveLeft/Right should be authored on Walk/Run cycles.
+	// Threshold 0.5: above = planted, below = free. Falls back to false if curves are missing.
+	const float L = GetCurveValue(FootPlantCurveLeft);
+	const float R = GetCurveValue(FootPlantCurveRight);
+	bLeftFootPlanted = L > 0.5f;
+	bRightFootPlanted = R > 0.5f;
+}
+
+void UUDFAnimInstance::UpdateAimOffsetBlend(const float DeltaSeconds)
+{
+	const bool bShouldAim = bAimOffsetRequested || bShouldStrafe;
+	const float Target = bShouldAim ? 1.f : 0.f;
+	AimOffsetAlpha = FMath::FInterpTo(AimOffsetAlpha, Target, DeltaSeconds, AimOffsetInterpSpeed);
+}
+
+UAnimSequenceBase* UUDFAnimInstance::GetLocomotionStartAnim() const
+{
+	return ActiveAnimSet.ResolveLocomotionStart(Gait, LocomotionStartDirection);
+}
+
+UAnimSequenceBase* UUDFAnimInstance::GetLocomotionLoopAnim() const
+{
+	return ActiveAnimSet.ResolveLocomotionLoop(Gait, MovementDirection);
+}
+
+UAnimSequenceBase* UUDFAnimInstance::GetLocomotionStopAnim() const
+{
+	return ActiveAnimSet.ResolveLocomotionStop(Gait, LocomotionStopDirection);
 }
 
 void UUDFAnimInstance::DetermineMovementDirection(const bool bUseEightWay)

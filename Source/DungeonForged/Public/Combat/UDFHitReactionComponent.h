@@ -21,14 +21,21 @@ class DUNGEONFORGED_API UDFHitReactionComponent : public UActorComponent
 public:
 	UDFHitReactionComponent();
 
-	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction")
-	TObjectPtr<UAnimMontage> LightHitMontage;
+	// All montage/VFX assets are stored as soft refs so the CDO of the owning Character BP
+	// does not load them. They are resolved at BeginPlay via @c EnsureHitReactionAssetsLoaded.
 
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction")
-	TObjectPtr<UAnimMontage> HeavyHitMontage;
+	TSoftObjectPtr<UAnimMontage> LightHitMontage;
 
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction")
-	TObjectPtr<UAnimMontage> KnockbackMontage;
+	TSoftObjectPtr<UAnimMontage> HeavyHitMontage;
+
+	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction")
+	TSoftObjectPtr<UAnimMontage> KnockbackMontage;
+
+	UPROPERTY(Transient) TObjectPtr<UAnimMontage> ResolvedLightHitMontage;
+	UPROPERTY(Transient) TObjectPtr<UAnimMontage> ResolvedHeavyHitMontage;
+	UPROPERTY(Transient) TObjectPtr<UAnimMontage> ResolvedKnockbackMontage;
 
 	/**
 	 * When true, plays Front/Back/Left/Right montages from @a HitDirection2D (attacker → victim, XY).
@@ -44,35 +51,44 @@ public:
 
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
 		meta = (EditCondition = "bUseDirectionalHitReactions"))
-	TObjectPtr<UAnimMontage> LightHit_Front;
+	TSoftObjectPtr<UAnimMontage> LightHit_Front;
 
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
 		meta = (EditCondition = "bUseDirectionalHitReactions"))
-	TObjectPtr<UAnimMontage> LightHit_Back;
+	TSoftObjectPtr<UAnimMontage> LightHit_Back;
 
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
 		meta = (EditCondition = "bUseDirectionalHitReactions"))
-	TObjectPtr<UAnimMontage> LightHit_Left;
+	TSoftObjectPtr<UAnimMontage> LightHit_Left;
 
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
 		meta = (EditCondition = "bUseDirectionalHitReactions"))
-	TObjectPtr<UAnimMontage> LightHit_Right;
+	TSoftObjectPtr<UAnimMontage> LightHit_Right;
 
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
 		meta = (EditCondition = "bUseDirectionalHitReactions"))
-	TObjectPtr<UAnimMontage> HeavyHit_Front;
+	TSoftObjectPtr<UAnimMontage> HeavyHit_Front;
 
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
 		meta = (EditCondition = "bUseDirectionalHitReactions"))
-	TObjectPtr<UAnimMontage> HeavyHit_Back;
+	TSoftObjectPtr<UAnimMontage> HeavyHit_Back;
 
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
 		meta = (EditCondition = "bUseDirectionalHitReactions"))
-	TObjectPtr<UAnimMontage> HeavyHit_Left;
+	TSoftObjectPtr<UAnimMontage> HeavyHit_Left;
 
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|Directional",
 		meta = (EditCondition = "bUseDirectionalHitReactions"))
-	TObjectPtr<UAnimMontage> HeavyHit_Right;
+	TSoftObjectPtr<UAnimMontage> HeavyHit_Right;
+
+	UPROPERTY(Transient) TObjectPtr<UAnimMontage> ResolvedLightHit_Front;
+	UPROPERTY(Transient) TObjectPtr<UAnimMontage> ResolvedLightHit_Back;
+	UPROPERTY(Transient) TObjectPtr<UAnimMontage> ResolvedLightHit_Left;
+	UPROPERTY(Transient) TObjectPtr<UAnimMontage> ResolvedLightHit_Right;
+	UPROPERTY(Transient) TObjectPtr<UAnimMontage> ResolvedHeavyHit_Front;
+	UPROPERTY(Transient) TObjectPtr<UAnimMontage> ResolvedHeavyHit_Back;
+	UPROPERTY(Transient) TObjectPtr<UAnimMontage> ResolvedHeavyHit_Left;
+	UPROPERTY(Transient) TObjectPtr<UAnimMontage> ResolvedHeavyHit_Right;
 
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction", meta = (ClampMin = "0.0"))
 	float StaggerThreshold = 30.f;
@@ -98,13 +114,17 @@ public:
 
 	/** VFX on hit point (dedicated server skips spawn). */
 	UPROPERTY(EditAnywhere, Category = "Combat|VFX")
-	TObjectPtr<UNiagaraSystem> HitImpactNiagara;
+	TSoftObjectPtr<UNiagaraSystem> HitImpactNiagara;
+
+	UPROPERTY(Transient) TObjectPtr<UNiagaraSystem> ResolvedHitImpactNiagara;
 
 	UPROPERTY(EditAnywhere, Category = "Combat|VFX", meta = (ClampMin = "0.0"))
 	float HitVFXMaxDrawDistance = 0.f;
 
 	UPROPERTY(EditAnywhere, Category = "Combat|Decal")
-	TObjectPtr<UMaterialInterface> DecalMaterial;
+	TSoftObjectPtr<UMaterialInterface> DecalMaterial;
+
+	UPROPERTY(Transient) TObjectPtr<UMaterialInterface> ResolvedDecalMaterial;
 
 	UPROPERTY(EditAnywhere, Category = "Combat|Decal", meta = (ClampMin = "1.0"))
 	FVector DecalSize = FVector(32.f, 64.f, 64.f);
@@ -114,15 +134,19 @@ public:
 
 	/** Optional per-damage-source hit montage overrides (Damage.Source.Slash / Blunt / Pierce). */
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|DamageSource", meta = (Categories = "Damage.Source"))
-	TMap<FGameplayTag, TObjectPtr<UAnimMontage>> DamageSourceHitMontages;
+	TMap<FGameplayTag, TSoftObjectPtr<UAnimMontage>> DamageSourceHitMontages;
 
 	/** Optional per-damage-source impact VFX overrides. */
 	UPROPERTY(EditAnywhere, Category = "Combat|VFX|DamageSource", meta = (Categories = "Damage.Source"))
-	TMap<FGameplayTag, TObjectPtr<UNiagaraSystem>> DamageSourceHitImpactNiagara;
+	TMap<FGameplayTag, TSoftObjectPtr<UNiagaraSystem>> DamageSourceHitImpactNiagara;
 
 	/** Optional per-bone hit montage overrides (B4). */
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction|BodyPart")
-	TMap<FName, TObjectPtr<UAnimMontage>> BoneHitMontages;
+	TMap<FName, TSoftObjectPtr<UAnimMontage>> BoneHitMontages;
+
+	UPROPERTY(Transient) TMap<FGameplayTag, TObjectPtr<UAnimMontage>> ResolvedDamageSourceHitMontages;
+	UPROPERTY(Transient) TMap<FGameplayTag, TObjectPtr<UNiagaraSystem>> ResolvedDamageSourceHitImpactNiagara;
+	UPROPERTY(Transient) TMap<FName, TObjectPtr<UAnimMontage>> ResolvedBoneHitMontages;
 
 	UFUNCTION(BlueprintCallable, Category = "Combat|HitReaction")
 	void OnHitReceived(
@@ -145,6 +169,17 @@ public:
 	void SpawnHitDecal(FVector Location, FRotator NormalRotation);
 
 protected:
+	virtual void BeginPlay() override;
+
+	/** Triggers async load of all soft refs and fills Resolved* caches on completion. */
+	void EnsureHitReactionAssetsLoaded();
+
+	/** Repopulates Resolved* caches by reading currently-loaded soft pointers. */
+	void RefreshResolvedHitReactionAssets();
+
+	/** Streamable handle for the async load kicked off in @c EnsureHitReactionAssetsLoaded. */
+	TSharedPtr<struct FStreamableHandle> HitReactionStreamHandle;
+
 	/** Stagger only for heavy band (Stagger..Knockback) if StaggerStun is set. */
 	void TryApplyStaggerStun(AActor* InstigatorActor) const;
 

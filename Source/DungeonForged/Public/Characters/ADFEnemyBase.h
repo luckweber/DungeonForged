@@ -118,8 +118,9 @@ public:
 	TArray<FVector> PatrolPoints;
 
 	/** Random pick for UDFBTTask_PlayTauntMontage. Filled from the enemy data row and/or per-BP. */
+	/** Soft refs — taunts are infrequent, so they are loaded on-demand by UDFBTTask_PlayTauntMontage. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Social")
-	TArray<TObjectPtr<UAnimMontage>> TauntMontages;
+	TArray<TSoftObjectPtr<UAnimMontage>> TauntMontages;
 
 	/** From enemy data table (or defaults). */
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "AI|Combat")

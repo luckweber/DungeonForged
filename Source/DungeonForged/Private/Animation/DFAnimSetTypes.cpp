@@ -101,3 +101,125 @@ UAnimSequenceBase* FUDAnimSet::ResolveJumpDoubleLoop() const
 	}
 	return ResolveJumpLoop();
 }
+
+namespace
+{
+template <typename TPicker>
+UAnimSequenceBase* ResolveLocoDir(const FUDLocomotionAnimSet& Set, const EDFMovementDirection Dir, TPicker&& Pick)
+{
+	switch (Dir)
+	{
+	case EDFMovementDirection::Forward:        return Pick(Set, EDFMovementDirection::Forward);
+	case EDFMovementDirection::ForwardRight:   return Pick(Set, EDFMovementDirection::ForwardRight);
+	case EDFMovementDirection::Right:          return Pick(Set, EDFMovementDirection::Right);
+	case EDFMovementDirection::BackwardRight:  return Pick(Set, EDFMovementDirection::BackwardRight);
+	case EDFMovementDirection::Backward:       return Pick(Set, EDFMovementDirection::Backward);
+	case EDFMovementDirection::BackwardLeft:   return Pick(Set, EDFMovementDirection::BackwardLeft);
+	case EDFMovementDirection::Left:           return Pick(Set, EDFMovementDirection::Left);
+	case EDFMovementDirection::ForwardLeft:    return Pick(Set, EDFMovementDirection::ForwardLeft);
+	default:                                   return Pick(Set, EDFMovementDirection::Forward);
+	}
+}
+} // namespace
+
+UAnimSequenceBase* FUDLocomotionAnimSet::ResolveStart(const EDFMovementDirection Dir) const
+{
+	auto Pick = [](const FUDLocomotionAnimSet& S, const EDFMovementDirection D) -> UAnimSequenceBase*
+	{
+		switch (D)
+		{
+		case EDFMovementDirection::Forward:       return S.Start_F       ? S.Start_F       : S.Start_F;
+		case EDFMovementDirection::ForwardRight:  return S.Start_FR_45   ? S.Start_FR_45   : (S.Start_F ? S.Start_F : S.Start_R_90);
+		case EDFMovementDirection::Right:         return S.Start_R_90    ? S.Start_R_90    : S.Start_FR_45;
+		case EDFMovementDirection::BackwardRight: return S.Start_BR_135  ? S.Start_BR_135  : (S.Start_B_180 ? S.Start_B_180 : S.Start_R_90);
+		case EDFMovementDirection::Backward:      return S.Start_B_180   ? S.Start_B_180   : S.Start_F;
+		case EDFMovementDirection::BackwardLeft:  return S.Start_BL_135  ? S.Start_BL_135  : (S.Start_B_180 ? S.Start_B_180 : S.Start_L_90);
+		case EDFMovementDirection::Left:          return S.Start_L_90    ? S.Start_L_90    : S.Start_FL_45;
+		case EDFMovementDirection::ForwardLeft:   return S.Start_FL_45   ? S.Start_FL_45   : (S.Start_F ? S.Start_F : S.Start_L_90);
+		default:                                  return S.Start_F;
+		}
+	};
+	return ResolveLocoDir(*this, Dir, Pick);
+}
+
+UAnimSequenceBase* FUDLocomotionAnimSet::ResolveLoop(const EDFMovementDirection Dir) const
+{
+	auto Pick = [](const FUDLocomotionAnimSet& S, const EDFMovementDirection D) -> UAnimSequenceBase*
+	{
+		switch (D)
+		{
+		case EDFMovementDirection::Forward:       return S.Loop_F       ? S.Loop_F       : S.Loop_F;
+		case EDFMovementDirection::ForwardRight:  return S.Loop_FR_45   ? S.Loop_FR_45   : (S.Loop_F ? S.Loop_F : S.Loop_R_90);
+		case EDFMovementDirection::Right:         return S.Loop_R_90    ? S.Loop_R_90    : S.Loop_FR_45;
+		case EDFMovementDirection::BackwardRight: return S.Loop_BR_135  ? S.Loop_BR_135  : (S.Loop_B_180 ? S.Loop_B_180 : S.Loop_R_90);
+		case EDFMovementDirection::Backward:      return S.Loop_B_180   ? S.Loop_B_180   : S.Loop_F;
+		case EDFMovementDirection::BackwardLeft:  return S.Loop_BL_135  ? S.Loop_BL_135  : (S.Loop_B_180 ? S.Loop_B_180 : S.Loop_L_90);
+		case EDFMovementDirection::Left:          return S.Loop_L_90    ? S.Loop_L_90    : S.Loop_FL_45;
+		case EDFMovementDirection::ForwardLeft:   return S.Loop_FL_45   ? S.Loop_FL_45   : (S.Loop_F ? S.Loop_F : S.Loop_L_90);
+		default:                                  return S.Loop_F;
+		}
+	};
+	return ResolveLocoDir(*this, Dir, Pick);
+}
+
+UAnimSequenceBase* FUDLocomotionAnimSet::ResolveStop(const EDFMovementDirection Dir) const
+{
+	auto Pick = [](const FUDLocomotionAnimSet& S, const EDFMovementDirection D) -> UAnimSequenceBase*
+	{
+		switch (D)
+		{
+		case EDFMovementDirection::Forward:       return S.Stop_F       ? S.Stop_F       : S.Stop_F;
+		case EDFMovementDirection::ForwardRight:  return S.Stop_FR_45   ? S.Stop_FR_45   : (S.Stop_F ? S.Stop_F : S.Stop_R_90);
+		case EDFMovementDirection::Right:         return S.Stop_R_90    ? S.Stop_R_90    : S.Stop_FR_45;
+		case EDFMovementDirection::BackwardRight: return S.Stop_BR_135  ? S.Stop_BR_135  : (S.Stop_B_180 ? S.Stop_B_180 : S.Stop_R_90);
+		case EDFMovementDirection::Backward:      return S.Stop_B_180   ? S.Stop_B_180   : S.Stop_F;
+		case EDFMovementDirection::BackwardLeft:  return S.Stop_BL_135  ? S.Stop_BL_135  : (S.Stop_B_180 ? S.Stop_B_180 : S.Stop_L_90);
+		case EDFMovementDirection::Left:          return S.Stop_L_90    ? S.Stop_L_90    : S.Stop_FL_45;
+		case EDFMovementDirection::ForwardLeft:   return S.Stop_FL_45   ? S.Stop_FL_45   : (S.Stop_F ? S.Stop_F : S.Stop_L_90);
+		default:                                  return S.Stop_F;
+		}
+	};
+	return ResolveLocoDir(*this, Dir, Pick);
+}
+
+UAnimSequenceBase* FUDAnimSet::ResolveLocomotionStart(const EDFGait Gait, const EDFMovementDirection Dir) const
+{
+	const FUDLocomotionAnimSet& Set = (Gait == EDFGait::Walk) ? WalkSet : RunSet;
+	if (UAnimSequenceBase* const A = Set.ResolveStart(Dir))
+	{
+		return A;
+	}
+	if (Gait != EDFGait::Walk)
+	{
+		return WalkSet.ResolveStart(Dir);
+	}
+	return nullptr;
+}
+
+UAnimSequenceBase* FUDAnimSet::ResolveLocomotionLoop(const EDFGait Gait, const EDFMovementDirection Dir) const
+{
+	const FUDLocomotionAnimSet& Set = (Gait == EDFGait::Walk) ? WalkSet : RunSet;
+	if (UAnimSequenceBase* const A = Set.ResolveLoop(Dir))
+	{
+		return A;
+	}
+	if (Gait != EDFGait::Walk)
+	{
+		return WalkSet.ResolveLoop(Dir);
+	}
+	return nullptr;
+}
+
+UAnimSequenceBase* FUDAnimSet::ResolveLocomotionStop(const EDFGait Gait, const EDFMovementDirection Dir) const
+{
+	const FUDLocomotionAnimSet& Set = (Gait == EDFGait::Walk) ? WalkSet : RunSet;
+	if (UAnimSequenceBase* const A = Set.ResolveStop(Dir))
+	{
+		return A;
+	}
+	if (Gait != EDFGait::Walk)
+	{
+		return WalkSet.ResolveStop(Dir);
+	}
+	return nullptr;
+}

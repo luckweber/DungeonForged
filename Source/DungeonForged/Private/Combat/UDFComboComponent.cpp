@@ -29,6 +29,8 @@
 #include "GAS/UDFAttributeSet.h"
 #include "Data/UDFCombatTuningData.h"
 #include "DFAssetManager.h"
+#include "Engine/AssetManager.h"
+#include "Engine/StreamableManager.h"
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
 #include "DungeonForgedModule.h"
@@ -389,12 +391,23 @@ UAnimMontage* UDFComboComponent::PickComboVariant(const TArray<FDFComboVariant>&
 		}
 	}
 
+	// Helper: prefers cached pointer, falls back to sync load if a path is set but not loaded.
+	// This keeps the hot path branch-free when ApplyComboStepData has already preloaded.
+	auto GetLoaded = [](const TSoftObjectPtr<UAnimMontage>& Soft) -> UAnimMontage*
+	{
+		if (UAnimMontage* const M = Soft.Get())
+		{
+			return M;
+		}
+		return Soft.IsNull() ? nullptr : Soft.LoadSynchronous();
+	};
+
 	TArray<int32> EligibleIdx;
 	float WeightSum = 0.f;
 	for (int32 i = 0; i < Variants.Num(); ++i)
 	{
 		const FDFComboVariant& V = Variants[i];
-		if (!V.Montage)
+		if (V.Montage.IsNull())
 		{
 			continue;
 		}
@@ -417,9 +430,9 @@ UAnimMontage* UDFComboComponent::PickComboVariant(const TArray<FDFComboVariant>&
 	{
 		for (const FDFComboVariant& V : Variants)
 		{
-			if (V.Montage)
+			if (UAnimMontage* const M = GetLoaded(V.Montage))
 			{
-				return V.Montage;
+				return M;
 			}
 		}
 		return nullptr;
@@ -430,14 +443,23 @@ UAnimMontage* UDFComboComponent::PickComboVariant(const TArray<FDFComboVariant>&
 		Roll -= Variants[Idx].Weight;
 		if (Roll <= 0.f)
 		{
-			return Variants[Idx].Montage;
+			return GetLoaded(Variants[Idx].Montage);
 		}
 	}
-	return Variants[EligibleIdx.Last()].Montage;
+	return GetLoaded(Variants[EligibleIdx.Last()].Montage);
 }
 
 UAnimMontage* UDFComboComponent::ResolveStepMontageFromData(const FDFComboStep& StepData) const
 {
+	auto GetLoaded = [](const TSoftObjectPtr<UAnimMontage>& Soft) -> UAnimMontage*
+	{
+		if (UAnimMontage* const M = Soft.Get())
+		{
+			return M;
+		}
+		return Soft.IsNull() ? nullptr : Soft.LoadSynchronous();
+	};
+
 	if (bComboHeavyFinisherPending)
 	{
 		if (StepData.HeavyBranchVariants.Num() > 0)
@@ -447,9 +469,9 @@ UAnimMontage* UDFComboComponent::ResolveStepMontageFromData(const FDFComboStep& 
 				return Pick;
 			}
 		}
-		if (StepData.HeavyBranchMontage)
+		if (!StepData.HeavyBranchMontage.IsNull())
 		{
-			return StepData.HeavyBranchMontage;
+			return GetLoaded(StepData.HeavyBranchMontage);
 		}
 	}
 	if (StepData.LightVariants.Num() > 0)
@@ -459,7 +481,7 @@ UAnimMontage* UDFComboComponent::ResolveStepMontageFromData(const FDFComboStep& 
 			return Pick;
 		}
 	}
-	return StepData.LightMontage;
+	return GetLoaded(StepData.LightMontage);
 }
 
 void UDFComboComponent::EvaluateComboCurveWindow()
@@ -513,7 +535,7 @@ void UDFComboComponent::OnRep_LockedComboActivationStep()
 			LocalStep, ServerStep, PreviousValue);
 		if (UAnimInstance* Anim = GetAnimInstance())
 		{
-			for (const TObjectPtr<UAnimMontage>& M : ComboMontages)
+			for (const TObjectPtr<UAnimMontage>& M : ResolvedComboMontages)
 			{
 				if (M && Anim->Montage_IsPlaying(M))
 				{
@@ -611,6 +633,7 @@ void UDFComboComponent::BeginPlay()
 		}
 	}
 	ApplyCombatTuningFromDataAsset();
+	EnsureBPDefaultMontagesLoaded();
 	SetComponentTickEnabled(true);
 }
 
@@ -660,16 +683,20 @@ bool UDFComboComponent::ShouldBypassMeleeAbilityCooldown() const
 void UDFComboComponent::ApplyComboStepData(const TArray<FDFComboStep>& Steps)
 {
 	ComboSteps = Steps;
-	ComboMontages.Empty();
-	ComboMontages.Reserve(ComboSteps.Num());
+	ComboMontages.Reset(ComboSteps.Num());
+	ResolvedComboMontages.Reset(ComboSteps.Num());
+	// Equip path: it's OK to LoadSynchronous here (called rarely, ~once per weapon swap).
+	// The runtime hot path (PickComboVariant / ResolveStepMontageFromData) will then just hit cache.
 	for (const FDFComboStep& Step : ComboSteps)
 	{
-		UAnimMontage* M = Step.LightMontage;
-		if (!M && Step.LightVariants.Num() > 0)
-		{
-			M = Step.LightVariants[0].Montage;
-		}
-		ComboMontages.Add(M);
+		const TSoftObjectPtr<UAnimMontage>& SoftLight =
+			(!Step.LightMontage.IsNull())
+				? Step.LightMontage
+				: (Step.LightVariants.Num() > 0 ? Step.LightVariants[0].Montage : TSoftObjectPtr<UAnimMontage>());
+
+		UAnimMontage* const M = SoftLight.IsNull() ? nullptr : SoftLight.LoadSynchronous();
+		ComboMontages.Add(SoftLight);
+		ResolvedComboMontages.Add(M);
 	}
 }
 
@@ -762,16 +789,16 @@ void UDFComboComponent::ApplyCombatTuningFromDataAsset()
 
 void UDFComboComponent::StartChargeWindupMontage()
 {
-	if (!ChargeWindupMontage || bPlayingComboMontage)
+	if (!ResolvedChargeWindupMontage || bPlayingComboMontage)
 	{
 		return;
 	}
 	UAnimInstance* const AnimInst = GetAnimInstance();
-	if (!AnimInst || AnimInst->Montage_IsPlaying(ChargeWindupMontage))
+	if (!AnimInst || AnimInst->Montage_IsPlaying(ResolvedChargeWindupMontage))
 	{
 		return;
 	}
-	if (AnimInst->Montage_Play(ChargeWindupMontage, 1.f) > 0.f)
+	if (AnimInst->Montage_Play(ResolvedChargeWindupMontage, 1.f) > 0.f)
 	{
 		bPlayingChargeWindup = true;
 	}
@@ -785,9 +812,9 @@ void UDFComboComponent::StopChargeWindupMontage()
 	}
 	if (UAnimInstance* const AnimInst = GetAnimInstance())
 	{
-		if (ChargeWindupMontage)
+		if (ResolvedChargeWindupMontage)
 		{
-			AnimInst->Montage_Stop(0.1f, ChargeWindupMontage);
+			AnimInst->Montage_Stop(0.1f, ResolvedChargeWindupMontage);
 		}
 	}
 	bPlayingChargeWindup = false;
@@ -896,7 +923,7 @@ void UDFComboComponent::OnPrimaryAttackReleased()
 	HeavyChargeStartTime = -1.f;
 	const bool bHadChargeWindup = bPlayingChargeWindup;
 	StopChargeWindupMontage();
-	bPendingChargeReleaseMontage = bHadChargeWindup && HeavyChargeReleaseMontage != nullptr;
+	bPendingChargeReleaseMontage = bHadChargeWindup && !HeavyChargeReleaseMontage.IsNull();
 
 	if (Held >= MaxHeavyChargeThreshold)
 	{
@@ -1263,7 +1290,7 @@ void UDFComboComponent::PrepareForComboChainActivation()
 	if (UAnimInstance* const AnimInst = GetAnimInstance())
 	{
 		FOnMontageEnded EmptyDelegate;
-		for (const TObjectPtr<UAnimMontage>& M : ComboMontages)
+		for (const TObjectPtr<UAnimMontage>& M : ResolvedComboMontages)
 		{
 			if (M && AnimInst->Montage_IsPlaying(M))
 			{
@@ -1539,7 +1566,7 @@ void UDFComboComponent::ResetCombo()
 	UnbindMontageEndDelegate();
 	if (UAnimInstance* A = GetAnimInstance())
 	{
-		for (TObjectPtr<UAnimMontage> M : ComboMontages)
+		for (TObjectPtr<UAnimMontage> M : ResolvedComboMontages)
 		{
 			if (M && A->Montage_IsPlaying(M))
 			{
@@ -1572,24 +1599,252 @@ void UDFComboComponent::ResetCombo()
 	StopChargeWindupMontage();
 }
 
+// ─── Soft-ref helpers ────────────────────────────────────────────────────────────────────
+
+namespace DFComboMontageHelpers
+{
+	template <typename TElement>
+	static void HardArrayToSoftArrayAndCache(
+		const TArray<TElement>& Hards,
+		TArray<TSoftObjectPtr<UAnimMontage>>& OutSoft,
+		TArray<TObjectPtr<UAnimMontage>>& OutResolved)
+	{
+		OutSoft.Reset(Hards.Num());
+		OutResolved.Reset(Hards.Num());
+		for (UAnimMontage* const M : Hards) // works for UAnimMontage* and TObjectPtr<UAnimMontage>
+		{
+			OutSoft.Add(TSoftObjectPtr<UAnimMontage>(M));
+			OutResolved.Add(M); // hard ref already loaded
+		}
+	}
+}
+
+void UDFComboComponent::SetComboMontagesFromHardRefs(const TArray<UAnimMontage*>& Hards)
+{
+	DFComboMontageHelpers::HardArrayToSoftArrayAndCache(Hards, ComboMontages, ResolvedComboMontages);
+}
+
+void UDFComboComponent::SetBackwardComboMontagesFromHardRefs(const TArray<UAnimMontage*>& Hards)
+{
+	DFComboMontageHelpers::HardArrayToSoftArrayAndCache(Hards, BackwardComboMontages, ResolvedBackwardComboMontages);
+}
+
+void UDFComboComponent::SetSideComboMontagesFromHardRefs(const TArray<UAnimMontage*>& Hards)
+{
+	DFComboMontageHelpers::HardArrayToSoftArrayAndCache(Hards, SideComboMontages, ResolvedSideComboMontages);
+}
+
+void UDFComboComponent::SetComboMontagesFromHardRefs(const TArray<TObjectPtr<UAnimMontage>>& Hards)
+{
+	DFComboMontageHelpers::HardArrayToSoftArrayAndCache(Hards, ComboMontages, ResolvedComboMontages);
+}
+
+void UDFComboComponent::SetBackwardComboMontagesFromHardRefs(const TArray<TObjectPtr<UAnimMontage>>& Hards)
+{
+	DFComboMontageHelpers::HardArrayToSoftArrayAndCache(Hards, BackwardComboMontages, ResolvedBackwardComboMontages);
+}
+
+void UDFComboComponent::SetSideComboMontagesFromHardRefs(const TArray<TObjectPtr<UAnimMontage>>& Hards)
+{
+	DFComboMontageHelpers::HardArrayToSoftArrayAndCache(Hards, SideComboMontages, ResolvedSideComboMontages);
+}
+
+namespace DFComboMontageHelpers
+{
+	static void SoftArrayToCache(
+		const TArray<TSoftObjectPtr<UAnimMontage>>& Softs,
+		TArray<TSoftObjectPtr<UAnimMontage>>& OutSoft,
+		TArray<TObjectPtr<UAnimMontage>>& OutResolved)
+	{
+		OutSoft = Softs; // preserve paths
+		OutResolved.Reset(Softs.Num());
+		for (const TSoftObjectPtr<UAnimMontage>& Soft : Softs)
+		{
+			OutResolved.Add(Soft.IsNull() ? nullptr : Soft.LoadSynchronous());
+		}
+	}
+}
+
+void UDFComboComponent::SetComboMontagesFromSoftRefs(const TArray<TSoftObjectPtr<UAnimMontage>>& Softs)
+{
+	DFComboMontageHelpers::SoftArrayToCache(Softs, ComboMontages, ResolvedComboMontages);
+}
+
+void UDFComboComponent::SetBackwardComboMontagesFromSoftRefs(const TArray<TSoftObjectPtr<UAnimMontage>>& Softs)
+{
+	DFComboMontageHelpers::SoftArrayToCache(Softs, BackwardComboMontages, ResolvedBackwardComboMontages);
+}
+
+void UDFComboComponent::SetSideComboMontagesFromSoftRefs(const TArray<TSoftObjectPtr<UAnimMontage>>& Softs)
+{
+	DFComboMontageHelpers::SoftArrayToCache(Softs, SideComboMontages, ResolvedSideComboMontages);
+}
+
+void UDFComboComponent::SetHeavyAttackMontageFromSoft(const TSoftObjectPtr<UAnimMontage>& Soft)
+{
+	HeavyAttackMontage = Soft;
+	ResolvedHeavyAttackMontage = Soft.IsNull() ? nullptr : Soft.LoadSynchronous();
+}
+
+void UDFComboComponent::SetMaxHeavyAttackMontageFromSoft(const TSoftObjectPtr<UAnimMontage>& Soft)
+{
+	MaxHeavyAttackMontage = Soft;
+	ResolvedMaxHeavyAttackMontage = Soft.IsNull() ? nullptr : Soft.LoadSynchronous();
+}
+
+void UDFComboComponent::SetChargeWindupMontageFromSoft(const TSoftObjectPtr<UAnimMontage>& Soft)
+{
+	ChargeWindupMontage = Soft;
+	ResolvedChargeWindupMontage = Soft.IsNull() ? nullptr : Soft.LoadSynchronous();
+}
+
+void UDFComboComponent::SetHeavyChargeReleaseMontageFromSoft(const TSoftObjectPtr<UAnimMontage>& Soft)
+{
+	HeavyChargeReleaseMontage = Soft;
+	ResolvedHeavyChargeReleaseMontage = Soft.IsNull() ? nullptr : Soft.LoadSynchronous();
+}
+
+void UDFComboComponent::SetHeavyAttackMontage(UAnimMontage* Montage)
+{
+	HeavyAttackMontage = TSoftObjectPtr<UAnimMontage>(Montage);
+	ResolvedHeavyAttackMontage = Montage;
+}
+
+void UDFComboComponent::SetMaxHeavyAttackMontage(UAnimMontage* Montage)
+{
+	MaxHeavyAttackMontage = TSoftObjectPtr<UAnimMontage>(Montage);
+	ResolvedMaxHeavyAttackMontage = Montage;
+}
+
+void UDFComboComponent::SetChargeWindupMontage(UAnimMontage* Montage)
+{
+	ChargeWindupMontage = TSoftObjectPtr<UAnimMontage>(Montage);
+	ResolvedChargeWindupMontage = Montage;
+}
+
+void UDFComboComponent::SetHeavyChargeReleaseMontage(UAnimMontage* Montage)
+{
+	HeavyChargeReleaseMontage = TSoftObjectPtr<UAnimMontage>(Montage);
+	ResolvedHeavyChargeReleaseMontage = Montage;
+}
+
+void UDFComboComponent::CaptureBaselineSnapshot(FComboMontageBaselineSnapshot& OutSnapshot) const
+{
+	OutSnapshot.Combo = ComboMontages;
+	OutSnapshot.Backward = BackwardComboMontages;
+	OutSnapshot.Side = SideComboMontages;
+	OutSnapshot.Heavy = HeavyAttackMontage;
+	OutSnapshot.MaxHeavy = MaxHeavyAttackMontage;
+	OutSnapshot.ChargeWindup = ChargeWindupMontage;
+	OutSnapshot.HeavyChargeRelease = HeavyChargeReleaseMontage;
+}
+
+void UDFComboComponent::RestoreFromBaselineSnapshot(const FComboMontageBaselineSnapshot& Snapshot)
+{
+	ComboMontages = Snapshot.Combo;
+	BackwardComboMontages = Snapshot.Backward;
+	SideComboMontages = Snapshot.Side;
+	HeavyAttackMontage = Snapshot.Heavy;
+	MaxHeavyAttackMontage = Snapshot.MaxHeavy;
+	ChargeWindupMontage = Snapshot.ChargeWindup;
+	HeavyChargeReleaseMontage = Snapshot.HeavyChargeRelease;
+	// Refresh caches: pointers may still be in memory if previously loaded.
+	RefreshResolvedMontageCaches();
+	EnsureBPDefaultMontagesLoaded();
+}
+
+void UDFComboComponent::EnsureBPDefaultMontagesLoaded()
+{
+	// Collect all soft paths that are valid but not yet resolved.
+	TArray<FSoftObjectPath> Paths;
+	auto AppendArray = [&](const TArray<TSoftObjectPtr<UAnimMontage>>& Arr)
+	{
+		for (const TSoftObjectPtr<UAnimMontage>& Soft : Arr)
+		{
+			if (!Soft.IsNull() && !Soft.IsValid())
+			{
+				Paths.Add(Soft.ToSoftObjectPath());
+			}
+		}
+	};
+	auto AppendOne = [&](const TSoftObjectPtr<UAnimMontage>& Soft)
+	{
+		if (!Soft.IsNull() && !Soft.IsValid())
+		{
+			Paths.Add(Soft.ToSoftObjectPath());
+		}
+	};
+
+	AppendArray(ComboMontages);
+	AppendArray(BackwardComboMontages);
+	AppendArray(SideComboMontages);
+	AppendOne(HeavyAttackMontage);
+	AppendOne(MaxHeavyAttackMontage);
+	AppendOne(ChargeWindupMontage);
+	AppendOne(HeavyChargeReleaseMontage);
+
+	if (Paths.Num() == 0)
+	{
+		// Either everything already loaded or nothing was configured in BP defaults.
+		RefreshResolvedMontageCaches();
+		return;
+	}
+
+	FStreamableManager& Mgr = UAssetManager::GetStreamableManager();
+	TWeakObjectPtr<UDFComboComponent> WeakSelf(this);
+	DefaultMontagesStreamHandle = Mgr.RequestAsyncLoad(
+		Paths,
+		FStreamableDelegate::CreateLambda([WeakSelf]()
+		{
+			if (UDFComboComponent* const Self = WeakSelf.Get())
+			{
+				Self->RefreshResolvedMontageCaches();
+			}
+		}),
+		FStreamableManager::AsyncLoadHighPriority,
+		/*bManageActiveHandle=*/false);
+}
+
+void UDFComboComponent::RefreshResolvedMontageCaches()
+{
+	auto Resolve = [](const TArray<TSoftObjectPtr<UAnimMontage>>& Src,
+		TArray<TObjectPtr<UAnimMontage>>& Dst)
+	{
+		Dst.Reset(Src.Num());
+		for (const TSoftObjectPtr<UAnimMontage>& Soft : Src)
+		{
+			Dst.Add(Soft.Get()); // null if not loaded — caller falls back gracefully
+		}
+	};
+	Resolve(ComboMontages, ResolvedComboMontages);
+	Resolve(BackwardComboMontages, ResolvedBackwardComboMontages);
+	Resolve(SideComboMontages, ResolvedSideComboMontages);
+	ResolvedHeavyAttackMontage = HeavyAttackMontage.Get();
+	ResolvedMaxHeavyAttackMontage = MaxHeavyAttackMontage.Get();
+	ResolvedChargeWindupMontage = ChargeWindupMontage.Get();
+	ResolvedHeavyChargeReleaseMontage = HeavyChargeReleaseMontage.Get();
+}
+
+// ─── Resolve* getters (now read from caches) ─────────────────────────────────────────────
+
 UAnimMontage* UDFComboComponent::ResolveHeavyAttackMontage() const
 {
-	if (HeavyAttackMontage)
+	if (ResolvedHeavyAttackMontage)
 	{
-		return HeavyAttackMontage.Get();
+		return ResolvedHeavyAttackMontage;
 	}
-	if (ComboMontages.Num() > 0 && ComboMontages[0])
+	if (ResolvedComboMontages.Num() > 0 && ResolvedComboMontages[0])
 	{
-		return ComboMontages[0].Get();
+		return ResolvedComboMontages[0];
 	}
 	return nullptr;
 }
 
 UAnimMontage* UDFComboComponent::ResolveMaxHeavyAttackMontage() const
 {
-	if (MaxHeavyAttackMontage)
+	if (ResolvedMaxHeavyAttackMontage)
 	{
-		return MaxHeavyAttackMontage.Get();
+		return ResolvedMaxHeavyAttackMontage;
 	}
 	return ResolveHeavyAttackMontage();
 }
@@ -1600,9 +1855,9 @@ UAnimMontage* UDFComboComponent::ResolveActiveHeavyMontage() const
 	{
 		return ResolveMaxHeavyAttackMontage();
 	}
-	if (bPendingChargeReleaseMontage && HeavyChargeReleaseMontage)
+	if (bPendingChargeReleaseMontage && ResolvedHeavyChargeReleaseMontage)
 	{
-		return HeavyChargeReleaseMontage;
+		return ResolvedHeavyChargeReleaseMontage;
 	}
 	return ResolveHeavyAttackMontage();
 }
@@ -1622,7 +1877,7 @@ UAnimMontage* UDFComboComponent::ResolveDirectionalComboMontage(const int32 Step
 	const AActor* const Owner = GetOwner();
 	if (!Owner)
 	{
-		return ComboMontages.IsValidIndex(Step) ? ComboMontages[Step].Get() : nullptr;
+		return ResolvedComboMontages.IsValidIndex(Step) ? ResolvedComboMontages[Step].Get() : nullptr;
 	}
 
 	FVector LocalInput = FVector::ZeroVector;
@@ -1644,24 +1899,24 @@ UAnimMontage* UDFComboComponent::ResolveDirectionalComboMontage(const int32 Step
 
 	if (LocalInput.SizeSquared2D() < DirectionalInputThreshold * DirectionalInputThreshold)
 	{
-		return ComboMontages.IsValidIndex(Step) ? ComboMontages[Step].Get() : nullptr;
+		return ResolvedComboMontages.IsValidIndex(Step) ? ResolvedComboMontages[Step].Get() : nullptr;
 	}
 	const float Threshold = DirectionalInputThreshold;
 	if (LocalInput.X < -Threshold)
 	{
-		if (BackwardComboMontages.IsValidIndex(Step) && BackwardComboMontages[Step])
+		if (ResolvedBackwardComboMontages.IsValidIndex(Step) && ResolvedBackwardComboMontages[Step])
 		{
-			return BackwardComboMontages[Step].Get();
+			return ResolvedBackwardComboMontages[Step].Get();
 		}
 	}
 	else if (FMath::Abs(LocalInput.Y) > Threshold && FMath::Abs(LocalInput.Y) > FMath::Abs(LocalInput.X))
 	{
-		if (SideComboMontages.IsValidIndex(Step) && SideComboMontages[Step])
+		if (ResolvedSideComboMontages.IsValidIndex(Step) && ResolvedSideComboMontages[Step])
 		{
-			return SideComboMontages[Step].Get();
+			return ResolvedSideComboMontages[Step].Get();
 		}
 	}
-	return ComboMontages.IsValidIndex(Step) ? ComboMontages[Step].Get() : nullptr;
+	return ResolvedComboMontages.IsValidIndex(Step) ? ResolvedComboMontages[Step].Get() : nullptr;
 }
 
 bool UDFComboComponent::ConsumeHeavyStamina()

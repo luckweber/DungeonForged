@@ -100,16 +100,16 @@ void UDFAssetLoaderSubsystem::AddEnemyRowPaths(const FDFEnemyTableRow& Row, TArr
 	{
 		OutPaths.Emplace(Row.AIBehaviorTree);
 	}
-	for (TObjectPtr<UAnimMontage> M : Row.TauntMontages)
+	for (const TSoftObjectPtr<UAnimMontage>& Soft : Row.TauntMontages)
 	{
-		if (M)
+		if (!Soft.IsNull())
 		{
-			OutPaths.Emplace(M);
+			OutPaths.Add(Soft.ToSoftObjectPath());
 		}
 	}
-	if (Row.SpawnBirthMontage)
+	if (!Row.SpawnBirthMontage.IsNull())
 	{
-		OutPaths.Emplace(Row.SpawnBirthMontage);
+		OutPaths.Add(Row.SpawnBirthMontage.ToSoftObjectPath());
 	}
 }
 

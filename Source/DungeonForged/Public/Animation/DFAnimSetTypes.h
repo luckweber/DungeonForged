@@ -65,6 +65,99 @@ struct DUNGEONFORGED_API FUDJumpAnimSet
 };
 
 /**
+ * Per-direction Start / Loop / Stop bundle for a single gait (walk or run).
+ * Fill the 8 directions you have authored; the resolver falls back through
+ * cardinals → Forward → null automatically.
+ */
+USTRUCT(BlueprintType)
+struct DUNGEONFORGED_API FUDLocomotionAnimSet
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Start")
+	TObjectPtr<UAnimSequenceBase> Start_F;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Start")
+	TObjectPtr<UAnimSequenceBase> Start_FR_45;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Start")
+	TObjectPtr<UAnimSequenceBase> Start_R_90;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Start")
+	TObjectPtr<UAnimSequenceBase> Start_BR_135;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Start")
+	TObjectPtr<UAnimSequenceBase> Start_B_180;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Start")
+	TObjectPtr<UAnimSequenceBase> Start_BL_135;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Start")
+	TObjectPtr<UAnimSequenceBase> Start_L_90;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Start")
+	TObjectPtr<UAnimSequenceBase> Start_FL_45;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Loop")
+	TObjectPtr<UAnimSequenceBase> Loop_F;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Loop")
+	TObjectPtr<UAnimSequenceBase> Loop_FR_45;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Loop")
+	TObjectPtr<UAnimSequenceBase> Loop_R_90;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Loop")
+	TObjectPtr<UAnimSequenceBase> Loop_BR_135;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Loop")
+	TObjectPtr<UAnimSequenceBase> Loop_B_180;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Loop")
+	TObjectPtr<UAnimSequenceBase> Loop_BL_135;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Loop")
+	TObjectPtr<UAnimSequenceBase> Loop_L_90;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Loop")
+	TObjectPtr<UAnimSequenceBase> Loop_FL_45;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Stop")
+	TObjectPtr<UAnimSequenceBase> Stop_F;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Stop")
+	TObjectPtr<UAnimSequenceBase> Stop_FR_45;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Stop")
+	TObjectPtr<UAnimSequenceBase> Stop_R_90;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Stop")
+	TObjectPtr<UAnimSequenceBase> Stop_BR_135;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Stop")
+	TObjectPtr<UAnimSequenceBase> Stop_B_180;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Stop")
+	TObjectPtr<UAnimSequenceBase> Stop_BL_135;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Stop")
+	TObjectPtr<UAnimSequenceBase> Stop_L_90;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loco|Stop")
+	TObjectPtr<UAnimSequenceBase> Stop_FL_45;
+
+	UAnimSequenceBase* ResolveStart(EDFMovementDirection Dir) const;
+	UAnimSequenceBase* ResolveLoop(EDFMovementDirection Dir) const;
+	UAnimSequenceBase* ResolveStop(EDFMovementDirection Dir) const;
+
+	bool IsValid() const
+	{
+		return Start_F || Loop_F || Stop_F
+			|| Start_B_180 || Loop_B_180 || Stop_B_180;
+	}
+};
+
+/**
  * Animation bundle for idle / locomotion / jump driven by AnimGraph.
  */
 USTRUCT(BlueprintType)
@@ -80,6 +173,14 @@ struct DUNGEONFORGED_API FUDAnimSet
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "DF|Anim Set - Locomotion")
 	TObjectPtr<UBlendSpace> StrafeBlendSpace;
+
+	/** Optional: per-direction Start/Loop/Stop for walk. Falls back to MovementBlendSpace if empty. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "DF|Anim Set - Locomotion|Directional")
+	FUDLocomotionAnimSet WalkSet;
+
+	/** Optional: per-direction Start/Loop/Stop for run. Falls back to MovementBlendSpace if empty. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "DF|Anim Set - Locomotion|Directional")
+	FUDLocomotionAnimSet RunSet;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "DF|Anim Set - Jump")
 	FUDJumpAnimSet JumpSet;
@@ -107,6 +208,10 @@ struct DUNGEONFORGED_API FUDAnimSet
 	UAnimSequenceBase* ResolveJumpLoop() const;
 	UAnimSequenceBase* ResolveJumpDoubleStart() const;
 	UAnimSequenceBase* ResolveJumpDoubleLoop() const;
+
+	UAnimSequenceBase* ResolveLocomotionStart(EDFGait Gait, EDFMovementDirection Dir) const;
+	UAnimSequenceBase* ResolveLocomotionLoop(EDFGait Gait, EDFMovementDirection Dir) const;
+	UAnimSequenceBase* ResolveLocomotionStop(EDFGait Gait, EDFMovementDirection Dir) const;
 
 	bool IsValid() const
 	{

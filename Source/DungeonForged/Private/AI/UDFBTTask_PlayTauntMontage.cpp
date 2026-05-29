@@ -22,7 +22,8 @@ EBTNodeResult::Type UDFBTTask_PlayTauntMontage::ExecuteTask(
 		return EBTNodeResult::Failed;
 	}
 	const int32 I = FMath::RandRange(0, E->TauntMontages.Num() - 1);
-	UAnimMontage* const M = E->TauntMontages[I];
+	// Taunt is a low-frequency BT task — sync load is acceptable and avoids holding stream handles per enemy.
+	UAnimMontage* const M = E->TauntMontages[I].LoadSynchronous();
 	if (!M || !E->GetMesh())
 	{
 		return EBTNodeResult::Failed;
