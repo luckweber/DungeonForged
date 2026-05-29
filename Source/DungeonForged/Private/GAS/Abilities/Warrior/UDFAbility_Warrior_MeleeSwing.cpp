@@ -101,13 +101,6 @@ void UDFAbility_Warrior_MeleeSwing::ActivateAbility(const FGameplayAbilitySpecHa
 		return;
 	}
 
-	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (ASC->GetOwner() && ASC->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(ASC);
-		}
-	}
 
 	AActor* Avatar = ActorInfo->AvatarActor.Get();
 	UDFComboComponent* Combo = nullptr;

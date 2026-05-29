@@ -76,7 +76,14 @@ public:
 	UPROPERTY(EditAnywhere, Category = "DF|Stagger|GAS", meta = (ClampMin = "0.0"))
 	float StaggerSetByCallerMagnitude = 1.25f;
 
-	/** If set, this montage is played multicast on stagger trigger; otherwise just the GE + tag drives feedback. */
+	/**
+	 * If true and victim has @c UDFHitReactionComponent, poise break plays hit-react montage there
+	 * instead of @c StaggerMontage (avoids double flinch).
+	 */
+	UPROPERTY(EditAnywhere, Category = "DF|Stagger|FX")
+	bool bPreferHitReactionMontage = true;
+
+	/** If set and @c bPreferHitReactionMontage is false, played on poise break. */
 	UPROPERTY(EditAnywhere, Category = "DF|Stagger|FX")
 	TObjectPtr<UAnimMontage> StaggerMontage = nullptr;
 
@@ -95,6 +102,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|Stagger")
 	void ResetAccumulator();
 
+	/** Optional explicit poise registration (health listener remains the default path). */
+	UFUNCTION(BlueprintCallable, Category = "DF|Stagger")
+	void RegisterPoiseHit(float PoiseDamage, AActor* Instigator = nullptr);
+
+	/** Consumed on the next poise accumulation from health damage (set by melee / crowd control). */
+	UFUNCTION(BlueprintCallable, Category = "DF|Stagger")
+	void SetPendingStaggerInstigator(AActor* Instigator);
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -102,8 +117,10 @@ protected:
 
 	void BindToAbilitySystem();
 	void HandleHealthChange(const FOnAttributeChangeData& Data);
-	void TriggerStagger(float Overshoot);
+	void TriggerStagger(float Overshoot, AActor* Instigator = nullptr);
+	void AccumulatePoiseDamage(float Damage, AActor* Instigator);
 	void PruneOldEntries();
+	void SyncStaggerEffectFromHitReaction();
 
 private:
 	struct FStaggerHit
@@ -113,6 +130,7 @@ private:
 	};
 
 	TArray<FStaggerHit> RecentHits;
+	TWeakObjectPtr<AActor> PendingStaggerInstigator;
 	double LastStaggerTime = -1.0;
 	float NextPoiseDamageMultiplier = 1.f;
 	float ActiveStaggerDR = 1.f;

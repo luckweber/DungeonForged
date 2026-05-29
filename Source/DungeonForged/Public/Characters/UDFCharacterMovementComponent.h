@@ -301,6 +301,8 @@ struct FSavedMove_DF : public FSavedMove_Character
 {
 public:
 	bool bWantsSprint = false;
+	bool bIsDodging = false;
+	bool bAirDashActive = false;
 
 	virtual void Clear() override;
 	virtual uint8 GetCompressedFlags() const override;

@@ -9,6 +9,7 @@ class UProgressBar;
 class UTextBlock;
 class UImage;
 class ADFBossBase;
+struct FGameplayTag;
 
 UCLASS(Blueprintable, BlueprintType)
 class DUNGEONFORGED_API UDFBossHealthBarWidget : public UDFUserWidgetBase
@@ -31,12 +32,20 @@ protected:
 	void StopRebindTimer();
 	void OnRebindTimerTick();
 	void TryBindBossAttributes();
+	void BindBossTagEvents();
+	void UnbindBossTagEvents();
 	void OnHealthAttrChanged(const FOnAttributeChangeData& Data);
 	void OnMaxHealthAttrChanged(const FOnAttributeChangeData& Data);
 	void OnPhaseChanged(int32 OldPhase, int32 NewPhase, AActor* Boss);
 	void OnEnraged(AActor* Boss, bool bEnraged);
 	void RefreshHealthFill();
+	void RefreshEnrageCountdown();
+	void RefreshVulnerableCallout(bool bVisible);
+	void OnVulnerableTagChanged(FGameplayTag Tag, int32 NewCount);
 	void ClearBossBindings();
+	void StartHudRefreshTimer();
+	void StopHudRefreshTimer();
+	void OnHudRefreshTick();
 
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UProgressBar> BossHealthBar = nullptr;
@@ -50,8 +59,17 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UImage> EnrageIcon = nullptr;
 
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> EnrageCountdownText = nullptr;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> VulnerableCalloutText = nullptr;
+
 	TWeakObjectPtr<ADFBossBase> TrackedBoss;
 	bool bBossAttributesBound = false;
 	FTimerHandle RebindTimerHandle;
+	FTimerHandle HudRefreshTimerHandle;
+	FDelegateHandle VulnerableTagDelegateHandle;
 	static constexpr float RebindIntervalSec = 0.25f;
+	static constexpr float HudRefreshIntervalSec = 0.2f;
 };

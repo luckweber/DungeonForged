@@ -3,6 +3,7 @@
 #include "DungeonForgedModule.h"
 #include "Run/DFRunManager.h"
 #include "Run/DFSaveGame.h"
+#include "Run/UDFSaveLibrary.h"
 #include "Run/UDFSaveSlotManagerSubsystem.h"
 #include "Settings/UDFWorldDeveloperSettings.h"
 #include "World/UDFLoadingScreenSubsystem.h"
@@ -62,10 +63,32 @@ void UDFWorldTransitionSubsystem::Deinitialize()
 		if (UWorld* const W = GI->GetWorld())
 		{
 			W->GetTimerManager().ClearTimer(DeferredOpenMapTimer);
+			W->GetTimerManager().ClearTimer(TransitionSafetyTimer);
 		}
 	}
 	DeferredMapToOpen.Reset();
 	Super::Deinitialize();
+}
+
+void UDFWorldTransitionSubsystem::HandleTransitionSafetyTimeout()
+{
+	bIsTransitioning = false;
+}
+
+void UDFWorldTransitionSubsystem::ArmTransitionSafetyTimer()
+{
+	UGameInstance* const GI = GetGameInstance();
+	UWorld* const W = GI ? GI->GetWorld() : nullptr;
+	if (!W)
+	{
+		return;
+	}
+	W->GetTimerManager().SetTimer(
+		TransitionSafetyTimer,
+		this,
+		&UDFWorldTransitionSubsystem::HandleTransitionSafetyTimeout,
+		45.f,
+		false);
 }
 
 void UDFWorldTransitionSubsystem::ScheduleOpenMapAfterPaint(const FString& Map)
@@ -148,6 +171,7 @@ void UDFWorldTransitionSubsystem::TravelToNexus(const ETravelReason Reason)
 		return;
 	}
 	bIsTransitioning = true;
+	ArmTransitionSafetyTimer();
 	PendingReason = Reason;
 	PendingClass = NAME_None;
 	if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
@@ -155,14 +179,11 @@ void UDFWorldTransitionSubsystem::TravelToNexus(const ETravelReason Reason)
 		RM->SetNexusArrivalReason(DFWorldTransition::TravelToNexusArrival(Reason));
 		if (Reason == ETravelReason::FirstLaunch)
 		{
-			if (UDFSaveSlotManagerSubsystem* const Slots = GI->GetSubsystem<UDFSaveSlotManagerSubsystem>())
+			if (UDFSaveGame const* const Save = UDFSaveLibrary::GetMetaSave(this))
 			{
-				if (UDFSaveGame const* const Save = Slots->GetActiveOrLegacyMetaSave())
+				if (!Save->LastRunClass.IsNone())
 				{
-					if (!Save->LastRunClass.IsNone())
-					{
-						RM->SetSessionSelectedClass(Save->LastRunClass);
-					}
+					RM->SetSessionSelectedClass(Save->LastRunClass);
 				}
 			}
 		}
@@ -200,6 +221,7 @@ void UDFWorldTransitionSubsystem::TravelToRun(const FName SelectedClass)
 		return;
 	}
 	bIsTransitioning = true;
+	ArmTransitionSafetyTimer();
 	PendingReason = ETravelReason::NewRun;
 	PendingClass = SelectedClass;
 	if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
@@ -207,10 +229,56 @@ void UDFWorldTransitionSubsystem::TravelToRun(const FName SelectedClass)
 		RM->SetPendingWorldTravel(ETravelReason::NewRun, SelectedClass);
 		RM->CaptureRunState();
 	}
+	if (UDFSaveGame* const Save = UDFSaveLibrary::ResolveMutableMetaSave(this))
+	{
+		Save->bHasActiveRun = true;
+		Save->LastRunClass = SelectedClass;
+		Save->LastRunFloor = 1;
+		(void)UDFSaveLibrary::SaveMetaSave(this, Save);
+	}
 	SaveCheckpoint(ECheckpointType::RunStart);
 	if (UDFLoadingScreenSubsystem* const L = GI->GetSubsystem<UDFLoadingScreenSubsystem>())
 	{
 		L->ShowLoadingScreen(ETravelReason::NewRun, 1, 10);
+	}
+	ScheduleOpenMapAfterPaint(RunMapName);
+}
+
+void UDFWorldTransitionSubsystem::TravelToRunFromCheckpoint()
+{
+	UGameInstance* const GI = GetGameInstance();
+	if (!GI)
+	{
+		return;
+	}
+	UWorld* const W = GI->GetWorld();
+	if (!W || W->GetNetMode() == NM_Client)
+	{
+		return;
+	}
+	if (bIsTransitioning)
+	{
+		return;
+	}
+	UDFSaveGame* const Save = UDFSaveLibrary::ResolveMutableMetaSave(this);
+	if (!UDFRunManager::CanResumeFromSave(Save))
+	{
+		return;
+	}
+	UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>();
+	if (!RM || !RM->LoadRunFromCheckpoint(Save->LastCheckpoint))
+	{
+		return;
+	}
+	bIsTransitioning = true;
+	ArmTransitionSafetyTimer();
+	PendingReason = ETravelReason::NextFloor;
+	PendingClass = Save->LastCheckpoint.SelectedClass;
+	RM->SetPendingRunArrival(EDFRunTravelReason::ResumeCheckpoint, Save->LastCheckpoint.SelectedClass);
+	const int32 Floor = FMath::Max(1, Save->LastCheckpoint.CurrentFloor);
+	if (UDFLoadingScreenSubsystem* const L = GI->GetSubsystem<UDFLoadingScreenSubsystem>())
+	{
+		L->ShowLoadingScreen(ETravelReason::NextFloor, Floor, 10);
 	}
 	ScheduleOpenMapAfterPaint(RunMapName);
 }
@@ -232,6 +300,7 @@ void UDFWorldTransitionSubsystem::TravelToNextFloor(const int32 NextFloor, const
 		return;
 	}
 	bIsTransitioning = true;
+	ArmTransitionSafetyTimer();
 	PendingReason = ETravelReason::NextFloor;
 	PendingClass = NAME_None;
 	if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
@@ -283,15 +352,22 @@ void UDFWorldTransitionSubsystem::SaveCheckpoint(const ECheckpointType Type)
 	{
 		return;
 	}
-	UDFSaveGame* const Save = UDFSaveGame::Load();
+	UDFSaveGame* Save = UDFSaveLibrary::ResolveMutableMetaSave(this);
 	if (!Save)
 	{
 		return;
 	}
 	if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
 	{
+		RM->CaptureRunState();
 		Save->LastCheckpoint = RM->GetRunStateCopy();
 		Save->LastCheckpointType = Type;
+		if (Type != ECheckpointType::RunEnd)
+		{
+			Save->bHasActiveRun = true;
+			Save->LastRunClass = Save->LastCheckpoint.SelectedClass;
+			Save->LastRunFloor = Save->LastCheckpoint.CurrentFloor;
+		}
 	}
-	UDFSaveGame::Save(Save);
+	(void)UDFSaveLibrary::SaveMetaSave(this, Save);
 }

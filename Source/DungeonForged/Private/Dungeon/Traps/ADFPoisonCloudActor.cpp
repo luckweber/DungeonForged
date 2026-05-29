@@ -7,6 +7,7 @@
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
+#include "Network/UDFNetworkLibrary.h"
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
 #include "AbilitySystemInterface.h"
@@ -58,7 +59,7 @@ void ADFPoisonCloudActor::Tick(const float DeltaSeconds)
 void ADFPoisonCloudActor::TickClientCloudUi() const
 {
 	bool b = false;
-	if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
+	if (APlayerController* PC = UDFNetworkLibrary::GetLocalPlayerController(GetWorld()))
 	{
 		if (APawn* P = PC->GetPawn())
 		{

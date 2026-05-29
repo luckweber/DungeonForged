@@ -233,6 +233,15 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
 	TObjectPtr<USkeletalMeshComponent> Mesh_OffHand = nullptr;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
+	TObjectPtr<USkeletalMeshComponent> Mesh_Ring1 = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
+	TObjectPtr<USkeletalMeshComponent> Mesh_Ring2 = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
+	TObjectPtr<USkeletalMeshComponent> Mesh_Amulet = nullptr;
+
 	/** Set when ClientOpenMerchantShop creates the shop; cleared in UDFShopWidget::CloseShop. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|UI|Shop")
 	TObjectPtr<UDFShopWidget> ActiveShopWidget;

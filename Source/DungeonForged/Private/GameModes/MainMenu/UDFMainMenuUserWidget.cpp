@@ -124,16 +124,10 @@ void UDFMainMenuUserWidget::RefreshForCurrentSaveState()
 	const UDFSaveGame* ActiveRunSave = nullptr;
 	if (Slots)
 	{
-		for (int32 I = 0; I < UDFSaveSlotManagerSubsystem::MaxSlots; ++I)
+		int32 ActiveRunSlot = INDEX_NONE;
+		if (Slots->FindSlotWithActiveRun(ActiveRunSlot))
 		{
-			if (UDFSaveGame* D = Slots->GetSlotData(I))
-			{
-				if (D->bHasActiveRun)
-				{
-					ActiveRunSave = D;
-					break;
-				}
-			}
+			ActiveRunSave = Slots->GetSlotData(ActiveRunSlot);
 		}
 	}
 	const bool bHasActiveRun = ActiveRunSave != nullptr;
@@ -192,8 +186,8 @@ void UDFMainMenuUserWidget::OnContinueAdventure()
 	{
 		return;
 	}
-	UDFSaveGame* S = Slots->GetActiveSave();
-	if (!S || !S->bHasActiveRun)
+	int32 ResumeSlot = INDEX_NONE;
+	if (!Slots->FindSlotWithActiveRun(ResumeSlot))
 	{
 		if (APlayerController* const PC = GetOwningPlayer())
 		{
@@ -204,13 +198,15 @@ void UDFMainMenuUserWidget::OnContinueAdventure()
 		}
 		return;
 	}
-	if (!S->IsCompatible())
+	Slots->SelectSlot(ResumeSlot);
+	UDFSaveGame* S = Slots->GetActiveSave();
+	if (!S || !S->IsCompatible())
 	{
 		return;
 	}
 	if (UDFWorldTransitionSubsystem* const T = GI->GetSubsystem<UDFWorldTransitionSubsystem>())
 	{
-		T->TravelToNexus(ETravelReason::FirstLaunch);
+		T->TravelToRunFromCheckpoint();
 	}
 }
 

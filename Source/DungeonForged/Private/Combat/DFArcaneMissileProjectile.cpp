@@ -1,6 +1,8 @@
 // Source/DungeonForged/Private/Combat/DFArcaneMissileProjectile.cpp
 #include "Combat/DFArcaneMissileProjectile.h"
 #include "Combat/UDFProjectileHitTrackerComponent.h"
+#include "Combat/UDFProjectilePoolLibrary.h"
+#include "Combat/UDFProjectileSweepComponent.h"
 #include "GAS/Abilities/Mage/UDFAbility_Mage_ArcaneBarrage.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "FX/UDFCombatFeedbackLibrary.h"
@@ -39,14 +41,68 @@ ADFArcaneMissileProjectile::ADFArcaneMissileProjectile()
 	MagicDamageEffect = UGE_Damage_Magic::StaticClass();
 	OverloadDamageEffect = UGE_Damage_Magic::StaticClass();
 	SilenceEffect = UGE_Debuff_Silence::StaticClass();
+	ProjectileSweep = CreateDefaultSubobject<UDFProjectileSweepComponent>(TEXT("ProjectileSweep"));
+}
+
+FName ADFArcaneMissileProjectile::GetPoolName() const
+{
+	return FName(TEXT("ArcaneMissileProjectile"));
+}
+
+void ADFArcaneMissileProjectile::OnAcquiredFromPool()
+{
+	if (HitTracker)
+	{
+		HitTracker->ClearHitHistory();
+	}
+	if (ProjectileMove)
+	{
+		ProjectileMove->Velocity = GetActorForwardVector() * ProjectileMove->InitialSpeed;
+		ProjectileMove->UpdateComponentVelocity();
+	}
+	if (ProjectileSweep)
+	{
+		ProjectileSweep->ResetTraceSegment();
+	}
+	SetLifeSpan(0.f);
+}
+
+void ADFArcaneMissileProjectile::OnReleasedToPool()
+{
+	HomingTarget = nullptr;
+	SourceAbility = nullptr;
+	if (ProjectileMove)
+	{
+		ProjectileMove->HomingTargetComponent = nullptr;
+		ProjectileMove->StopMovementImmediately();
+	}
+}
+
+void ADFArcaneMissileProjectile::ApplyHomingTarget()
+{
+	if (ProjectileMove && IsValid(HomingTarget) && HomingTarget->GetRootComponent())
+	{
+		ProjectileMove->HomingTargetComponent = HomingTarget->GetRootComponent();
+	}
+	else if (ProjectileMove)
+	{
+		ProjectileMove->HomingTargetComponent = nullptr;
+	}
+}
+
+void ADFArcaneMissileProjectile::FinishProjectile()
+{
+	UDFProjectilePoolLibrary::FinishProjectile(this, this);
 }
 
 void ADFArcaneMissileProjectile::BeginPlay()
 {
 	Super::BeginPlay();
-	if (IsValid(HomingTarget) && IsValid(HomingTarget->GetRootComponent()))
+	ApplyHomingTarget();
+	if (ProjectileSweep)
 	{
-		ProjectileMove->HomingTargetComponent = HomingTarget->GetRootComponent();
+		ProjectileSweep->OnSweepHit.AddDynamic(this, &ADFArcaneMissileProjectile::OnSweepHit);
+		ProjectileSweep->ResetTraceSegment();
 	}
 }
 
@@ -59,26 +115,26 @@ void ADFArcaneMissileProjectile::OnHit(UPrimitiveComponent* HitComponent, AActor
 	{
 		if (HasAuthority())
 		{
-			Destroy();
+			FinishProjectile();
 		}
 		return;
 	}
 	if (HitTracker && !HitTracker->TryRegisterHit(Other))
 	{
-		Destroy();
+		FinishProjectile();
 		return;
 	}
 	APawn* const Inst = GetInstigator();
 	if (!IsValid(Inst) || !MagicDamageEffect)
 	{
-		Destroy();
+		FinishProjectile();
 		return;
 	}
 	UAbilitySystemComponent* const SourceASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Inst);
 	UAbilitySystemComponent* const TargetASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Other);
 	if (!SourceASC || !TargetASC)
 	{
-		Destroy();
+		FinishProjectile();
 		return;
 	}
 	const float Intel = SourceASC->GetNumericAttribute(UDFAttributeSet::GetIntelligenceAttribute());
@@ -105,5 +161,10 @@ void ADFArcaneMissileProjectile::OnHit(UPrimitiveComponent* HitComponent, AActor
 	{
 		Ab->NotifyArcaneMissileHit(Other, TargetASC, Ctx);
 	}
-	Destroy();
+	FinishProjectile();
+}
+
+void ADFArcaneMissileProjectile::OnSweepHit(const FHitResult& Hit, UPrimitiveComponent* const SweptComponent)
+{
+	OnHit(SweptComponent, Hit.GetActor(), Hit.GetComponent(), FVector::ZeroVector, Hit);
 }

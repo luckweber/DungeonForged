@@ -62,11 +62,20 @@ void UDFAbilityHotbarWidget::NativeTick(const FGeometry& MyGeometry, const float
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
-	RefreshAccumulator += InDeltaTime;
-	if (RefreshAccumulator >= RefreshInterval)
+	if (BoundPlayerCharacter.IsValid())
 	{
-		RefreshAccumulator = 0.f;
-		RefreshHotbar();
+		return;
+	}
+
+	RebindAccumulator += InDeltaTime;
+	if (RebindAccumulator >= RefreshInterval)
+	{
+		RebindAccumulator = 0.f;
+		BindToPlayerCharacter();
+		if (!BoundPlayerCharacter.IsValid())
+		{
+			RefreshHotbar();
+		}
 	}
 }
 
@@ -106,6 +115,12 @@ void UDFAbilityHotbarWidget::BindToPlayerCharacter()
 	{
 		BoundPlayerCharacter = PC;
 		PC->OnAbilityBarSlotsChanged.AddDynamic(this, &UDFAbilityHotbarWidget::HandleAbilityBarSlotsChanged);
+		SetIsEnabled(true);
+	}
+	TryBindEmbeddedVitals();
+	if (BoundPlayerCharacter.IsValid() && bEmbeddedVitalsBound)
+	{
+		SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 	}
 }
 
@@ -116,6 +131,38 @@ void UDFAbilityHotbarWidget::UnbindFromPlayerCharacter()
 		PC->OnAbilityBarSlotsChanged.RemoveDynamic(this, &UDFAbilityHotbarWidget::HandleAbilityBarSlotsChanged);
 	}
 	BoundPlayerCharacter.Reset();
+	UnbindAllAttributeChanges();
+	bEmbeddedVitalsBound = false;
+}
+
+void UDFAbilityHotbarWidget::TryBindEmbeddedVitals()
+{
+	if (bEmbeddedVitalsBound || (!HealthOrb && !ManaOrb && !StaminaBar))
+	{
+		return;
+	}
+	UAbilitySystemComponent* const ASC = GetAbilitySystemComponent();
+	if (!IsValid(ASC))
+	{
+		return;
+	}
+	const TDelegate<void(const FOnAttributeChangeData&)> Callback =
+		TDelegate<void(const FOnAttributeChangeData&)>::CreateUObject(
+			this, &UDFAbilityHotbarWidget::OnEmbeddedVitalChanged);
+	BindToAttributeChanges(ASC, UDFAttributeSet::GetHealthAttribute(), Callback);
+	BindToAttributeChanges(ASC, UDFAttributeSet::GetMaxHealthAttribute(), Callback);
+	BindToAttributeChanges(ASC, UDFAttributeSet::GetManaAttribute(), Callback);
+	BindToAttributeChanges(ASC, UDFAttributeSet::GetMaxManaAttribute(), Callback);
+	BindToAttributeChanges(ASC, UDFAttributeSet::GetStaminaAttribute(), Callback);
+	BindToAttributeChanges(ASC, UDFAttributeSet::GetMaxStaminaAttribute(), Callback);
+	bEmbeddedVitalsBound = true;
+	RefreshEmbeddedVitals();
+}
+
+void UDFAbilityHotbarWidget::OnEmbeddedVitalChanged(const FOnAttributeChangeData& Data)
+{
+	(void)Data;
+	RefreshEmbeddedVitals();
 }
 
 void UDFAbilityHotbarWidget::HandleAbilityBarSlotsChanged()

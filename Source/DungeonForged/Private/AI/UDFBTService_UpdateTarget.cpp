@@ -1,44 +1,15 @@
 // Source/DungeonForged/Private/AI/UDFBTService_UpdateTarget.cpp
 
 #include "AI/UDFBTService_UpdateTarget.h"
+#include "AI/ADFAIController.h"
 #include "AI/DFAIKeys.h"
+#include "AI/UDFAILibrary.h"
+#include "AI/UDFEnemyArchetypeLibrary.h"
 #include "Characters/ADFEnemyBase.h"
-#include "AbilitySystemBlueprintLibrary.h"
-#include "AbilitySystemComponent.h"
 #include "AIController.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "Engine/World.h"
-#include "GameFramework/Character.h"
-#include "GAS/DFGameplayTags.h"
-#include "GAS/UDFAttributeSet.h"
-#include "Kismet/GameplayStatics.h"
-#include "CollisionQueryParams.h"
-#include "WorldCollision.h"
-#include "GameFramework/PlayerController.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
-#include <limits>
-
-namespace
-{
-bool IsDFAliveTarget(AActor* const Actor)
-{
-	if (!IsValid(Actor))
-	{
-		return false;
-	}
-	UAbilitySystemComponent* const ASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Actor);
-	if (!ASC)
-	{
-		return true;
-	}
-	if (FDFGameplayTags::State_Dead.IsValid() && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Dead))
-	{
-		return false;
-	}
-	const FGameplayAttribute HealthAttribute = UDFAttributeSet::GetHealthAttribute();
-	return !HealthAttribute.IsValid() || ASC->GetNumericAttribute(HealthAttribute) > 0.f;
-}
-} // namespace
 
 UDFBTService_UpdateTarget::UDFBTService_UpdateTarget()
 {
@@ -55,53 +26,82 @@ void UDFBTService_UpdateTarget::TickNode(
 	AAIController* const AI = OwnerComp.GetAIOwner();
 	UBlackboardComponent* const BB = OwnerComp.GetBlackboardComponent();
 	ADFEnemyBase* const Self = AI ? Cast<ADFEnemyBase>(AI->GetPawn()) : nullptr;
-	UWorld* const W = OwnerComp.GetWorld();
-	if (!IsValid(BB) || !IsValid(Self) || !W)
+	if (!IsValid(BB) || !IsValid(Self))
 	{
 		return;
 	}
 	const FVector Origin = Self->GetActorLocation();
-	AActor* Best = nullptr;
-	float BestD = std::numeric_limits<float>::max();
-	// Simple: nearest player character (PIE player 0); extend to multi-overlap in shipping.
-	if (APlayerController* const PC = UGameplayStatics::GetPlayerController(W, 0))
+	AActor* const CurrentTarget = Cast<AActor>(BB->GetValueAsObject(DFAIKeys::TargetActor));
+	AActor* const Best = UDFAILibrary::FindBestHostilePlayerTarget(
+		OwnerComp.GetWorld(),
+		Self,
+		Origin,
+		SearchRadius,
+		CurrentTarget,
+		bUseLineOfSight);
+	if (!IsValid(Best))
 	{
-		if (APawn* const P = PC->GetPawn())
+		if (IsValid(CurrentTarget))
 		{
-			if (IsDFAliveTarget(P))
+			const FVector LastKnown = CurrentTarget->GetActorLocation();
+			BB->SetValueAsVector(DFAIKeys::LastKnownTargetLocation, LastKnown);
+			BB->SetValueAsVector(DFAIKeys::TargetLocation, LastKnown);
+			BB->SetValueAsBool(DFAIKeys::bHasLastKnownTarget, true);
+		}
+		BB->ClearValue(DFAIKeys::TargetActor);
+		BB->SetValueAsBool(DFAIKeys::bCanSeeTarget, false);
+		BB->SetValueAsBool(DFAIKeys::bIsInAttackRange, false);
+		if (BB->GetValueAsBool(DFAIKeys::bHasLastKnownTarget))
+		{
+			if (ADFAIController* const DFAI = Cast<ADFAIController>(AI))
 			{
-				const float D = FVector::Dist(Origin, P->GetActorLocation());
-				if (D <= SearchRadius)
+				const EADFAICombatState State = static_cast<EADFAICombatState>(BB->GetValueAsEnum(DFAIKeys::CombatState));
+				if (State != EADFAICombatState::Flee && State != EADFAICombatState::Recover)
 				{
-					Best = P;
-					BestD = D;
+					DFAI->SetCombatState(EADFAICombatState::Investigate);
 				}
 			}
 		}
-	}
-	if (!IsValid(Best))
-	{
-		BB->ClearValue(DFAIKeys::TargetActor);
-		BB->ClearValue(DFAIKeys::TargetLocation);
-		BB->SetValueAsBool(DFAIKeys::bCanSeeTarget, false);
-		BB->SetValueAsBool(DFAIKeys::bIsInAttackRange, false);
 		return;
 	}
+	const float BestD = FVector::Dist(Origin, Best->GetActorLocation());
 	bool bLineOk = true;
 	if (bUseLineOfSight)
 	{
 		FCollisionQueryParams Pq(SCENE_QUERY_STAT(DF_BTSv_TargetLOS), true, Self);
 		Pq.AddIgnoredActor(Best);
 		FHitResult Hit;
-		bLineOk = !W->LineTraceSingleByChannel(
-			Hit, Origin + FVector(0, 0, 50.f), Best->GetActorLocation() + FVector(0, 0, 50.f),
-			ECC_Visibility, Pq);
+		bLineOk = !OwnerComp.GetWorld()->LineTraceSingleByChannel(
+			Hit,
+			Origin + FVector(0, 0, 50.f),
+			Best->GetActorLocation() + FVector(0, 0, 50.f),
+			ECC_Visibility,
+			Pq);
 	}
+	const FVector TargetLoc = Best->GetActorLocation();
 	BB->SetValueAsObject(DFAIKeys::TargetActor, Best);
-	BB->SetValueAsVector(DFAIKeys::TargetLocation, Best->GetActorLocation());
+	BB->SetValueAsVector(DFAIKeys::TargetLocation, TargetLoc);
+	BB->SetValueAsVector(DFAIKeys::LastKnownTargetLocation, TargetLoc);
+	BB->SetValueAsBool(DFAIKeys::bHasLastKnownTarget, true);
 	BB->SetValueAsBool(DFAIKeys::bCanSeeTarget, bLineOk);
-	const float R = FMath::Max(0.f, Self->AttackRange);
-	BB->SetValueAsBool(DFAIKeys::bIsInAttackRange, BestD <= R);
-	BB->SetValueAsBool(DFAIKeys::bCanTelegraph, true);
-	(void)BestD;
+	const float PreferredRange = UDFEnemyArchetypeLibrary::GetPreferredInRangeDistance(
+		Self->GetEnemyArchetype(), Self->MeleeRange, Self->RangedRange);
+	BB->SetValueAsBool(DFAIKeys::bIsInAttackRange, BestD <= PreferredRange);
+	BB->SetValueAsBool(
+		DFAIKeys::bPrefersRangedCombat, UDFEnemyArchetypeLibrary::PrefersRangedCombat(Self->GetEnemyArchetype()));
+	if (ADFAIController* const DFAI = Cast<ADFAIController>(AI))
+	{
+		const EADFAICombatState State = static_cast<EADFAICombatState>(BB->GetValueAsEnum(DFAIKeys::CombatState));
+		if (bLineOk)
+		{
+			if (State == EADFAICombatState::Investigate || State == EADFAICombatState::Patrol)
+			{
+				DFAI->SetCombatState(EADFAICombatState::Chase);
+			}
+		}
+		else if (State != EADFAICombatState::Flee && State != EADFAICombatState::Recover)
+		{
+			DFAI->SetCombatState(EADFAICombatState::Investigate);
+		}
+	}
 }

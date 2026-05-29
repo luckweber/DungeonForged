@@ -90,13 +90,6 @@ void UDFAbility_Warrior_HeavyAttack::ActivateAbility(const FGameplayAbilitySpecH
 		return;
 	}
 
-	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (ASC->GetOwner() && ASC->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(ASC);
-		}
-	}
 
 	UAnimMontage* MontToPlay = nullptr;
 	if (Combo)

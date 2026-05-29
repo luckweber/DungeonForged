@@ -5,6 +5,8 @@
 #include "AbilitySystemComponent.h"
 #include "Animation/AnimSequenceBase.h"
 #include "AI/UDFAIAwarenessSubsystem.h"
+#include "Characters/ADFEnemyBase.h"
+#include "Combat/UDFCombatDirectorSubsystem.h"
 #include "Combat/UDFMeleeAimComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
@@ -125,6 +127,13 @@ void UANS_DFEnemyTelegraph::NotifyBegin(USkeletalMeshComponent* const MeshComp,
 	{
 		Awareness->OnTelegraphBegin(Owner);
 	}
+	if (UDFCombatDirectorSubsystem* const Director = World->GetSubsystem<UDFCombatDirectorSubsystem>())
+	{
+		if (ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(Owner))
+		{
+			Director->RequestTelegraphSlot(Enemy);
+		}
+	}
 
 	if (UAbilitySystemComponent* const ASC = GetOwnerASC(MeshComp))
 	{
@@ -206,6 +215,13 @@ void UANS_DFEnemyTelegraph::NotifyEnd(USkeletalMeshComponent* const MeshComp,
 			if (UDFAIAwarenessSubsystem* const Awareness = EndWorld->GetSubsystem<UDFAIAwarenessSubsystem>())
 			{
 				Awareness->OnTelegraphEnd(Owner);
+			}
+			if (UDFCombatDirectorSubsystem* const Director = EndWorld->GetSubsystem<UDFCombatDirectorSubsystem>())
+			{
+				if (ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(Owner))
+				{
+					Director->ReleaseTelegraphSlot(Enemy);
+				}
 			}
 		}
 	}

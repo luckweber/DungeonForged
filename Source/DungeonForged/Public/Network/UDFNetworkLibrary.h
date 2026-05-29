@@ -45,6 +45,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|Net", meta = (WorldContext = "WorldContextObject"))
 	static void MulticastTriggerPhaseTransitionFX(UObject* WorldContextObject, int32 Phase);
 
-	/** PIE / single-player: player index 0. For co-op, obtain the `APlayerController` on the server and call RPCs directly. */
+	/** PIE / co-op: first local player controller in this world (never hard-coded index 0). */
+	static APlayerController* GetLocalPlayerController(UObject* WorldContextObject);
+
+	/** Same as @c GetLocalPlayerController, cast to @c ADFPlayerController. */
 	static ADFPlayerController* ResolveLocalPlayerController(UObject* WorldContextObject);
+
+protected:
+	static void MulticastToAllDFPlayerControllers(UObject* WorldContextObject, TFunctionRef<void(ADFPlayerController*)> Fn);
 };

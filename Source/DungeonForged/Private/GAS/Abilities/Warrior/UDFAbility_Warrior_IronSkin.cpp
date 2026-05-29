@@ -47,10 +47,6 @@ void UDFAbility_Warrior_IronSkin::ActivateAbility(
 		return;
 	}
 	UAbilitySystemComponent* const ASC = GetAbilitySystemComponentFromActorInfo();
-	if (ASC && ASC->GetOwner() && ASC->GetOwner()->HasAuthority())
-	{
-		ApplyResourceCostsToOwner(ASC);
-	}
 	if (!IronSkinEffect)
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);

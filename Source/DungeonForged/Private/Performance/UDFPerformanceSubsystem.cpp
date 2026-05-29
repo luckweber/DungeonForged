@@ -4,11 +4,12 @@
 #include "Performance/UDFRoomCullingComponent.h"
 #include "Characters/ADFEnemyBase.h"
 #include "Engine/Engine.h"
+#include "Network/UDFNetworkLibrary.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
-#include "NiagaraComponent.h"
+#include "Settings/UDFPerformanceDeveloperSettings.h"
 #include "UI/Combat/UDFCombatTextSubsystem.h"
 
 void UDFPerformanceSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -57,12 +58,14 @@ UDFObjectPoolSubsystem* UDFPerformanceSubsystem::GetObjectPoolSubsystem() const
 
 void UDFPerformanceSubsystem::TickProfiling(const float DeltaTime)
 {
-	if (ProfilingInterval <= KINDA_SMALL_NUMBER)
+	const UDFPerformanceDeveloperSettings* const Dev = GetDefault<UDFPerformanceDeveloperSettings>();
+	const float Interval = Dev ? Dev->ProfilingIntervalSeconds : ProfilingInterval;
+	if (Interval <= KINDA_SMALL_NUMBER)
 	{
 		return;
 	}
 	LastProfilingTime += DeltaTime;
-	if (LastProfilingTime < ProfilingInterval)
+	if (LastProfilingTime < Interval)
 	{
 		return;
 	}
@@ -74,15 +77,7 @@ void UDFPerformanceSubsystem::TickProfiling(const float DeltaTime)
 		return;
 	}
 
-	int32 ActiveNiagara = 0;
-	for (TObjectIterator<UNiagaraComponent> It; It; ++It)
-	{
-		UNiagaraComponent* const N = *It;
-		if (N && N->GetWorld() == W && N->IsActive() && N->GetOwner() && !N->GetOwner()->IsActorBeingDestroyed())
-		{
-			++ActiveNiagara;
-		}
-	}
+	const int32 ActiveNiagara = 0;
 
 	int32 EnemyCount = 0;
 	for (TActorIterator<ADFEnemyBase> It(W); It; ++It)
@@ -159,13 +154,14 @@ void UDFPerformanceSubsystem::UpdateRoomCulling()
 	{
 		return;
 	}
-	APawn* Pawn = UGameplayStatics::GetPlayerPawn(W, 0);
-	if (APlayerController* const PC = UGameplayStatics::GetPlayerController(W, 0))
+	APawn* Pawn = nullptr;
+	if (APlayerController* const PC = UDFNetworkLibrary::GetLocalPlayerController(W))
 	{
-		if (APawn* P = PC->GetPawn())
-		{
-			Pawn = P;
-		}
+		Pawn = PC->GetPawn();
+	}
+	if (!Pawn)
+	{
+		Pawn = UGameplayStatics::GetPlayerPawn(W, 0);
 	}
 	if (!Pawn)
 	{

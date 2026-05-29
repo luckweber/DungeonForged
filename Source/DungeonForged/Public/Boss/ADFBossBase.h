@@ -3,8 +3,10 @@
 
 #include "CoreMinimal.h"
 #include "Characters/ADFEnemyBase.h"
+#include "Boss/UDFBossMinionComponent.h"
 #include "ADFBossBase.generated.h"
 
+class ADFMeteorWarningDecal;
 class UAnimMontage;
 class UCameraShakeBase;
 class UNiagaraSystem;
@@ -74,6 +76,13 @@ public:
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_BossEnraged, Category = "DF|Boss|Enrage")
 	bool bIsEnraged = false;
 
+	/** World time when enrage fires; replicated for HUD countdown. Zero when inactive or already enraged. */
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_EnrageCountdownEndWorldTime, Category = "DF|Boss|Enrage")
+	float EnrageCountdownEndWorldTime = 0.f;
+
+	UFUNCTION(BlueprintPure, Category = "DF|Boss|Enrage")
+	float GetEnrageSecondsRemaining() const;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DF|Boss|GAS")
 	TSubclassOf<UGameplayEffect> StunForPhaseTransition;
 
@@ -94,6 +103,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DF|Boss|GAS")
 	TSubclassOf<UGameplayAbility> PhaseSlamAbility;
 
+	/** Per-phase cooldown reduction added on transition (index = NewPhase - 1). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DF|Boss|Phase", meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	TArray<float> PhaseCooldownReduction = {0.f, 0.08f, 0.18f};
+
+	/** Clears living minions when entering a new phase (pacing reset). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DF|Boss|Phase")
+	bool bClearMinionsOnPhaseChange = true;
+
 	/** After phase transition, boss takes +50% damage while this tag is active. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DF|Boss|Phase", meta = (ClampMin = "0.0"))
 	float BossVulnerabilityDuration = 2.f;
@@ -110,6 +127,14 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "DF|Boss|UI")
 	FText GetBossDisplayName() const { return BossDisplayName; }
+
+	/** Ground warning decal for meteor telegraph — reliable so every client sees the AoE hint. */
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_PlayMeteorWarning(
+		const FVector& Location,
+		float DecalRadius,
+		float DurationSeconds,
+		TSubclassOf<ADFMeteorWarningDecal> DecalClass);
 
 	/** Abilities (slam, charge) call this; shake/Niagara on ability; inner/outer in cm. */
 	UFUNCTION(NetMulticast, Unreliable)
@@ -134,6 +159,9 @@ protected:
 	UFUNCTION()
 	void OnRep_BossEnraged();
 
+	UFUNCTION()
+	void OnRep_EnrageCountdownEndWorldTime();
+
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_OnPhaseTransitionVFX();
 
@@ -144,6 +172,7 @@ protected:
 	void ClearSpawnedMinions();
 	void BeginBossVulnerabilityWindow();
 	void EndBossVulnerabilityWindow();
+	void ApplyPhaseCooldownProfile(const int32 NewPhase);
 
 	FTimerHandle EnrageTimerHandle;
 	FTimerHandle VulnerabilityTimerHandle;
@@ -160,7 +189,7 @@ protected:
 public:
 	/** Abilities call to track minion cap; binds death to clear from list. */
 	UFUNCTION(BlueprintCallable, Category = "DF|Boss|Minions")
-	void RegisterSpawnedMinion(ADFEnemyBase* Minion);
+	void RegisterSpawnedMinion(ADFEnemyBase* Minion, EDFBossMinionRole MinionRole = EDFBossMinionRole::Guard);
 
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "DF|Boss|Minions")
 	int32 GetLivingMinionCount() const;

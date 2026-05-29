@@ -34,6 +34,10 @@ public:
 	UPROPERTY(EditAnywhere, Config, Category = "Data|Nexus", meta = (RowType = "/Script/DungeonForged.FDFNexusLevelRow"))
 	TSoftObjectPtr<UDataTable> NexusMetaLevelsTable;
 
+	/** DT (FDFMetaXPRewardRow) — Meta XP por vitória/derrota/abandono. */
+	UPROPERTY(EditAnywhere, Config, Category = "Data|Nexus", meta = (RowType = "/Script/DungeonForged.FDFMetaXPRewardRow"))
+	TSoftObjectPtr<UDataTable> MetaXPRewardsTable;
+
 	/** Atraso em segundos entre @c OnRunFailed e @c OnShowDeathScreen. */
 	UPROPERTY(EditAnywhere, Config, Category = "Presentation", meta = (ClampMin = "0.0", UIMin = 0.0))
 	float DeathScreenDelaySeconds = 2.f;

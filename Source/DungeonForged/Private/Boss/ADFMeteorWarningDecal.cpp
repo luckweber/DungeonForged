@@ -8,11 +8,30 @@
 ADFMeteorWarningDecal::ADFMeteorWarningDecal()
 {
 	PrimaryActorTick.bCanEverTick = true;
+	bReplicates = true;
+	SetReplicateMovement(false);
+	bAlwaysRelevant = true;
 	Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	RootComponent = Root;
 	GroundDecal = CreateDefaultSubobject<UDecalComponent>(TEXT("Decal"));
 	GroundDecal->SetupAttachment(Root);
 	GroundDecal->DecalSize = FVector(DecalRadius * 2.f, DecalRadius * 2.f, 800.f);
+}
+
+void ADFMeteorWarningDecal::ConfigureWarning(const float InDecalRadius, const float LifeSeconds)
+{
+	if (InDecalRadius > KINDA_SMALL_NUMBER)
+	{
+		DecalRadius = InDecalRadius;
+	}
+	if (GroundDecal)
+	{
+		GroundDecal->DecalSize = FVector(DecalRadius * 2.f, DecalRadius * 2.f, 800.f);
+	}
+	if (LifeSeconds > KINDA_SMALL_NUMBER)
+	{
+		SetLifeSpan(LifeSeconds);
+	}
 }
 
 void ADFMeteorWarningDecal::BeginPlay()

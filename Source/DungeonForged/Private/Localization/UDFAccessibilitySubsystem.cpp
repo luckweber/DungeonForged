@@ -1,16 +1,49 @@
 // Source/DungeonForged/Private/Localization/UDFAccessibilitySubsystem.cpp
 #include "Localization/UDFAccessibilitySubsystem.h"
+#include "Network/UDFNetworkLibrary.h"
 #include "Run/DFSaveGame.h"
+#include "Run/UDFSaveLibrary.h"
 #include "AudioDevice.h"
 #include "Camera/CameraComponent.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "FX/UDFScreenEffectsComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/UserInterfaceSettings.h"
+#include "Sound/SoundClass.h"
+#include "Sound/SoundMix.h"
+
+namespace
+{
+	void ApplySoundClassVolume(
+		UWorld* const W,
+		USoundMix* const SoundMix,
+		USoundClass* const SoundClass,
+		const float Volume)
+	{
+		if (!W || !SoundMix || !SoundClass)
+		{
+			return;
+		}
+		if (const FAudioDeviceHandle H = W->GetAudioDevice())
+		{
+			if (FAudioDevice* const D = H.GetAudioDevice())
+			{
+				D->SetSoundMixClassOverride(
+					SoundMix,
+					SoundClass,
+					FMath::Clamp(Volume, 0.f, 1.f),
+					1.f,
+					0.f,
+					true);
+			}
+		}
+	}
+}
 
 void UDFAccessibilitySubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -21,7 +54,7 @@ void UDFAccessibilitySubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UDFAccessibilitySubsystem::LoadSettings()
 {
-	if (UDFSaveGame* const S = UDFSaveGame::Load())
+	if (UDFSaveGame* const S = UDFSaveLibrary::ResolveMutableMetaSave(this))
 	{
 		CurrentSettings = S->AccessibilitySettings;
 	}
@@ -29,10 +62,10 @@ void UDFAccessibilitySubsystem::LoadSettings()
 
 void UDFAccessibilitySubsystem::SaveSettings()
 {
-	if (UDFSaveGame* S = UDFSaveGame::Load())
+	if (UDFSaveGame* S = UDFSaveLibrary::ResolveMutableMetaSave(this))
 	{
 		S->AccessibilitySettings = CurrentSettings;
-		UDFSaveGame::Save(S);
+		UDFSaveLibrary::SaveMetaSave(this, S);
 	}
 }
 
@@ -40,9 +73,9 @@ void UDFAccessibilitySubsystem::ApplySettings(const FDFAccessibilitySettings& Se
 {
 	CurrentSettings = Settings;
 	ApplyFontScale();
+	ApplyColorBlindPostProcess();
 	ApplyHighContrast();
 	ApplyAudioVolumes();
-	ApplyColorBlindPostProcess();
 	PropagateToPlayerPawns();
 	if (bSave)
 	{
@@ -62,8 +95,11 @@ void UDFAccessibilitySubsystem::ApplyFontScale() const
 
 void UDFAccessibilitySubsystem::ApplyHighContrast() const
 {
-	// Implement palette swap in UMG: listen to OnAccessibilitySettingsChanged in a root widget or use Slate theme assets.
-	(void)CurrentSettings.bHighContrast;
+	if (ColorBlindRuntimeMID)
+	{
+		ColorBlindRuntimeMID->SetScalarParameterValue(
+			FName("HighContrast"), CurrentSettings.bHighContrast ? 1.f : 0.f);
+	}
 }
 
 void UDFAccessibilitySubsystem::ApplyAudioVolumes() const
@@ -77,10 +113,10 @@ void UDFAccessibilitySubsystem::ApplyAudioVolumes() const
 				D->SetTransientPrimaryVolume(FMath::Clamp(CurrentSettings.MasterVolume, 0.f, 1.f));
 			}
 		}
+		ApplySoundClassVolume(W, UserSoundMix, MusicSoundClass, CurrentSettings.MusicVolume);
+		ApplySoundClassVolume(W, UserSoundMix, SFXSoundClass, CurrentSettings.SFXVolume);
+		ApplySoundClassVolume(W, UserSoundMix, VoiceSoundClass, CurrentSettings.VoiceVolume);
 	}
-	(void)CurrentSettings.MusicVolume;
-	(void)CurrentSettings.SFXVolume;
-	(void)CurrentSettings.VoiceVolume;
 }
 
 void UDFAccessibilitySubsystem::ApplyColorBlindPostProcess()
@@ -93,17 +129,20 @@ void UDFAccessibilitySubsystem::ApplyColorBlindPostProcess()
 	ColorBlindTargetCamera = nullptr;
 
 	UCameraComponent* Cam = nullptr;
-	if (APlayerController* const PC = UGameplayStatics::GetPlayerController(GetWorld(), 0))
+	if (UWorld* const W = GetWorld())
 	{
-		if (ADFPlayerCharacter* const DFP = Cast<ADFPlayerCharacter>(PC->GetPawn()))
+		if (APlayerController* const PC = UDFNetworkLibrary::GetLocalPlayerController(W))
 		{
-			Cam = DFP->FollowCamera;
-		}
-		if (!Cam)
-		{
-			if (APawn* const P = PC->GetPawn())
+			if (ADFPlayerCharacter* const DFP = Cast<ADFPlayerCharacter>(PC->GetPawn()))
 			{
-				Cam = P->FindComponentByClass<UCameraComponent>();
+				Cam = DFP->FollowCamera;
+			}
+			if (!Cam)
+			{
+				if (APawn* const P = PC->GetPawn())
+				{
+					Cam = P->FindComponentByClass<UCameraComponent>();
+				}
 			}
 		}
 	}
@@ -115,6 +154,7 @@ void UDFAccessibilitySubsystem::ApplyColorBlindPostProcess()
 		{
 			const float ModeIdx = static_cast<float>(static_cast<uint8>(CurrentSettings.ColorBlindType));
 			MID->SetScalarParameterValue(FName("ColorBlindMode"), ModeIdx);
+			MID->SetScalarParameterValue(FName("HighContrast"), CurrentSettings.bHighContrast ? 1.f : 0.f);
 			Cam->AddOrUpdateBlendable(MID, 1.f);
 			ColorBlindRuntimeMID = MID;
 			ColorBlindTargetCamera = Cam;
@@ -124,7 +164,24 @@ void UDFAccessibilitySubsystem::ApplyColorBlindPostProcess()
 
 void UDFAccessibilitySubsystem::PropagateToPlayerPawns() const
 {
-	(void)CurrentSettings;
+	UWorld* const W = GetWorld();
+	if (!W)
+	{
+		return;
+	}
+	for (FConstPlayerControllerIterator It = W->GetPlayerControllerIterator(); It; ++It)
+	{
+		if (APlayerController* const PC = It->Get())
+		{
+			if (APawn* const Pawn = PC->GetPawn())
+			{
+				if (UDFScreenEffectsComponent* const FX = Pawn->FindComponentByClass<UDFScreenEffectsComponent>())
+				{
+					FX->RefreshAccessibilityPresentation();
+				}
+			}
+		}
+	}
 }
 
 float UDFAccessibilitySubsystem::GetCameraShakeAmplitudeScale() const

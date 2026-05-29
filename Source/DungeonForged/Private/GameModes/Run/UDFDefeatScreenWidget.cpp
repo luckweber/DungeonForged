@@ -10,10 +10,14 @@
 #include "Components/ProgressBar.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Input/Events.h"
+#include "InputCoreTypes.h"
 
 void UDFDefeatScreenWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+	ShownAtSeconds = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+	SetIsFocusable(true);
 	if (UWorld* const W = GetWorld())
 	{
 		if (UDFMusicManagerSubsystem* const Mus = W->GetSubsystem<UDFMusicManagerSubsystem>())
@@ -117,4 +121,17 @@ void UDFDefeatScreenWidget::RequestSkipToNexus()
 void UDFDefeatScreenWidget::HandlePlayAgain()
 {
 	RemoveFromParent();
+}
+
+FReply UDFDefeatScreenWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+	if (GetWorld() && (GetWorld()->GetTimeSeconds() - ShownAtSeconds) >= MinSecondsBeforeSkip)
+	{
+		if (InKeyEvent.GetKey() != EKeys::Escape)
+		{
+			RequestSkipToNexus();
+			return FReply::Handled();
+		}
+	}
+	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
 }

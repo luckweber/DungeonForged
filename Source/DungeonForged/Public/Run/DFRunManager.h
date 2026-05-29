@@ -12,6 +12,7 @@ class ADFPlayerCharacter;
 class ADFPlayerState;
 class UDataTable;
 class UDFInventoryComponent;
+class UDFSaveGame;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDFRunFailed);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDFShowDeathScreen);
@@ -75,6 +76,9 @@ struct DUNGEONFORGED_API FDFRunState
 	int32 RunXP = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Run|Checkpoint")
+	int32 RunUnspentAttributePoints = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Run|Checkpoint")
 	int32 ComboPoints = 0;
 
 	/** Best-effort history (e.g. recent grants) for debug / UI. */
@@ -99,6 +103,10 @@ public:
 	/** Optional: nexus level thresholds (FDFNexusLevelRow) for main-menu meta XP bar; same as Nexus GameState default if used. */
 	UPROPERTY(EditDefaultsOnly, Category = "Run|Data|Nexus")
 	TObjectPtr<UDataTable> NexusMetaLevelsTable = nullptr;
+
+	/** Optional: @c FDFMetaXPRewardRow per @c ETravelReason; DevSettings default if unset. */
+	UPROPERTY(EditDefaultsOnly, Category = "Run|Data|Nexus")
+	TObjectPtr<UDataTable> MetaXPRewardsTable = nullptr;
 
 	/** DataTable (e.g. DT_Abilities) using FDFAbilityTableRow; used to grant ability rows. */
 	UPROPERTY(EditDefaultsOnly, Category = "Run|Data")
@@ -210,6 +218,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Run|State")
 	void RestoreRunState(ADFPlayerCharacter* Player);
 
+	/**
+	 * Hydrates in-memory @c RunState from a saved checkpoint (Continue / crash recovery).
+	 * @return false if @a Checkpoint has no class row.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Run|Checkpoint")
+	bool LoadRunFromCheckpoint(FDFRunState const& Checkpoint);
+
+	/** True when @ref UDFSaveGame::LastCheckpoint can resume an in-progress run. */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Run|Checkpoint")
+	static bool CanResumeFromSave(UDFSaveGame const* Save);
+
 	/** @c FindClassRow for DT_Classes; C++ (Blueprint cannot return table row pointer). */
 	const FDFClassTableRow* FindClassTableRow(FName ClassRowName) const;
 
@@ -235,9 +254,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Run")
 	void AddAbilityReward(FName AbilityRow);
 
-	/** Build up to InCount row names from AbilityDataTable, excluding already-granted; shuffled (e.g. pick 1 of 3 between floors). */
+	/**
+	 * Build up to InCount ability row names for offers.
+	 * Uses @c UDFAbilitySelectionSubsystem weighted roll when a world is available; otherwise shuffles the pool.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Run")
 	void GetRandomAbilityOfferCandidates(int32 InCount, TArray<FName>& OutRowNames) const;
+
+	/** Meta XP for end-of-run; data table first, then hardcoded fallback. */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Run|Meta")
+	int32 CalculateMetaXPGain(ETravelReason Why, FDFRunSummary const& Summary) const;
 
 	/** Increase CurrentFloor (e.g. after floor clear or portal). */
 	UFUNCTION(BlueprintCallable, Category = "Run")

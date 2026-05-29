@@ -14,6 +14,7 @@
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GAS/DFGameplayTags.h"
+#include "GAS/Elemental/UDFElementalLibrary.h"
 #include "GAS/UDFAttributeSet.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -1439,6 +1440,21 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 				}
 			}
 		}
+		FVector ParryLoc = Target->GetActorLocation();
+		FVector ParryNormal = FVector::UpVector;
+		if (OptionalHit && OptionalHit->bBlockingHit)
+		{
+			ParryLoc = OptionalHit->ImpactPoint;
+			ParryNormal = OptionalHit->ImpactNormal;
+		}
+		UDFCombatFeedbackLibrary::ExecuteCombatFeedbackCue(
+			this,
+			FDFGameplayTags::GameplayCue_Combat_Parry,
+			Target,
+			Owner,
+			ParryLoc,
+			ParryNormal,
+			FDFGameplayTags::Impact_Heavy_Slash);
 		if (UDFStyleRatingComponent* const Style = Owner->FindComponentByClass<UDFStyleRatingComponent>())
 		{
 			Style->RecordParry();
@@ -1455,6 +1471,7 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 	}
 	if (UDFStaggerComponent* const Stagger = Target->FindComponentByClass<UDFStaggerComponent>())
 	{
+		Stagger->SetPendingStaggerInstigator(Owner);
 		Stagger->SetNextPoiseDamageMultiplier(Stagger->ResolvePoiseMultiplierForTags(AttackTags));
 	}
 
@@ -1475,7 +1492,8 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 	}
 
 	const FActiveGameplayEffectHandle Applied =
-		SourceASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data.Get(), TargetASC);
+		UDFElementalLibrary::ApplyOutgoingDamageSpecToTarget(
+			SourceASC, TargetASC, *SpecHandle.Data.Get());
 	const bool bInstantGE = SpecHandle.Data->Def
 		&& SpecHandle.Data->Def->DurationPolicy == EGameplayEffectDurationType::Instant;
 #if !UE_BUILD_SHIPPING
@@ -1536,18 +1554,19 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 
 		if (UDFImpactFramingComponent* const Framing = Owner->FindComponentByClass<UDFImpactFramingComponent>())
 		{
+			EDFHitFeedbackBand FrameBand = EDFHitFeedbackBand::Light;
 			if (bCrit)
 			{
-				Framing->TriggerCritical();
+				FrameBand = EDFHitFeedbackBand::Critical;
 			}
 			else if (bHeavySwingActive)
 			{
-				Framing->TriggerHeavy();
+				FrameBand = EDFHitFeedbackBand::Heavy;
 			}
-			else
-			{
-				Framing->TriggerLight();
-			}
+			const float FrameMag = MaxH > KINDA_SMALL_NUMBER
+				? FMath::Clamp((DmgMagnitude / MaxH) / 0.15f, 0.5f, 1.5f)
+				: 1.f;
+			Framing->PlayBand(FrameBand, FrameMag);
 		}
 
 		if (UDFComboComponent* const Combo = Owner->FindComponentByClass<UDFComboComponent>())
@@ -1557,6 +1576,16 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 			{
 				if (UDFLauncherComponent* const LauncherComp = Owner->FindComponentByClass<UDFLauncherComponent>())
 				{
+					if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(Owner))
+					{
+						if (UAbilitySystemComponent* const ASC = PC->GetAbilitySystemComponent())
+						{
+							if (FDFGameplayTags::State_Launching.IsValid())
+							{
+								ASC->AddLooseGameplayTag(FDFGameplayTags::State_Launching);
+							}
+						}
+					}
 					LauncherComp->ApplyLaunch(
 						Target, StepData.LaunchVelocity, StepData.TargetGravityScale, StepData.HangtimeSeconds);
 					if (!StepData.SelfLaunchVelocity.IsNearlyZero())
@@ -1570,23 +1599,35 @@ void UDFMeleeTraceComponent::ApplyDamageToTarget(AActor* const Target, const FGa
 							OwnerChar->Jump();
 						}
 					}
+					Combo->EnterAerialComboMode();
 				}
+			}
+			else if (Combo->IsAerialComboActive())
+			{
+				Combo->NotifyAerialJuggleHit();
 			}
 
 			if (UDFStyleRatingComponent* const Style = Owner->FindComponentByClass<UDFStyleRatingComponent>())
 			{
 				FGameplayTag MoveTag;
-				switch (Combo->CurrentComboStep)
+				if (Combo->IsAerialComboActive() && FDFGameplayTags::Combat_Move_AerialCombo.IsValid())
 				{
-				case 0: MoveTag = FDFGameplayTags::Combat_Move_LightCombo_Step0; break;
-				case 1: MoveTag = FDFGameplayTags::Combat_Move_LightCombo_Step1; break;
-				case 2: MoveTag = FDFGameplayTags::Combat_Move_LightCombo_Step2; break;
-				case 3: MoveTag = FDFGameplayTags::Combat_Move_LightCombo_Step3; break;
-				default: MoveTag = FDFGameplayTags::Combat_Move_LightCombo_Step0; break;
+					MoveTag = FDFGameplayTags::Combat_Move_AerialCombo;
 				}
-				if (bHeavySwingActive && FDFGameplayTags::Combat_Move_HeavyAttack.IsValid())
+				else
 				{
-					MoveTag = FDFGameplayTags::Combat_Move_HeavyAttack;
+					switch (Combo->CurrentComboStep)
+					{
+					case 0: MoveTag = FDFGameplayTags::Combat_Move_LightCombo_Step0; break;
+					case 1: MoveTag = FDFGameplayTags::Combat_Move_LightCombo_Step1; break;
+					case 2: MoveTag = FDFGameplayTags::Combat_Move_LightCombo_Step2; break;
+					case 3: MoveTag = FDFGameplayTags::Combat_Move_LightCombo_Step3; break;
+					default: MoveTag = FDFGameplayTags::Combat_Move_LightCombo_Step0; break;
+					}
+					if (bHeavySwingActive && FDFGameplayTags::Combat_Move_HeavyAttack.IsValid())
+					{
+						MoveTag = FDFGameplayTags::Combat_Move_HeavyAttack;
+					}
 				}
 				Style->RecordMove(MoveTag, 15.f);
 			}

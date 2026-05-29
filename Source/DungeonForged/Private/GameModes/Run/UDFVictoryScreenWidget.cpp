@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/GameModes/Run/UDFVictoryScreenWidget.cpp
 #include "GameModes/Run/UDFVictoryScreenWidget.h"
+#include "GameModes/Run/ADFRunGameMode.h"
 #include "GameModes/Run/ADFRunPlayerController.h"
 #include "Audio/UDFMusicManagerSubsystem.h"
 #include "GameFramework/PlayerController.h"
@@ -10,10 +11,14 @@
 #include "Components/Button.h"
 #include "Components/ScrollBox.h"
 #include "Components/ProgressBar.h"
+#include "Input/Events.h"
+#include "InputCoreTypes.h"
 
 void UDFVictoryScreenWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+	ShownAtSeconds = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+	SetIsFocusable(true);
 	if (UWorld* const W = GetWorld())
 	{
 		if (UDFMusicManagerSubsystem* const Mus = W->GetSubsystem<UDFMusicManagerSubsystem>())
@@ -98,4 +103,31 @@ void UDFVictoryScreenWidget::HandlePlayAgain()
 {
 	RemoveFromParent();
 	// WBP: travel to a fresh run or open character select.
+}
+
+void UDFVictoryScreenWidget::RequestSkipToNexus()
+{
+	if (UWorld* const W = GetWorld())
+	{
+		if (ADFRunGameMode* const GM = W->GetAuthGameMode<ADFRunGameMode>())
+		{
+			GM->SkipVictoryToNexus();
+			RemoveFromParent();
+			return;
+		}
+	}
+	HandleReturnNexus();
+}
+
+FReply UDFVictoryScreenWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+	if (GetWorld() && (GetWorld()->GetTimeSeconds() - ShownAtSeconds) >= MinSecondsBeforeSkip)
+	{
+		if (InKeyEvent.GetKey() != EKeys::Escape)
+		{
+			RequestSkipToNexus();
+			return FReply::Handled();
+		}
+	}
+	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
 }

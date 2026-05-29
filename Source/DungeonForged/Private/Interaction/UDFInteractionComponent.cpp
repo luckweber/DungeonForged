@@ -219,9 +219,10 @@ void UDFInteractionComponent::Server_Interact_Implementation(AActor* Target)
 		return;
 	}
 	const float MaxDist = FMath::Max(InteractTraceRange, IDFInteractable::Execute_GetInteractionRange(Target) * 1.5f);
-	if (FVector::Dist(C->GetActorLocation(), Target->GetActorLocation()) > MaxDist * 1.2f)
+	const FVector OwnerLoc = C->GetActorLocation();
+	const FVector TargetLoc = Target->GetActorLocation();
+	if (FVector::Dist(OwnerLoc, TargetLoc) > MaxDist * 1.2f)
 	{
-		// not in valid range; still allow if in Registered nearby (server trust overlap)
 		bool bInRange = false;
 		for (const TWeakObjectPtr<AActor>& W : NearbyInteractables)
 		{
@@ -235,6 +236,15 @@ void UDFInteractionComponent::Server_Interact_Implementation(AActor* Target)
 		{
 			return;
 		}
+	}
+	const FVector Eye = C->GetPawnViewLocation();
+	FCollisionQueryParams Q(SCENE_QUERY_STAT(DFInteractionServerLOS), false, C);
+	Q.AddIgnoredActor(Target);
+	FHitResult Hit;
+	const FVector TraceEnd = TargetLoc + FVector(0.f, 0.f, 50.f);
+	if (GetWorld()->LineTraceSingleByChannel(Hit, Eye, TraceEnd, ECC_Visibility, Q))
+	{
+		return;
 	}
 	IDFInteractable::Execute_Interact(Target, C);
 }

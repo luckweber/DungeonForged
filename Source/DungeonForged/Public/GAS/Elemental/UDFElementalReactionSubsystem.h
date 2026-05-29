@@ -57,6 +57,17 @@ public:
 		AActor* Target,
 		const FDFElementalAffinityRow* OptionalTargetRow = nullptr);
 
+	/**
+	 * Scales base damage by affinity matrix + resist, runs authority reactions, and shows elemental combat text.
+	 * Primary hook for `UDFDamageCalculation` (covers melee, projectiles, and abilities).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DF|Elemental")
+	float ScaleBaseDamageWithElement(
+		float BaseDamage,
+		EDFElementType Element,
+		AActor* Target,
+		AActor* Instigator = nullptr);
+
 	/** VFX for built-in reaction types; author systems under these names. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Elemental|VFX")
 	TObjectPtr<UNiagaraSystem> VFX_ReactionMelt = nullptr;

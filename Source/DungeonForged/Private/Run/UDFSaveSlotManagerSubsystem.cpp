@@ -2,6 +2,7 @@
 
 #include "Run/UDFSaveSlotManagerSubsystem.h"
 #include "Run/DFSaveGame.h"
+#include "Run/DFRunManager.h"
 #include "Kismet/GameplayStatics.h"
 
 namespace
@@ -128,6 +129,23 @@ bool UDFSaveSlotManagerSubsystem::SaveActiveSlot()
 	return true;
 }
 
+bool UDFSaveSlotManagerSubsystem::SaveActiveSlotWithBackup()
+{
+	if (ActiveSlotIndex < 0)
+	{
+		return SaveActiveSlot();
+	}
+	UDFSaveGame* const S = GetActiveSave();
+	if (!S)
+	{
+		return false;
+	}
+	const FString BackupSlot = FString::Printf(
+		TEXT("%s_Backup"), *UDFSaveGame::GetProfileSlotFName(ActiveSlotIndex).ToString());
+	UGameplayStatics::SaveGameToSlot(S, BackupSlot, UDFSaveGame::UserIndex);
+	return SaveActiveSlot();
+}
+
 void UDFSaveSlotManagerSubsystem::DeleteSlot(int32 const SlotIndex)
 {
 	const int32 I = FMath::Clamp(SlotIndex, 0, MaxSlots - 1);
@@ -172,11 +190,61 @@ bool UDFSaveSlotManagerSubsystem::HasAnyProfileOrLegacySave() const
 	return false;
 }
 
+UDFSaveGame* UDFSaveSlotManagerSubsystem::ResolveMutableMetaSave()
+{
+	if (UDFSaveGame* const Active = GetActiveSave())
+	{
+		return Active;
+	}
+	InitializeOrMigrateSlots();
+	for (int32 I = 0; I < MaxSlots; ++I)
+	{
+		if (GetSlotData(I))
+		{
+			SelectSlot(I);
+			return GetActiveSave();
+		}
+	}
+	SelectSlot(0);
+	return GetActiveSave();
+}
+
 UDFSaveGame* UDFSaveSlotManagerSubsystem::GetActiveOrLegacyMetaSave()
 {
-	if (UDFSaveGame* A = GetActiveSave())
+	return ResolveMutableMetaSave();
+}
+
+bool UDFSaveSlotManagerSubsystem::FindSlotWithActiveRun(int32& OutSlotIndex) const
+{
+	auto TrySlot = [this](const int32 SlotIdx) -> bool
 	{
-		return A;
+		if (UDFSaveGame* const Save = GetSlotData(SlotIdx))
+		{
+			if (UDFRunManager::CanResumeFromSave(Save))
+			{
+				return true;
+			}
+		}
+		return false;
+	};
+
+	if (ActiveSlotIndex >= 0 && TrySlot(ActiveSlotIndex))
+	{
+		OutSlotIndex = ActiveSlotIndex;
+		return true;
 	}
-	return UDFSaveGame::Load();
+	for (int32 I = 0; I < MaxSlots; ++I)
+	{
+		if (I == ActiveSlotIndex)
+		{
+			continue;
+		}
+		if (TrySlot(I))
+		{
+			OutSlotIndex = I;
+			return true;
+		}
+	}
+	OutSlotIndex = INDEX_NONE;
+	return false;
 }

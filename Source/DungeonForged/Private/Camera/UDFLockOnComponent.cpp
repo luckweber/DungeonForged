@@ -2,8 +2,10 @@
 
 #include "Camera/UDFLockOnComponent.h"
 
+#include "AIController.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
+#include "BehaviorTree/BlackboardComponent.h"
 #include "Camera/UDFCameraComponent.h"
 #include "Characters/ADFEnemyBase.h"
 #include "Combat/DFLockOnDebug.h"
@@ -13,6 +15,7 @@
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "UI/UDFLockOnWidget.h"
+#include "AI/DFAIKeys.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/Pawn.h"
 #include "Engine/OverlapResult.h"
@@ -69,11 +72,41 @@ void UDFLockOnComponent::BeginPlay()
 		LockOnRange = Tuning->LockOnRange;
 		LockOnAngle = Tuning->LockOnConeAngle;
 		AutoBreakGraceDelay = Tuning->LockOnAutoBreakGraceDelay;
+		ScoreCameraWeight = Tuning->LockOnScoreCameraWeight;
+		ScoreDistanceWeight = Tuning->LockOnScoreDistanceWeight;
+		ScoreThreatWeight = Tuning->LockOnScoreThreatWeight;
+		ScoreElevationWeight = Tuning->LockOnScoreElevationWeight;
+		ElevationTolerance = Tuning->LockOnElevationTolerance;
+		bRetargetOnHit = Tuning->bLockOnRetargetOnHit;
+		bSoftAimWhenUnlocked = Tuning->bLockOnSoftAimWhenUnlocked;
 		if (Camera)
 		{
 			Camera->SetRotationInterpSpeed(Tuning->LockOnCameraInterpSpeed);
 		}
 	}
+}
+
+void UDFLockOnComponent::GetViewPoint(FVector& OutOrigin, FVector& OutForward) const
+{
+	OutOrigin = FVector::ZeroVector;
+	OutForward = FVector::ForwardVector;
+	AActor* const O = GetOwner();
+	if (!IsValid(O))
+	{
+		return;
+	}
+	if (const APawn* const Pawn = Cast<APawn>(O))
+	{
+		if (const APlayerController* const PC = Cast<APlayerController>(Pawn->GetController()))
+		{
+			FRotator ViewRot;
+			PC->GetPlayerViewPoint(OutOrigin, ViewRot);
+			OutForward = ViewRot.Vector();
+			return;
+		}
+	}
+	OutOrigin = O->GetActorLocation();
+	OutForward = O->GetActorForwardVector();
 }
 
 void UDFLockOnComponent::TickComponent(
@@ -130,20 +163,44 @@ bool UDFLockOnComponent::IsActorValidEnemyType(AActor* const Actor) const
 	return true;
 }
 
-float UDFLockOnComponent::AngleFromForward(AActor* const Target) const
+float UDFLockOnComponent::AngleFromView(AActor* const Target) const
 {
-	AActor* const O = GetOwner();
-	if (!IsValid(O) || !IsValid(Target))
+	if (!IsValid(Target))
 	{
 		return 180.f;
 	}
-	const FVector Forward = O->GetActorForwardVector();
-	const FVector ToTarget = (Target->GetActorLocation() - O->GetActorLocation()).GetSafeNormal();
-	if (ToTarget.IsNearlyZero())
+	FVector Origin;
+	FVector ViewForward;
+	GetViewPoint(Origin, ViewForward);
+	const FVector ToTarget = (Target->GetActorLocation() - Origin).GetSafeNormal();
+	if (ToTarget.IsNearlyZero() || ViewForward.IsNearlyZero())
 	{
 		return 0.f;
 	}
-	return FMath::RadiansToDegrees(acosf(FMath::Clamp(FVector::DotProduct(Forward, ToTarget), -1.f, 1.f)));
+	return FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector::DotProduct(ViewForward, ToTarget), -1.f, 1.f)));
+}
+
+float UDFLockOnComponent::SignedViewAngle(AActor* const Target) const
+{
+	if (!IsValid(Target))
+	{
+		return 0.f;
+	}
+	FVector Origin;
+	FVector ViewForward;
+	GetViewPoint(Origin, ViewForward);
+	FVector ToTarget = Target->GetActorLocation() - Origin;
+	ToTarget.Z = 0.f;
+	ViewForward.Z = 0.f;
+	if (ToTarget.IsNearlyZero() || ViewForward.IsNearlyZero())
+	{
+		return 0.f;
+	}
+	ToTarget.Normalize();
+	ViewForward.Normalize();
+	const float CrossZ = FVector::CrossProduct(ViewForward, ToTarget).Z;
+	const float Dot = FVector::DotProduct(ViewForward, ToTarget);
+	return FMath::RadiansToDegrees(FMath::Atan2(CrossZ, Dot));
 }
 
 bool UDFLockOnComponent::HasLineOfSight(AActor* const Target) const
@@ -207,7 +264,7 @@ bool UDFLockOnComponent::IsTargetValidForAcquire(AActor* const Target) const
 	{
 		return false;
 	}
-	return AngleFromForward(Target) <= LockOnAngle * 0.5f + 0.5f;
+	return AngleFromView(Target) <= LockOnAngle * 0.5f + 0.5f;
 }
 
 bool UDFLockOnComponent::IsTargetValid(AActor* const Target) const
@@ -215,7 +272,69 @@ bool UDFLockOnComponent::IsTargetValid(AActor* const Target) const
 	return IsTargetValidForAcquire(Target);
 }
 
-bool UDFLockOnComponent::BuildCandidatesInView(TArray<AActor*>& OutSorted) const
+float UDFLockOnComponent::GetThreatScore(AActor* const Target) const
+{
+	if (!IsValid(Target))
+	{
+		return 0.f;
+	}
+	float Threat = 0.f;
+	AActor* const O = GetOwner();
+	if (UAbilitySystemComponent* const ASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Target))
+	{
+		if (FDFGameplayTags::State_Attacking.IsValid() && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Attacking))
+		{
+			Threat += 0.55f;
+		}
+	}
+	if (const APawn* const EnemyPawn = Cast<APawn>(Target))
+	{
+		if (const AAIController* const AIC = Cast<AAIController>(EnemyPawn->GetController()))
+		{
+			if (const UBlackboardComponent* const BB = AIC->GetBlackboardComponent())
+			{
+				if (BB->GetValueAsObject(DFAIKeys::TargetActor) == O)
+				{
+					Threat += 0.45f;
+				}
+			}
+		}
+	}
+	return FMath::Clamp(Threat, 0.f, 1.f);
+}
+
+float UDFLockOnComponent::ScoreTarget(AActor* const Target) const
+{
+	if (!IsValid(Target) || !GetOwner())
+	{
+		return -1.f;
+	}
+	FVector ViewOrigin;
+	FVector ViewForward;
+	GetViewPoint(ViewOrigin, ViewForward);
+	const FVector ToTarget = Target->GetActorLocation() - ViewOrigin;
+	const float Dist = ToTarget.Size();
+	if (Dist <= KINDA_SMALL_NUMBER || Dist > LockOnRange)
+	{
+		return -1.f;
+	}
+	const FVector Dir = ToTarget / Dist;
+	const float CameraDot = FVector::DotProduct(ViewForward, Dir);
+	const float CameraScore = FMath::Clamp((CameraDot + 1.f) * 0.5f, 0.f, 1.f);
+	const float DistScore = 1.f - FMath::Clamp(Dist / LockOnRange, 0.f, 1.f);
+	const float ElevScore = 1.f - FMath::Clamp(FMath::Abs(ToTarget.Z) / FMath::Max(50.f, ElevationTolerance), 0.f, 1.f);
+	const float ThreatScore = GetThreatScore(Target);
+
+	const float WeightSum = FMath::Max(
+		KINDA_SMALL_NUMBER,
+		ScoreCameraWeight + ScoreDistanceWeight + ScoreThreatWeight + ScoreElevationWeight);
+	return (ScoreCameraWeight * CameraScore
+		+ ScoreDistanceWeight * DistScore
+		+ ScoreThreatWeight * ThreatScore
+		+ ScoreElevationWeight * ElevScore) / WeightSum;
+}
+
+bool UDFLockOnComponent::BuildCandidates(TArray<AActor*>& OutSorted, const ELockOnCandidateSort SortMode) const
 {
 	OutSorted.Reset();
 	AActor* const O = GetOwner();
@@ -240,7 +359,7 @@ bool UDFLockOnComponent::BuildCandidatesInView(TArray<AActor*>& OutSorted) const
 		return false;
 	}
 
-	TArray<TPair<float, AActor*>> Scored;
+	TArray<TPair<float, AActor*>> Ranked;
 	for (const FOverlapResult& R : Overlaps)
 	{
 		AActor* const A = R.GetActor();
@@ -248,17 +367,59 @@ bool UDFLockOnComponent::BuildCandidatesInView(TArray<AActor*>& OutSorted) const
 		{
 			continue;
 		}
-		const float D = FVector::DistSquared(O->GetActorLocation(), A->GetActorLocation());
-		Scored.Add(TPair<float, AActor*>(D, A));
+		const float Key = SortMode == ELockOnCandidateSort::ViewAngle
+			? SignedViewAngle(A)
+			: ScoreTarget(A);
+		if (SortMode == ELockOnCandidateSort::Score && Key < 0.f)
+		{
+			continue;
+		}
+		Ranked.Add(TPair<float, AActor*>(Key, A));
 	}
-	Scored.Sort([](const TPair<float, AActor*>& L, const TPair<float, AActor*>& R) {
-		return L.Key < R.Key;
-	});
-	for (const TPair<float, AActor*>& P : Scored)
+	if (SortMode == ELockOnCandidateSort::Score)
+	{
+		Ranked.Sort([](const TPair<float, AActor*>& L, const TPair<float, AActor*>& R) {
+			return L.Key > R.Key;
+		});
+	}
+	else
+	{
+		Ranked.Sort([](const TPair<float, AActor*>& L, const TPair<float, AActor*>& R) {
+			return L.Key < R.Key;
+		});
+	}
+	for (const TPair<float, AActor*>& P : Ranked)
 	{
 		OutSorted.Add(P.Value);
 	}
 	return OutSorted.Num() > 0;
+}
+
+AActor* UDFLockOnComponent::GetSoftTarget() const
+{
+	if (!bSoftAimWhenUnlocked || bIsLockedOn)
+	{
+		return nullptr;
+	}
+	TArray<AActor*> Sorted;
+	if (BuildCandidates(Sorted, ELockOnCandidateSort::Score) && Sorted.Num() > 0)
+	{
+		return Sorted[0];
+	}
+	return nullptr;
+}
+
+void UDFLockOnComponent::SetCurrentTarget(AActor* const NewTarget)
+{
+	if (!IsValid(NewTarget))
+	{
+		return;
+	}
+	CurrentTarget = NewTarget;
+	if (Camera)
+	{
+		Camera->EnableLockOn(NewTarget);
+	}
 }
 
 bool UDFLockOnComponent::TryLockOn()
@@ -271,21 +432,17 @@ bool UDFLockOnComponent::TryLockOn()
 	}
 
 	TArray<AActor*> Sorted;
-	if (!BuildCandidatesInView(Sorted) || Sorted.Num() == 0)
+	if (!BuildCandidates(Sorted, ELockOnCandidateSort::Score) || Sorted.Num() == 0)
 	{
 		DFLockOnDebug::Log(TEXT("TryLockOn FAIL — no valid target in range"));
 		return false;
 	}
 	AActor* const Pick = Sorted[0];
-	CurrentTarget = Pick;
+	SetCurrentTarget(Pick);
 	bIsLockedOn = true;
 	TimeTargetInvalid = 0.f;
 	LockCycleIndex = 0;
 	ApplyTargetingTag(O, true);
-	if (Camera)
-	{
-		Camera->EnableLockOn(Pick);
-	}
 	CandidateBuffer.Reset();
 	for (AActor* A : Sorted)
 	{
@@ -293,7 +450,8 @@ bool UDFLockOnComponent::TryLockOn()
 	}
 	EnsureLockOnWidget();
 	OnLockOnChanged.Broadcast(true);
-	DFLockOnDebug::Logf(TEXT("TryLockOn OK target=%s candidates=%d"), *GetNameSafe(Pick), Sorted.Num());
+	DFLockOnDebug::Logf(TEXT("TryLockOn OK target=%s score=%.2f candidates=%d"),
+		*GetNameSafe(Pick), ScoreTarget(Pick), Sorted.Num());
 	return true;
 }
 
@@ -310,9 +468,9 @@ void UDFLockOnComponent::CycleLockOnTarget(const float Direction)
 		return;
 	}
 	TArray<AActor*> Sorted;
-	if (!BuildCandidatesInView(Sorted) || Sorted.Num() == 0)
+	if (!BuildCandidates(Sorted, ELockOnCandidateSort::ViewAngle) || Sorted.Num() == 0)
 	{
-		ReleaseLockOn();
+		DFLockOnDebug::Log(TEXT("Cycle — no candidates, keeping current lock"));
 		return;
 	}
 	int32 Index = 0;
@@ -326,13 +484,64 @@ void UDFLockOnComponent::CycleLockOnTarget(const float Direction)
 	}
 	const int32 Len = Sorted.Num();
 	const int32 Next = (Index + (Direction > 0.f ? 1 : -1) + Len * 2) % Len;
-	CurrentTarget = Sorted[Next];
+	SetCurrentTarget(Sorted[Next]);
 	LockCycleIndex = Next;
-	if (Camera)
+	CandidateBuffer.Reset();
+	for (AActor* A : Sorted)
 	{
-		Camera->EnableLockOn(Sorted[Next]);
+		CandidateBuffer.Add(A);
 	}
 	DFLockOnDebug::Logf(TEXT("Cycle dir=%.0f -> %s"), Direction, *GetNameSafe(Sorted[Next]));
+}
+
+void UDFLockOnComponent::NotifyCombatHitConfirmed(AActor* const HitVictim)
+{
+	if (!bRetargetOnHit || !IsValid(HitVictim) || !IsActorValidEnemyType(HitVictim))
+	{
+		return;
+	}
+	APawn* const OwnerPawn = Cast<APawn>(GetOwner());
+	if (!OwnerPawn || !OwnerPawn->IsLocallyControlled())
+	{
+		return;
+	}
+	if (!IsTargetValidForMaintain(HitVictim))
+	{
+		return;
+	}
+	if (CurrentTarget.Get() == HitVictim)
+	{
+		return;
+	}
+	if (!bIsLockedOn)
+	{
+		if (!bSoftAimWhenUnlocked)
+		{
+			return;
+		}
+	}
+	SetCurrentTarget(HitVictim);
+	if (!bIsLockedOn)
+	{
+		DFLockOnDebug::Logf(TEXT("Soft retarget on hit -> %s"), *GetNameSafe(HitVictim));
+		return;
+	}
+	TimeTargetInvalid = 0.f;
+	TArray<AActor*> Sorted;
+	if (BuildCandidates(Sorted, ELockOnCandidateSort::Score))
+	{
+		LockCycleIndex = Sorted.Find(HitVictim);
+		if (LockCycleIndex == INDEX_NONE)
+		{
+			LockCycleIndex = 0;
+		}
+		CandidateBuffer.Reset();
+		for (AActor* A : Sorted)
+		{
+			CandidateBuffer.Add(A);
+		}
+	}
+	DFLockOnDebug::Logf(TEXT("Retarget on hit -> %s"), *GetNameSafe(HitVictim));
 }
 
 void UDFLockOnComponent::ReleaseLockOn()

@@ -6,6 +6,7 @@
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "Components/PrimitiveComponent.h"
+#include "Performance/UDFPoolable.h"
 
 class UWorld;
 
@@ -71,6 +72,10 @@ public:
 		A->SetActorHiddenInGame(false);
 		SetCollisionEnabledOnActor(A, true);
 		A->SetActorTickEnabled(true);
+		if (IUDFPoolable* const Poolable = Cast<IUDFPoolable>(A))
+		{
+			Poolable->OnAcquiredFromPool();
+		}
 		Active.Add(A);
 		return A;
 	}
@@ -82,6 +87,10 @@ public:
 			return;
 		}
 		Active.RemoveSingle(Object);
+		if (IUDFPoolable* const Poolable = Cast<IUDFPoolable>(Object))
+		{
+			Poolable->OnReleasedToPool();
+		}
 		ResetPooledInstance(Object);
 		Available.Add(Object);
 	}

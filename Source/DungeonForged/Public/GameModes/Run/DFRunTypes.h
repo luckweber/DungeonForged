@@ -27,7 +27,9 @@ enum class EDFRunTravelReason : uint8
 	/** New run from Nexus: apply class row and run init. */
 	NewRun = 1,
 	/** Next floor: restore stats/inventory/abilities from @ref UDFRunManager. */
-	NextFloor = 2
+	NextFloor = 2,
+	/** Resume from @ref UDFSaveGame::LastCheckpoint after crash / Continue from main menu. */
+	ResumeCheckpoint = 3
 };
 
 /** Return destination / reason for @ref UDFWorldTransitionSubsystem::TravelToNexus. */

@@ -71,11 +71,10 @@ void UDFBossAbility_MeteorStrike::ActivateAbility(
 	{
 		Target = Player->GetActorLocation() + Player->GetVelocity() * PlayerLeadSeconds;
 	}
-	FActorSpawnParameters Sp;
-	Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	Sp.Owner = Boss;
-	Sp.Instigator = Boss;
-	(void)(GetWorld()->SpawnActor<ADFMeteorWarningDecal>(WarningDecalClass, FTransform(FRotator(-90.f, 0.f, 0.f), Target), Sp));
+	const float WarningRadius = WarningDecalClass
+		? WarningDecalClass.GetDefaultObject()->GetDecalRadius()
+		: 400.f;
+	Boss->Multicast_PlayMeteorWarning(Target, WarningRadius, TelegraphTime, WarningDecalClass);
 	PendingMeteorAim = Target;
 	if (UAbilityTask_WaitDelay* D = UAbilityTask_WaitDelay::WaitDelay(this, TelegraphTime))
 	{

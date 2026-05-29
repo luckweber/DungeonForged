@@ -55,10 +55,6 @@ void UDFAbility_Warrior_Whirlwind::ActivateAbility(
 		return;
 	}
 	UAbilitySystemComponent* const ASC = GetAbilitySystemComponentFromActorInfo();
-	if (ASC && ASC->GetOwner() && ASC->GetOwner()->HasAuthority())
-	{
-		ApplyResourceCostsToOwner(ASC);
-	}
 	ACharacter* const Char = Cast<ACharacter>(GetAvatarActorFromActorInfo());
 	if (Char && Char->HasAuthority() && Char->GetCharacterMovement())
 	{

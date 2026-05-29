@@ -8,6 +8,7 @@
 #include "GAS/UDFAttributeSet.h"
 #include "Engine/DataTable.h"
 #include "Events/UDFRandomEventSubsystem.h"
+#include "Run/UDFBetweenFloorSubsystem.h"
 #include "UI/UDFAbilitySelectionWidget.h"
 #include "UI/UDFAbilitySelectionSubsystem.h"
 #include "Blueprint/UserWidget.h"
@@ -185,6 +186,17 @@ void ADFPlayerState::Server_FinishAbilitySelection_Implementation(int32 const Of
 		Client_ResumeAfterAbilitySelection();
 		return;
 	}
+	if (UWorld* const W = GetWorld())
+	{
+		if (UDFBetweenFloorSubsystem* const BF = W->GetSubsystem<UDFBetweenFloorSubsystem>())
+		{
+			if (BF->IsFlowActive())
+			{
+				BF->NotifyDraftResolved(bSkipped, SelectedRowName, this);
+				return;
+			}
+		}
+	}
 	DM->bFloorOfferResolved = true;
 	if (UWorld* const W = GetWorld())
 	{
@@ -257,6 +269,10 @@ void ADFPlayerState::Server_ExecuteRandomEventChoice_Implementation(FDFEventChoi
 				Ev->MarkEventUsed(EventRowName, R->bCanRepeat);
 			}
 		}
+	}
+	if (UDFBetweenFloorSubsystem* const BF = GetWorld()->GetSubsystem<UDFBetweenFloorSubsystem>())
+	{
+		BF->NotifyEventResolved();
 	}
 }
 

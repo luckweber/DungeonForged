@@ -66,6 +66,24 @@ public:
 		const FGameplayTagContainer* SourceTags = nullptr, const FGameplayTagContainer* TargetTags = nullptr,
 		FGameplayTagContainer* OptionalRelevantTags = nullptr) const override;
 
+	/** Effective mana cost (override for tuning-driven costs, e.g. dodge). */
+	UFUNCTION(BlueprintPure, Category = "Ability|DF|Cost")
+	virtual float GetAbilityManaCost() const;
+
+	/** Effective stamina cost (override for tuning-driven costs). */
+	UFUNCTION(BlueprintPure, Category = "Ability|DF|Cost")
+	virtual float GetAbilityStaminaCost() const;
+
+	virtual bool CheckCost(
+		const FGameplayAbilitySpecHandle Handle,
+		const FGameplayAbilityActorInfo* ActorInfo,
+		FGameplayTagContainer* OptionalRelevantTags = nullptr) const override;
+
+	virtual void ApplyCost(
+		const FGameplayAbilitySpecHandle Handle,
+		const FGameplayAbilityActorInfo* ActorInfo,
+		const FGameplayAbilityActivationInfo ActivationInfo) const override;
+
 	virtual const FGameplayTagContainer* GetCooldownTags() const override;
 
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
@@ -91,8 +109,6 @@ protected:
 		const FGameplayAbilityActorInfo* ActorInfo,
 		const FGameplayAbilityActivationInfo ActivationInfo) const override;
 
-	void ApplyResourceCostsToOwner(UAbilitySystemComponent* ASC) const;
-
 	/** Built on demand for CheckCooldown / ApplyCooldown (CDO and instanced copies). */
 	UPROPERTY()
 	mutable FGameplayTagContainer CachedCooldownTags;
@@ -100,4 +116,19 @@ protected:
 	void BuildCooldownTagContainer(FGameplayTagContainer& OutTags) const;
 	void EnsureCooldownTagsCached() const;
 	bool IsOwnerOnAbilityCooldown(const UAbilitySystemComponent& ASC) const;
+
+	bool CheckSingleResourceCost(
+		const FGameplayAbilityActorInfo* ActorInfo,
+		const UAbilitySystemComponent& ASC,
+		TSubclassOf<UGameplayEffect> CostEffectClass,
+		FGameplayAttribute ResourceAttribute,
+		float CostMagnitude,
+		FGameplayTagContainer* OptionalRelevantTags) const;
+
+	void ApplySingleResourceCost(
+		const FGameplayAbilitySpecHandle Handle,
+		const FGameplayAbilityActorInfo* ActorInfo,
+		const FGameplayAbilityActivationInfo ActivationInfo,
+		TSubclassOf<UGameplayEffect> CostEffectClass,
+		float CostMagnitude) const;
 };

@@ -16,6 +16,7 @@
 #include "GAS/UDFGameplayAbility.h"
 #include "Equipment/DFEquipmentTypes.h"
 #include "Animation/DFAnimSetTypes.h"
+#include "Combat/DFComboDirectionalTypes.h"
 #include "DFDataTableStructs.generated.h"
 
 class AActor;
@@ -137,6 +138,20 @@ struct DUNGEONFORGED_API FDFAbilityTableRow : public FTableRowBase
 	/** Rarity is used for between-floor 1-of-3 roll weighting (see UDFAbilitySelectionSubsystem). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Abilities|UI")
 	EItemRarity Rarity = EItemRarity::Common;
+
+	/**
+	 * If non-empty, the player must already have a granted ability whose @c AbilityTag matches
+	 * one of these tags (build synergy / archetype pools).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Abilities|Draft")
+	FGameplayTagContainer RequiresSynergyTags;
+
+	/**
+	 * Excludes this row from offers when the player already has a granted ability whose
+	 * @c AbilityTag matches any tag here (dedup / exclusion).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Abilities|Draft")
+	FGameplayTagContainer ExcludedIfGrantedTags;
 
 	/** Optional text for the selection card (GAS cost/cooldown can be separate). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Abilities|UI")
@@ -278,6 +293,17 @@ struct DUNGEONFORGED_API FDFComboTableRow : public FTableRowBase
 	/** The actual chain steps. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
 	TArray<FDFComboStep> Steps;
+
+	/** Optional aerial juggle chain (used after launcher / while @c bAerialComboActive). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Aerial")
+	TArray<FDFComboStep> AerialSteps;
+
+	/**
+	 * Optional 8-way montage overrides per step index (parallel to @c Steps).
+	 * When a step entry is configured, it overrides legacy Backward/Side arrays for that step.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Directional")
+	TArray<FDFComboDirectionalMontageSet> DirectionalStepOverrides;
 };
 
 /** Item definition row (e.g. DT_Items). */
@@ -654,6 +680,14 @@ struct DUNGEONFORGED_API FDFClassTableRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat|Directional")
 	TArray<TSoftObjectPtr<UAnimMontage>> ArmedSideMeleeComboMontagesFallback;
+
+	/** Optional 8-way per-step overrides (class-wide fallback when combo row has no directional data). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat|Directional")
+	TArray<FDFComboDirectionalMontageSet> ArmedDirectionalMeleeComboMontagesFallback;
+
+	/** Class-wide aerial juggle steps when weapon combo row has no @c AerialSteps. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat|Aerial")
+	TArray<FDFComboStep> ArmedAerialMeleeComboStepsFallback;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|GAS")
 	TMap<FGameplayAttribute, float> BaseAttributeValues;

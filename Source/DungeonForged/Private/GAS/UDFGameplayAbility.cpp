@@ -1,9 +1,12 @@
 // Source/DungeonForged/Private/GAS/UDFGameplayAbility.cpp
 
 #include "GAS/UDFGameplayAbility.h"
+#include "AI/UDFAINoiseLibrary.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/Effects/UGE_Cooldown_Base.h"
+#include "GAS/Effects/UGE_Cost_Mana_Base.h"
+#include "GAS/Effects/UGE_Cost_Stamina_Base.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Boss/ADFBossBase.h"
 #include "Combat/UDFComboComponent.h"
@@ -20,6 +23,7 @@
 UDFGameplayAbility::UDFGameplayAbility()
 {
 	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
+	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::LocalPredicted;
 }
 
 bool UDFGameplayAbility::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
@@ -38,22 +42,6 @@ bool UDFGameplayAbility::CanActivateAbility(const FGameplayAbilitySpecHandle Han
 	}
 	if (UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get())
 	{
-		const FGameplayAttribute Mana = UDFAttributeSet::GetManaAttribute();
-		const FGameplayAttribute Stamina = UDFAttributeSet::GetStaminaAttribute();
-		if (AbilityCost_Mana > 0.f)
-		{
-			if (ASC->GetNumericAttribute(Mana) < AbilityCost_Mana)
-			{
-				return false;
-			}
-		}
-		if (AbilityCost_Stamina > 0.f)
-		{
-			if (ASC->GetNumericAttribute(Stamina) < AbilityCost_Stamina)
-			{
-				return false;
-			}
-		}
 		if (BaseCooldown > 0.f && IsOwnerOnAbilityCooldown(*ASC))
 		{
 			if (OptionalRelevantTags)
@@ -115,6 +103,11 @@ void UDFGameplayAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 {
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 
+	if (ActorInfo && ActorInfo->AvatarActor.IsValid())
+	{
+		UDFAINoiseLibrary::ReportAbilityNoise(ActorInfo->AvatarActor.Get());
+	}
+
 	if (bUseGlobalAbilityCooldown && ActorInfo && ActorInfo->AbilitySystemComponent.IsValid())
 	{
 		if (UWorld* const World = ActorInfo->AvatarActor.IsValid() ? ActorInfo->AvatarActor->GetWorld() : nullptr)
@@ -145,13 +138,6 @@ void UDFGameplayAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 		return;
 	}
 
-	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (ASC->GetOwner() && ASC->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(ASC);
-		}
-	}
 	PlayAbilityMontage();
 	K2_OnAbilityActivated(Handle, *ActorInfo, ActivationInfo);
 }
@@ -193,6 +179,17 @@ void UDFGameplayAbility::PostInitProperties()
 		{
 			BuildCooldownTagContainer(CachedCooldownTags);
 			ActivationBlockedTags.AppendTags(CachedCooldownTags);
+		}
+		if (!CostGameplayEffectClass)
+		{
+			if (AbilityCost_Mana > KINDA_SMALL_NUMBER)
+			{
+				CostGameplayEffectClass = UGE_Cost_Mana_Base::StaticClass();
+			}
+			else if (AbilityCost_Stamina > KINDA_SMALL_NUMBER)
+			{
+				CostGameplayEffectClass = UGE_Cost_Stamina_Base::StaticClass();
+			}
 		}
 	}
 }
@@ -302,23 +299,115 @@ void UDFGameplayAbility::ApplyCooldown(
 	ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, SpecHandle);
 }
 
-void UDFGameplayAbility::ApplyResourceCostsToOwner(UAbilitySystemComponent* ASC) const
+float UDFGameplayAbility::GetAbilityManaCost() const
 {
-	if (!ASC)
+	return AbilityCost_Mana;
+}
+
+float UDFGameplayAbility::GetAbilityStaminaCost() const
+{
+	return AbilityCost_Stamina;
+}
+
+bool UDFGameplayAbility::CheckSingleResourceCost(
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const UAbilitySystemComponent& ASC,
+	const TSubclassOf<UGameplayEffect> CostEffectClass,
+	const FGameplayAttribute ResourceAttribute,
+	const float CostMagnitude,
+	FGameplayTagContainer* OptionalRelevantTags) const
+{
+	if (!CostEffectClass || CostMagnitude <= KINDA_SMALL_NUMBER || !FDFGameplayTags::Data_Cost.IsValid()
+		|| !ResourceAttribute.IsValid())
+	{
+		return true;
+	}
+	if (!ActorInfo)
+	{
+		return false;
+	}
+	if (ASC.GetNumericAttribute(ResourceAttribute) < CostMagnitude)
+	{
+		if (OptionalRelevantTags)
+		{
+			const FGameplayTag& CostFail = UAbilitySystemGlobals::Get().ActivateFailCostTag;
+			if (CostFail.IsValid())
+			{
+				OptionalRelevantTags->AddTag(CostFail);
+			}
+		}
+		return false;
+	}
+	return true;
+}
+
+bool UDFGameplayAbility::CheckCost(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	FGameplayTagContainer* OptionalRelevantTags) const
+{
+	if (!ActorInfo || !ActorInfo->AbilitySystemComponent.IsValid())
+	{
+		return false;
+	}
+	UAbilitySystemComponent& ASC = *ActorInfo->AbilitySystemComponent.Get();
+	const float ManaCost = GetAbilityManaCost();
+	const float StaminaCost = GetAbilityStaminaCost();
+	if (ManaCost <= KINDA_SMALL_NUMBER && StaminaCost <= KINDA_SMALL_NUMBER)
+	{
+		return true;
+	}
+	if (ManaCost > KINDA_SMALL_NUMBER
+		&& !CheckSingleResourceCost(
+			ActorInfo, ASC, UGE_Cost_Mana_Base::StaticClass(), UDFAttributeSet::GetManaAttribute(), ManaCost,
+			OptionalRelevantTags))
+	{
+		return false;
+	}
+	if (StaminaCost > KINDA_SMALL_NUMBER
+		&& !CheckSingleResourceCost(
+			ActorInfo, ASC, UGE_Cost_Stamina_Base::StaticClass(), UDFAttributeSet::GetStaminaAttribute(),
+			StaminaCost, OptionalRelevantTags))
+	{
+		return false;
+	}
+	return true;
+}
+
+void UDFGameplayAbility::ApplySingleResourceCost(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo,
+	const TSubclassOf<UGameplayEffect> CostEffectClass,
+	const float CostMagnitude) const
+{
+	if (!CostEffectClass || CostMagnitude <= KINDA_SMALL_NUMBER || !FDFGameplayTags::Data_Cost.IsValid())
 	{
 		return;
 	}
-	UDFAttributeSet* const Attrs = const_cast<UDFAttributeSet*>(ASC->GetSet<UDFAttributeSet>());
-	if (!Attrs)
+	const FGameplayEffectSpecHandle SpecHandle = MakeOutgoingGameplayEffectSpec(
+		CostEffectClass, GetAbilityLevel(Handle, ActorInfo));
+	if (!SpecHandle.IsValid() || !SpecHandle.Data.IsValid())
 	{
 		return;
 	}
-	if (AbilityCost_Mana > 0.f)
+	SpecHandle.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Cost, CostMagnitude);
+	ApplyGameplayEffectSpecToOwner(Handle, ActorInfo, ActivationInfo, SpecHandle);
+}
+
+void UDFGameplayAbility::ApplyCost(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo) const
+{
+	const float ManaCost = GetAbilityManaCost();
+	const float StaminaCost = GetAbilityStaminaCost();
+	if (ManaCost > KINDA_SMALL_NUMBER)
 	{
-		Attrs->SetMana(FMath::Max(0.f, Attrs->GetMana() - AbilityCost_Mana));
+		ApplySingleResourceCost(Handle, ActorInfo, ActivationInfo, UGE_Cost_Mana_Base::StaticClass(), ManaCost);
 	}
-	if (AbilityCost_Stamina > 0.f)
+	if (StaminaCost > KINDA_SMALL_NUMBER)
 	{
-		Attrs->SetStamina(FMath::Max(0.f, Attrs->GetStamina() - AbilityCost_Stamina));
+		ApplySingleResourceCost(Handle, ActorInfo, ActivationInfo, UGE_Cost_Stamina_Base::StaticClass(), StaminaCost);
 	}
 }

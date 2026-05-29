@@ -1,10 +1,14 @@
 // Source/DungeonForged/Private/AI/UDFBTTask_FleeFromPlayer.cpp
 
 #include "AI/UDFBTTask_FleeFromPlayer.h"
+#include "AI/DFAIKeys.h"
+#include "AI/UDFAILibrary.h"
+#include "AI/UDFEnemyArchetypeLibrary.h"
+#include "Characters/ADFEnemyBase.h"
 #include "AIController.h"
+#include "BehaviorTree/BlackboardComponent.h"
 #include "Engine/World.h"
-#include "GameFramework/PlayerController.h"
-#include "Kismet/GameplayStatics.h"
+#include "GameFramework/Pawn.h"
 #include "NavigationSystem.h"
 #include "Navigation/PathFollowingComponent.h"
 
@@ -38,14 +42,27 @@ EBTNodeResult::Type UDFBTTask_FleeFromPlayer::ExecuteTask(
 	{
 		return EBTNodeResult::Failed;
 	}
-	APlayerController* const PC = UGameplayStatics::GetPlayerController(Self, 0);
-	APawn* const PlayerPawn = PC ? PC->GetPawn() : nullptr;
+	AActor* Threat = nullptr;
+	if (UBlackboardComponent* const BB = OwnerComp.GetBlackboardComponent())
+	{
+		Threat = Cast<AActor>(BB->GetValueAsObject(DFAIKeys::TargetActor));
+	}
+	if (!UDFAILibrary::IsValidHostilePlayerTarget(Threat))
+	{
+		Threat = UDFAILibrary::FindNearestHostilePlayerTarget(Self, Self->GetActorLocation(), 5000.f, nullptr, false, Self);
+	}
+	APawn* const PlayerPawn = Cast<APawn>(Threat);
 	if (!IsValid(PlayerPawn))
 	{
 		return EBTNodeResult::Failed;
 	}
 	const FVector FromPlayer = (Self->GetActorLocation() - PlayerPawn->GetActorLocation()).GetSafeNormal2D();
-	FVector FleePoint = Self->GetActorLocation() + FromPlayer * FleeSampleDistance;
+	float FleeDistance = FleeSampleDistance;
+	if (const ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(Self))
+	{
+		FleeDistance = UDFEnemyArchetypeLibrary::GetFleeSampleDistance(Enemy->GetEnemyArchetype());
+	}
+	FVector FleePoint = Self->GetActorLocation() + FromPlayer * FleeDistance;
 	if (UNavigationSystemV1* const Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(OwnerComp.GetWorld()))
 	{
 		FNavLocation NavLoc;

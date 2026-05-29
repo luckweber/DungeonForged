@@ -10,6 +10,8 @@
 class UCameraComponent;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
+class USoundClass;
+class USoundMix;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDFAccessibilitySettingsChanged, FDFAccessibilitySettings, NewSettings);
 
@@ -58,6 +60,20 @@ public:
 
 	UPROPERTY(Transient)
 	TWeakObjectPtr<UCameraComponent> ColorBlindTargetCamera = nullptr;
+
+	/** Optional SoundClasses — assign in project settings (Content/Audio). Master uses transient primary volume. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Accessibility|Audio")
+	TObjectPtr<USoundClass> MusicSoundClass = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Accessibility|Audio")
+	TObjectPtr<USoundClass> SFXSoundClass = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Accessibility|Audio")
+	TObjectPtr<USoundClass> VoiceSoundClass = nullptr;
+
+	/** Required for per-bus volume overrides via @c SetSoundMixClassOverride. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Accessibility|Audio")
+	TObjectPtr<USoundMix> UserSoundMix = nullptr;
 
 protected:
 	void ApplyFontScale() const;

@@ -134,6 +134,11 @@ UAnimMontage* UDFAbility_AirDash::ResolveAirDashMontage(const EDFDodgeDirection 
 	return AirDashMontage.Get();
 }
 
+float UDFAbility_AirDash::GetAbilityStaminaCost() const
+{
+	return GetEffectiveAirDashStaminaCost();
+}
+
 float UDFAbility_AirDash::GetEffectiveAirDashStaminaCost() const
 {
 	if (const UDFCombatTuningData* const Tuning = UDFAssetManager::GetCombatTuningDataSafe())
@@ -293,7 +298,6 @@ void UDFAbility_AirDash::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 		return;
 	}
 
-	AbilityCost_Stamina = GetEffectiveAirDashStaminaCost();
 	ACharacter* const Char = Cast<ACharacter>(ActorInfo->AvatarActor.Get());
 	UDFCharacterMovementComponent* const CMC = Char ? Cast<UDFCharacterMovementComponent>(Char->GetCharacterMovement()) : nullptr;
 	if (!Char || !CMC)
@@ -311,10 +315,6 @@ void UDFAbility_AirDash::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 
 	if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponentFromActorInfo())
 	{
-		if (ASC->GetOwner() && ASC->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(ASC);
-		}
 		if (FDFGameplayTags::State_AirDashing.IsValid())
 		{
 			ASC->AddLooseGameplayTag(FDFGameplayTags::State_AirDashing);

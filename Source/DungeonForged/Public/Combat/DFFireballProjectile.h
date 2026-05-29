@@ -3,7 +3,10 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Performance/UDFPoolable.h"
 #include "DFFireballProjectile.generated.h"
+
+class UDFProjectileSweepComponent;
 
 class UAbilitySystemComponent;
 class UNiagaraComponent;
@@ -12,7 +15,7 @@ class UGameplayEffect;
 class USphereComponent;
 
 UCLASS(Blueprintable)
-class DUNGEONFORGED_API ADFFireballProjectile : public AActor
+class DUNGEONFORGED_API ADFFireballProjectile : public AActor, public IUDFPoolable
 {
 	GENERATED_BODY()
 
@@ -43,12 +46,24 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Components")
 	TObjectPtr<class UDFProjectileHitTrackerComponent> HitTracker = nullptr;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Components")
+	TObjectPtr<UDFProjectileSweepComponent> ProjectileSweep = nullptr;
+
 	virtual void BeginPlay() override;
+
+	// IUDFPoolable
+	virtual void OnAcquiredFromPool() override;
+	virtual void OnReleasedToPool() override;
+	virtual FName GetPoolName() const override;
 
 protected:
 	UFUNCTION()
 	void OnHit(
 		UPrimitiveComponent* HitComponent, AActor* Other, UPrimitiveComponent* OtherComp, FVector Impulse, const FHitResult& Hit);
 
+	UFUNCTION()
+	void OnSweepHit(const FHitResult& Hit, UPrimitiveComponent* SweptComponent);
+
 	void ApplyFireDamageTo(AActor* Target, const FHitResult& Hit);
+	void FinishProjectile();
 };

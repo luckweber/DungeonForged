@@ -7,7 +7,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 
-ADFPlayerController* UDFNetworkLibrary::ResolveLocalPlayerController(UObject* const WorldContextObject)
+APlayerController* UDFNetworkLibrary::GetLocalPlayerController(UObject* const WorldContextObject)
 {
 	if (!GEngine)
 	{
@@ -16,12 +16,36 @@ ADFPlayerController* UDFNetworkLibrary::ResolveLocalPlayerController(UObject* co
 	if (UWorld* const W = GEngine->GetWorldFromContextObject(
 		WorldContextObject, EGetWorldErrorMode::LogAndReturnNull))
 	{
-		if (APlayerController* const PC = UGameplayStatics::GetPlayerController(W, 0))
-		{
-			return Cast<ADFPlayerController>(PC);
-		}
+		return GEngine->GetFirstLocalPlayerController(W);
 	}
 	return nullptr;
+}
+
+ADFPlayerController* UDFNetworkLibrary::ResolveLocalPlayerController(UObject* const WorldContextObject)
+{
+	return Cast<ADFPlayerController>(GetLocalPlayerController(WorldContextObject));
+}
+
+void UDFNetworkLibrary::MulticastToAllDFPlayerControllers(
+	UObject* const WorldContextObject, TFunctionRef<void(ADFPlayerController*)> Fn)
+{
+	if (!GEngine)
+	{
+		return;
+	}
+	UWorld* const W = GEngine->GetWorldFromContextObject(
+		WorldContextObject, EGetWorldErrorMode::LogAndReturnNull);
+	if (!W || W->GetNetMode() == NM_Client)
+	{
+		return;
+	}
+	for (FConstPlayerControllerIterator It = W->GetPlayerControllerIterator(); It; ++It)
+	{
+		if (ADFPlayerController* const DPC = Cast<ADFPlayerController>(It->Get()))
+		{
+			Fn(DPC);
+		}
+	}
 }
 
 void UDFNetworkLibrary::ServerRequestEquipItem(
@@ -43,7 +67,6 @@ void UDFNetworkLibrary::ServerRequestPurchase(UObject* const WorldContextObject,
 
 void UDFNetworkLibrary::ClientShowEventCard(UObject* const WorldContextObject, const FName EventRow)
 {
-	// Client RPC is invoked from server; local PC still resolves for targeted Client RPCs on owning PC
 	if (ADFPlayerController* const DPC = ResolveLocalPlayerController(WorldContextObject))
 	{
 		DPC->Client_ShowEventCard(EventRow);
@@ -69,58 +92,25 @@ void UDFNetworkLibrary::ClientPlayVictorySequence(UObject* const WorldContextObj
 void UDFNetworkLibrary::MulticastSpawnHitVFX(
 	UObject* const WorldContextObject, const FVector Location, const FRotator Normal, const FGameplayTag DamageType)
 {
-	if (UWorld* const W = GEngine ? GEngine->GetWorldFromContextObject(
-		WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr)
-	{
-		if (W->GetNetMode() == NM_Client)
+	MulticastToAllDFPlayerControllers(
+		WorldContextObject,
+		[Location, Normal, DamageType](ADFPlayerController* const DPC)
 		{
-			return;
-		}
-		if (APlayerController* const PC = UGameplayStatics::GetPlayerController(W, 0))
-		{
-			if (ADFPlayerController* const DPC = Cast<ADFPlayerController>(PC))
-			{
-				DPC->Multicast_SpawnHitVFX(Location, Normal, DamageType);
-			}
-		}
-	}
+			DPC->Multicast_SpawnHitVFX(Location, Normal, DamageType);
+		});
 }
 
 void UDFNetworkLibrary::MulticastPlayBossRoar(UObject* const WorldContextObject, const FVector BossLocation)
 {
-	if (UWorld* const W = GEngine ? GEngine->GetWorldFromContextObject(
-		WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr)
-	{
-		if (W->GetNetMode() == NM_Client)
-		{
-			return;
-		}
-		if (APlayerController* const PC = UGameplayStatics::GetPlayerController(W, 0))
-		{
-			if (ADFPlayerController* const DPC = Cast<ADFPlayerController>(PC))
-			{
-				DPC->Multicast_PlayBossRoar(BossLocation);
-			}
-		}
-	}
+	MulticastToAllDFPlayerControllers(
+		WorldContextObject,
+		[BossLocation](ADFPlayerController* const DPC) { DPC->Multicast_PlayBossRoar(BossLocation); });
 }
 
 void UDFNetworkLibrary::MulticastTriggerPhaseTransitionFX(
 	UObject* const WorldContextObject, const int32 Phase)
 {
-	if (UWorld* const W = GEngine ? GEngine->GetWorldFromContextObject(
-		WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr)
-	{
-		if (W->GetNetMode() == NM_Client)
-		{
-			return;
-		}
-		if (APlayerController* const PC = UGameplayStatics::GetPlayerController(W, 0))
-		{
-			if (ADFPlayerController* const DPC = Cast<ADFPlayerController>(PC))
-			{
-				DPC->Multicast_TriggerPhaseTransitionFX(Phase);
-			}
-		}
-	}
+	MulticastToAllDFPlayerControllers(
+		WorldContextObject,
+		[Phase](ADFPlayerController* const DPC) { DPC->Multicast_TriggerPhaseTransitionFX(Phase); });
 }

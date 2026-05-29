@@ -4,6 +4,7 @@
 #include "DungeonForgedModule.h"
 #include "GameModes/Run/ADFRunGameState.h"
 #include "UI/UDFBossHealthBarWidget.h"
+#include "UI/UDFRunHUDRootWidget.h"
 #include "Engine/Engine.h"
 #include "GameFramework/PlayerController.h"
 #include "Blueprint/UserWidget.h"
@@ -14,7 +15,6 @@ namespace
 	constexpr int32 Z_Minimap = 1;
 	constexpr int32 Z_Status = 1;
 	constexpr int32 Z_Boss = 2;
-	constexpr int32 Z_LockOn = 3;
 	constexpr int32 Z_Floor = 4;
 	constexpr int32 Z_Kill = 4;
 }
@@ -59,6 +59,16 @@ void ADFRunHUD::CreateRunWidgets()
 	{
 		return;
 	}
+
+	if (WBP_RootClass)
+	{
+		WBP_Root = CreateWidget<UDFRunHUDRootWidget>(PC, WBP_RootClass);
+		if (WBP_Root)
+		{
+			WBP_Root->AddToViewport(Z_HUD);
+		}
+	}
+
 	auto AddIf = [PC, this](TSubclassOf<UUserWidget> Cls, int32 const Z) -> UUserWidget*
 	{
 		if (!Cls)
@@ -67,7 +77,14 @@ void ADFRunHUD::CreateRunWidgets()
 		}
 		if (UUserWidget* const Wg = CreateWidget<UUserWidget>(PC, Cls))
 		{
-			Wg->AddToViewport(Z);
+			if (WBP_Root)
+			{
+				WBP_Root->MountLayerWidget(Wg, Z);
+			}
+			else
+			{
+				Wg->AddToViewport(Z);
+			}
 			return Wg;
 		}
 		return nullptr;
@@ -85,7 +102,7 @@ void ADFRunHUD::CreateRunWidgets()
 				"ADFRunHUD: WBP_BossHealthBarClass must inherit UDFBossHealthBarWidget (BindWidget: BossHealthBar, BossNameText).");
 		}
 	}
-	WBP_LockOnIndicator = AddIf(WBP_LockOnIndicatorClass, Z_LockOn);
+	// Lock-on indicator is owned by UDFLockOnComponent (local player, Z=100) — do not duplicate here.
 	WBP_FloorCounter = AddIf(WBP_FloorCounterClass, Z_Floor);
 	WBP_KillCounter = AddIf(WBP_KillCounterClass, Z_Kill);
 	ClearBossHealthBar();
@@ -97,7 +114,6 @@ void ADFRunHUD::SetCombatWidgetsVisible(const bool bVisible)
 	if (WBP_HUD) WBP_HUD->SetVisibility(V);
 	if (WBP_Minimap) WBP_Minimap->SetVisibility(V);
 	if (WBP_StatusEffectBar) WBP_StatusEffectBar->SetVisibility(V);
-	if (WBP_LockOnIndicator) WBP_LockOnIndicator->SetVisibility(V);
 	if (WBP_FloorCounter) WBP_FloorCounter->SetVisibility(V);
 	if (WBP_KillCounter) WBP_KillCounter->SetVisibility(V);
 }

@@ -61,6 +61,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|World")
 	void TravelToRun(FName SelectedClass);
 
+	/** Resume an interrupted run from @ref UDFSaveGame::LastCheckpoint (main-menu Continue). */
+	UFUNCTION(BlueprintCallable, Category = "DF|World")
+	void TravelToRunFromCheckpoint();
+
 	/**
 	 * Same @a RunMapName, run GameMode restarts floor: capture state, save checkpoint, loading screen, @c OpenLevel.
 	 */
@@ -71,6 +75,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|World")
 	void NotifyLoadingFinished() { bIsTransitioning = false; }
 
+	UFUNCTION()
+	void HandleTransitionSafetyTimeout();
+
 	UFUNCTION(BlueprintCallable, Category = "DF|World")
 	void FinalizeRunData(ETravelReason Reason);
 
@@ -79,6 +86,8 @@ public:
 
 protected:
 	void ScheduleOpenMapAfterPaint(const FString& Map);
+
+	void ArmTransitionSafetyTimer();
 
 	UFUNCTION()
 	void ExecuteDeferredOpenMap();
@@ -90,4 +99,6 @@ protected:
 	FString DeferredMapToOpen;
 
 	FTimerHandle DeferredOpenMapTimer;
+
+	FTimerHandle TransitionSafetyTimer;
 };

@@ -44,13 +44,6 @@ void UDFAbility_Rogue_SmokeScreen::ActivateAbility(
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
-	if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (ASC->GetOwner() && ASC->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(ASC);
-		}
-	}
 	const TObjectPtr<UAnimMontage> M = ThrowMontage ? ThrowMontage : AbilityMontage;
 	if (M)
 	{

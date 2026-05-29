@@ -121,6 +121,13 @@ AActor* UDFMeleeAimComponent::TryGetPlayerLockOnTarget() const
 					return T;
 				}
 			}
+			if (AActor* const Soft = Lock->GetSoftTarget())
+			{
+				if (IsValidMeleeTarget(Soft))
+				{
+					return Soft;
+				}
+			}
 		}
 	}
 	return nullptr;

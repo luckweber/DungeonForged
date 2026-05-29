@@ -8,6 +8,11 @@
 
 void UDFAssetLoaderSubsystem::PreloadFloorAssets(const int32 FloorNumber)
 {
+	if (LoadedFloorNumber != INDEX_NONE && LoadedFloorNumber != FloorNumber)
+	{
+		UnloadPreviousFloorAssets();
+	}
+
 	FDFDungeonFloorRow Row;
 	bool bHasRow = false;
 	UDataTable* FloorTable = DungeonFloorTable;
@@ -60,6 +65,7 @@ void UDFAssetLoaderSubsystem::PreloadFloorAssets(const int32 FloorNumber)
 
 	if (!bHasRow || !EnemyTbl)
 	{
+		OnFloorAssetsReady.Broadcast();
 		return;
 	}
 
@@ -79,6 +85,11 @@ void UDFAssetLoaderSubsystem::PreloadFloorAssets(const int32 FloorNumber)
 		}
 	}
 
+	if (ToLoad.Num() < 1)
+	{
+		OnFloorAssetsReady.Broadcast();
+		return;
+	}
 	if (ActiveFloorLoad.IsValid())
 	{
 		ActiveFloorLoad->CancelHandle();
@@ -86,8 +97,33 @@ void UDFAssetLoaderSubsystem::PreloadFloorAssets(const int32 FloorNumber)
 	}
 	StartAsyncLoad(
 		ToLoad,
-		[]() {},
+		[this, FloorNumber, LoadedPaths = ToLoad]()
+		{
+			ActiveFloorLoad.Reset();
+			LoadedFloorNumber = FloorNumber;
+			LoadedFloorPaths = LoadedPaths;
+			OnFloorAssetsReady.Broadcast();
+		},
 		ActiveFloorLoad);
+}
+
+void UDFAssetLoaderSubsystem::UnloadPreviousFloorAssets()
+{
+	if (ActiveFloorLoad.IsValid())
+	{
+		ActiveFloorLoad->CancelHandle();
+		ActiveFloorLoad.Reset();
+	}
+	if (LoadedFloorPaths.Num() > 0)
+	{
+		FStreamableManager& Sm = UAssetManager::GetStreamableManager();
+		for (const FSoftObjectPath& Path : LoadedFloorPaths)
+		{
+			Sm.Unload(Path);
+		}
+		LoadedFloorPaths.Reset();
+	}
+	LoadedFloorNumber = INDEX_NONE;
 }
 
 void UDFAssetLoaderSubsystem::AddEnemyRowPaths(const FDFEnemyTableRow& Row, TArray<FSoftObjectPath>& OutPaths) const

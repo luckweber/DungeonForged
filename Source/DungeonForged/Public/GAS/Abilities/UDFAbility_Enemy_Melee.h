@@ -163,4 +163,5 @@ protected:
 	bool bHitWindowDone = false;
 	bool bMontageFinishHandled = false;
 	bool bHoldsAttackToken = false;
+	bool bHoldsRangedCastToken = false;
 };

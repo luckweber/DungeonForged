@@ -104,6 +104,13 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Combat|HitReaction", meta = (ClampMin = "0.0"))
 	float KnockbackImpulseFromHit = 1.f;
 
+	/**
+	 * When true and owner has @c UDFStaggerComponent, stagger stun GE is applied only by poise break
+	 * (no duplicate threshold stun from raw damage).
+	 */
+	UPROPERTY(EditAnywhere, Category = "Combat|GAS")
+	bool bDeferStaggerStunToPoiseComponent = true;
+
 	/** Gameplay effect with a duration; typically grants `State.Stunned` for stagger. */
 	UPROPERTY(EditAnywhere, Category = "Combat|GAS")
 	TSubclassOf<UGameplayEffect> StaggerStunGameplayEffect;
@@ -148,6 +155,10 @@ public:
 	UPROPERTY(Transient) TMap<FGameplayTag, TObjectPtr<UNiagaraSystem>> ResolvedDamageSourceHitImpactNiagara;
 	UPROPERTY(Transient) TMap<FName, TObjectPtr<UAnimMontage>> ResolvedBoneHitMontages;
 
+	/** Called by @c UDFStaggerComponent when poise breaks — plays heavy react without re-applying stun GE. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|HitReaction")
+	void OnPoiseStaggerTriggered(AActor* Instigator, float OvershootDamage = 0.f);
+
 	UFUNCTION(BlueprintCallable, Category = "Combat|HitReaction")
 	void OnHitReceived(
 		float DamageAmount,
@@ -180,7 +191,8 @@ protected:
 	/** Streamable handle for the async load kicked off in @c EnsureHitReactionAssetsLoaded. */
 	TSharedPtr<struct FStreamableHandle> HitReactionStreamHandle;
 
-	/** Stagger only for heavy band (Stagger..Knockback) if StaggerStun is set. */
+	bool ShouldDeferStaggerStunToPoise() const;
+	/** Stagger only for legacy threshold path when poise component is absent. */
 	void TryApplyStaggerStun(AActor* InstigatorActor) const;
 
 	UAnimMontage* ResolveHitMontage(

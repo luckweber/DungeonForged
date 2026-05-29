@@ -20,6 +20,11 @@ namespace DFAIKeys
 	inline const FName CombatState = TEXT("CombatState");
 	inline const FName bWasParried = TEXT("bWasParried");
 	inline const FName bCanTelegraph = TEXT("bCanTelegraph");
+	inline const FName LastKnownTargetLocation = TEXT("LastKnownTargetLocation");
+	inline const FName bHasLastKnownTarget = TEXT("bHasLastKnownTarget");
+	inline const FName bPrefersRangedCombat = TEXT("bPrefersRangedCombat");
+	inline const FName bBossMinionGuarding = TEXT("bBossMinionGuarding");
+	inline const FName BossOwnerActor = TEXT("BossOwnerActor");
 }
 
 UENUM(BlueprintType)
@@ -30,6 +35,7 @@ enum class EADFAICombatState : uint8
 	Chase  UMETA(DisplayName = "Chase"),
 	Attack UMETA(DisplayName = "Attack"),
 	Flee   UMETA(DisplayName = "Flee"),
+	Investigate UMETA(DisplayName = "Investigate"),
 	Recover UMETA(DisplayName = "Recover")
 };
 
@@ -41,12 +47,16 @@ enum class EADFAICombatState : uint8
  *   - Sequence (Chase + Attack)
  *         [Decorator: Blackboard: TargetActor IsSet]  (or custom HasTarget)
  *     - Service: UDFBTService_UpdateTarget (0.2s)
+ *     - Service: UDFBTService_TelegraphCoordinator (0.3s) — owns @c bCanTelegraph
+ *     - Service: UDFBTService_BossMinionBehavior (0.25s) — boss adds only
  *     - Service: UDFBTService_CheckHealth (0.5s)
  *     - Selector
+ *         - [Blackboard: bBossMinionGuarding] -> UDFBTTask_BossMinionGuard
  *         - [UDFBTDecorator_IsInRange: MeleeRange]  -> UDFBTTask_MeleeAttack
  *         - [UDFBTDecorator_IsInRange: RangedRange]  -> UDFBTTask_RangedAttack
  *         - BTTask_MoveTo (TargetActor) or MoveTo (TargetActor)
  *     - (Optional) When CombatState==Flee: UDFBTTask_FleeFromPlayer
+ *     - (Optional) When CombatState==Investigate: UDFBTTask_InvestigateLastKnown
  *   - Sequence (Patrol)
  *     - UDFBTTask_FindPatrolPoint
  *     - BTTask_MoveTo (TargetLocation)

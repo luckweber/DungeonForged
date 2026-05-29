@@ -105,6 +105,7 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Ability_Boss_VoidBarrier;
 	static FGameplayTag Ability_Boss_PhaseTransitionSlam;
 	static FGameplayTag Ability_Boss_EnragePulse;
+	static FGameplayTag Ability_Boss_SummonMinions;
 	static FGameplayTag Ability_Cooldown_Boss_TerrorShout;
 	static FGameplayTag Ability_Cooldown_Boss_MeteorStrike;
 	static FGameplayTag Ability_Cooldown_Boss_VoidBarrier;
@@ -143,6 +144,20 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	/** Instant GE cue: enemy death montage (replicated cosmetic). */
 	static FGameplayTag GameplayCue_Enemy_Death;
 
+	/** Combat impact cues (map from @c Impact.* via @c UDFGameplayCueRegistry). */
+	static FGameplayTag GameplayCue_Combat_Impact_Light;
+	static FGameplayTag GameplayCue_Combat_Impact_Heavy;
+	static FGameplayTag GameplayCue_Combat_Impact_Critical;
+	static FGameplayTag GameplayCue_Combat_Impact_Knockback;
+	static FGameplayTag GameplayCue_Combat_Block;
+	static FGameplayTag GameplayCue_Combat_Parry;
+
+	/** Elemental reaction cues (Melt / Steam / Electrocute / table-driven). */
+	static FGameplayTag GameplayCue_Element_Reaction_Melt;
+	static FGameplayTag GameplayCue_Element_Reaction_Steam;
+	static FGameplayTag GameplayCue_Element_Reaction_Electrocute;
+	static FGameplayTag GameplayCue_Element_Reaction_Generic;
+
 	//~ State
 	static FGameplayTag State_Dead;
 	static FGameplayTag State_Stunned;
@@ -160,6 +175,9 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag State_AirDashing;
 	static FGameplayTag State_Landing;
 	static FGameplayTag State_Attacking;
+	static FGameplayTag State_Attacking_Aerial;
+	static FGameplayTag State_Aerial_ComboActive;
+	static FGameplayTag State_Launching;
 	static FGameplayTag State_Casting;
 	/** Telegraph windup is active on an attacker (enemy). UI reads this to show "danger" indicators. */
 	static FGameplayTag State_Combat_Telegraph_Active;
@@ -180,6 +198,8 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag State_BossEnraged;
 	/** Set on minions spawned by a boss encounter. */
 	static FGameplayTag State_Spawned_Boss;
+	static FGameplayTag State_Spawned_Boss_Guard;
+	static FGameplayTag State_Spawned_Boss_Exploder;
 	static FGameplayTag State_BossVulnerable;
 	static FGameplayTag State_Invisible;
 	static FGameplayTag State_Stealthed;
@@ -286,11 +306,13 @@ struct DUNGEONFORGED_API FDFGameplayTags
 	static FGameplayTag Combat_Move_LightCombo_Step2;
 	static FGameplayTag Combat_Move_LightCombo_Step3;
 	static FGameplayTag Combat_Move_HeavyAttack;
+	static FGameplayTag Combat_Move_AerialCombo;
 	static FGameplayTag Combat_Move_Parry;
 	static FGameplayTag Combat_Move_Dodge_Flawless;
 	static FGameplayTag Combat_Target_LowHealth;
 	static FGameplayTag State_Crouching;
 	static FGameplayTag State_Staggered;
+	static FGameplayTag State_Juggled;
 
 	//~ Damage source (melee typing for hit reactions / GE dynamic tags)
 	static FGameplayTag Damage_Source;

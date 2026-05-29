@@ -6,6 +6,7 @@
 #include "Characters/ADFPlayerCharacter.h"
 #include "CollisionQueryParams.h"
 #include "Combat/ADFKnifeProjectile.h"
+#include "Combat/UDFProjectilePoolLibrary.h"
 #include "Combat/UDFComboPointsComponent.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
@@ -58,13 +59,6 @@ void UDFAbility_Rogue_FanOfKnives::ActivateAbility(
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
-	}
-	if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (ASC->GetOwner() && ASC->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(ASC);
-		}
 	}
 	const TObjectPtr<UAnimMontage> M = FanMontage ? FanMontage : AbilityMontage;
 	if (!M)
@@ -130,15 +124,16 @@ void UDFAbility_Rogue_FanOfKnives::SpawnKnives()
 	{
 		const float Yaw = (360.f * static_cast<float>(I) / FMath::Max(1, N)) + FMath::FRandRange(-8.f, 8.f);
 		const FRotator Dir(0.f, Yaw, 0.f);
-		FActorSpawnParameters P;
-		P.Instigator = C;
-		P.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
-		ADFKnifeProjectile* K = GetWorld()->SpawnActor<ADFKnifeProjectile>(KnifeClass, C->GetActorLocation() + FVector(0, 0, 40.f), Dir, P);
-		if (K)
+		const FTransform KnifeTransform(Dir, C->GetActorLocation() + FVector(0, 0, 40.f));
+		if (AActor* const Spawned = UDFProjectilePoolLibrary::AcquireProjectile(this, KnifeClass, KnifeTransform, C, C))
 		{
-			K->FlightSpeed = 2800.f;
-			K->PhysicalHitDamage = Phys;
-			K->PoisonMagnitude = Poi;
+			if (ADFKnifeProjectile* const K = Cast<ADFKnifeProjectile>(Spawned))
+			{
+				K->FlightSpeed = 2800.f;
+				K->PhysicalHitDamage = Phys;
+				K->PoisonMagnitude = Poi;
+				K->OnAcquiredFromPool();
+			}
 		}
 	}
 	if (Combo)

@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/Combat/UDFHitReactionComponent.cpp
 #include "Combat/UDFHitReactionComponent.h"
+#include "Combat/UDFStaggerComponent.h"
 #include "Animation/UDFAnimInstance_Enemy.h"
 #include "AI/DFAIKeys.h"
 #include "AIController.h"
@@ -8,6 +9,7 @@
 #include "Characters/ADFPlayerCharacter.h"
 #include "DungeonForgedModule.h"
 #include "Engine/Engine.h"
+#include "FX/UDFCombatFeedbackLibrary.h"
 #include "FX/UDFCombatFeedbackTypes.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
@@ -163,14 +165,20 @@ void UDFHitReactionComponent::OnHitReceived(
 	Dir.Z = 0.f;
 	Dir.Normalize();
 
-	const bool bIsKnockback = DamageAmount >= KnockbackThreshold;
+	const bool bHasKnockbackMag = KnockbackMagnitude > KINDA_SMALL_NUMBER;
+	const bool bIsKnockback = bHasKnockbackMag
+		? KnockbackMagnitude >= KnockbackThreshold
+		: DamageAmount >= KnockbackThreshold;
 	if (ACharacter* C = Cast<ACharacter>(GetOwner()))
 	{
 		if (UCharacterMovementComponent* CMC = C->GetCharacterMovement())
 		{
 			if (bIsKnockback)
 			{
-				const FVector Impulse = Dir * (KnockbackMagnitude * KnockbackImpulseFromHit);
+				const float ImpulseScale = bHasKnockbackMag
+					? KnockbackMagnitude
+					: (DamageAmount * KnockbackImpulseFromHit);
+				const FVector Impulse = Dir * ImpulseScale;
 				CMC->AddImpulse(Impulse, true);
 			}
 		}
@@ -181,7 +189,7 @@ void UDFHitReactionComponent::OnHitReceived(
 		PlayHitReaction(ReactionMontage, 1.f);
 	}
 
-	if (StaggerStunGameplayEffect && (!bIsKnockback) && (DamageAmount >= StaggerThreshold))
+	if (!bIsKnockback && DamageAmount >= StaggerThreshold && !ShouldDeferStaggerStunToPoise())
 	{
 		TryApplyStaggerStun(Instigator);
 	}
@@ -265,6 +273,14 @@ void UDFHitReactionComponent::OnHitReceived(
 						Cts->SpawnTextString(
 							VfxPos + FVector(0.f, 0.f, 40.f), TEXT("BLOCK"), ECombatTextType::Block);
 					}
+					UDFCombatFeedbackLibrary::ExecuteCombatFeedbackCue(
+						this,
+						FDFGameplayTags::GameplayCue_Combat_Block,
+						GetOwner(),
+						Instigator,
+						VfxPos,
+						bUseImpact ? HitNormal : FVector::UpVector,
+						FDFGameplayTags::Impact_Light_Blunt);
 				}
 			}
 		}
@@ -409,6 +425,38 @@ UAnimMontage* UDFHitReactionComponent::ResolveHitMontage(
 		return ResolvedHeavyHitMontage ? ResolvedHeavyHitMontage.Get() : ResolvedLightHitMontage.Get();
 	}
 	return ResolvedLightHitMontage;
+}
+
+bool UDFHitReactionComponent::ShouldDeferStaggerStunToPoise() const
+{
+	if (!bDeferStaggerStunToPoiseComponent || !StaggerStunGameplayEffect)
+	{
+		return false;
+	}
+	return GetOwner() && GetOwner()->FindComponentByClass<UDFStaggerComponent>() != nullptr;
+}
+
+void UDFHitReactionComponent::OnPoiseStaggerTriggered(AActor* const Instigator, const float OvershootDamage)
+{
+	(void)OvershootDamage;
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+	FVector Dir = FVector::ForwardVector;
+	if (Instigator)
+	{
+		Dir = GetOwner()->GetActorLocation() - Instigator->GetActorLocation();
+		Dir.Z = 0.f;
+		if (!Dir.Normalize())
+		{
+			Dir = FVector::ForwardVector;
+		}
+	}
+	if (UAnimMontage* const Montage = ResolveHitMontage(StaggerThreshold + 1.f, false, Dir, Instigator, FGameplayTag(), NAME_None))
+	{
+		PlayHitReaction(Montage, 1.f);
+	}
 }
 
 void UDFHitReactionComponent::TryApplyStaggerStun(AActor* const InstigatorActor) const

@@ -1,5 +1,7 @@
 // Source/DungeonForged/Private/Combat/UDFComboComponent.cpp
 #include "Combat/UDFComboComponent.h"
+#include "Combat/DFComboDirectionalTypes.h"
+#include "Combat/DFDodgeTypes.h"
 #include "Abilities/GameplayAbility.h"
 #include "AbilitySystemGlobals.h"
 #include "AbilitySystemInterface.h"
@@ -70,6 +72,9 @@ void UDFComboComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME_CONDITION(UDFComboComponent, LockedComboActivationStep, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(UDFComboComponent, bComboHeavyFinisherPending, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(UDFComboComponent, CurrentComboStep, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UDFComboComponent, bAerialComboActive, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UDFComboComponent, AerialJuggleHitCount, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UDFComboComponent, AuthorityComboVariantIndex, COND_OwnerOnly);
 }
 
 bool UDFComboComponent::IsInputBufferExpired(const float ExpireGameTime) const
@@ -198,11 +203,13 @@ bool UDFComboComponent::IsInCancelWindow() const
 
 bool UDFComboComponent::HasAerialContinuation() const
 {
-	// Only preserve combo across takeoff when aerial assets exist AND combo is mid-chain
-	// (CurrentStep > 0 or a window/buffer is active). Avoids holding stale state on every jump.
 	if (AerialComboSteps.Num() <= 0)
 	{
 		return false;
+	}
+	if (bAerialComboActive)
+	{
+		return true;
 	}
 	if (CurrentComboStep > 0 || bComboWindowActive || bComboInputBuffered || bSwingInputBuffered)
 	{
@@ -213,6 +220,175 @@ bool UDFComboComponent::HasAerialContinuation() const
 		return true;
 	}
 	return false;
+}
+
+bool UDFComboComponent::ShouldUseAerialComboSteps() const
+{
+	if (AerialComboSteps.Num() <= 0)
+	{
+		return false;
+	}
+	if (bAerialComboActive)
+	{
+		return true;
+	}
+	return IsOwnerAirborne() && HasAerialContinuation();
+}
+
+void UDFComboComponent::SyncAerialComboTags(const bool bActive)
+{
+	ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(GetOwner());
+	UAbilitySystemComponent* const ASC = PC ? PC->GetAbilitySystemComponent() : nullptr;
+	if (!ASC)
+	{
+		return;
+	}
+	if (FDFGameplayTags::State_Aerial_ComboActive.IsValid())
+	{
+		if (bActive)
+		{
+			ASC->AddLooseGameplayTag(FDFGameplayTags::State_Aerial_ComboActive);
+		}
+		else
+		{
+			ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Aerial_ComboActive);
+		}
+	}
+}
+
+void UDFComboComponent::ExitAerialComboMode()
+{
+	bAerialComboActive = false;
+	AerialJuggleHitCount = 0;
+	SyncAerialComboTags(false);
+	if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(GetOwner()))
+	{
+		if (UAbilitySystemComponent* const ASC = PC->GetAbilitySystemComponent())
+		{
+			if (FDFGameplayTags::State_Attacking_Aerial.IsValid())
+			{
+				ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Attacking_Aerial);
+			}
+			if (FDFGameplayTags::State_Launching.IsValid())
+			{
+				ASC->RemoveLooseGameplayTag(FDFGameplayTags::State_Launching);
+			}
+		}
+	}
+}
+
+void UDFComboComponent::EnterAerialComboMode()
+{
+	if (AerialComboSteps.Num() <= 0)
+	{
+		return;
+	}
+	bAerialComboActive = true;
+	AerialJuggleHitCount = 0;
+	CurrentComboStep = 0;
+	LockedComboActivationStep = -1;
+	PendingComboActivationStep = -1;
+	bComboHeavyFinisherPending = false;
+	SyncAerialComboTags(true);
+	if (UWorld* const W = GetWorld())
+	{
+		W->GetTimerManager().ClearTimer(DeferredResetTimer);
+	}
+}
+
+void UDFComboComponent::NotifyAerialJuggleHit()
+{
+	if (!bAerialComboActive)
+	{
+		return;
+	}
+	++AerialJuggleHitCount;
+	if (MaxAerialJuggleHits > 0 && AerialJuggleHitCount >= MaxAerialJuggleHits)
+	{
+		bComboWindowActive = false;
+		if (UWorld* const W = GetWorld())
+		{
+			W->GetTimerManager().ClearTimer(ComboWindowTimer);
+		}
+	}
+}
+
+void UDFComboComponent::OnOwnerLanded()
+{
+	if (!bAerialComboActive)
+	{
+		return;
+	}
+	if (bPlayingComboMontage)
+	{
+		bAerialComboActive = false;
+		SyncAerialComboTags(false);
+		RequestDeferredReset(AerialComboLandResetGrace);
+		return;
+	}
+	ExitAerialComboMode();
+	RequestDeferredReset(AerialComboLandResetGrace);
+}
+
+void UDFComboComponent::ApplyAerialComboStepData(const TArray<FDFComboStep>& Steps)
+{
+	AerialComboSteps = Steps;
+}
+
+void UDFComboComponent::SetDirectionalComboMontagesFromData(const TArray<FDFComboDirectionalMontageSet>& Sets)
+{
+	ResolvedDirectionalComboMontages.Reset(Sets.Num());
+	for (const FDFComboDirectionalMontageSet& Set : Sets)
+	{
+		FDFComboDirectionalMontageCache Cache;
+		DFBuildComboDirectionalCache(Set, Cache);
+		ResolvedDirectionalComboMontages.Add(Cache);
+	}
+}
+
+EDFDodgeDirection UDFComboComponent::ResolveComboInputDirection() const
+{
+	const AActor* const Owner = GetOwner();
+	const ACharacter* const Char = Cast<ACharacter>(Owner);
+	if (!Char)
+	{
+		return EDFDodgeDirection::Forward;
+	}
+	const UCharacterMovementComponent* const CMC = Char->GetCharacterMovement();
+	const FVector LocalInput = DFResolveLocalMovementIntent(Char, CMC, DirectionalInputThreshold);
+	if (LocalInput.SizeSquared2D() < DirectionalInputThreshold * DirectionalInputThreshold)
+	{
+		return EDFDodgeDirection::Forward;
+	}
+	return DFSnapLocalInputToDodgeDirection(LocalInput);
+}
+
+UAnimMontage* UDFComboComponent::ResolveLegacyDirectionalMontage(
+	const int32 Step, const EDFDodgeDirection Dir) const
+{
+	switch (Dir)
+	{
+	case EDFDodgeDirection::Backward:
+	case EDFDodgeDirection::BackwardLeft:
+	case EDFDodgeDirection::BackwardRight:
+		if (ResolvedBackwardComboMontages.IsValidIndex(Step) && ResolvedBackwardComboMontages[Step])
+		{
+			return ResolvedBackwardComboMontages[Step].Get();
+		}
+		break;
+	case EDFDodgeDirection::Left:
+	case EDFDodgeDirection::Right:
+	case EDFDodgeDirection::ForwardLeft:
+	case EDFDodgeDirection::ForwardRight:
+		if (ResolvedSideComboMontages.IsValidIndex(Step) && ResolvedSideComboMontages[Step])
+		{
+			return ResolvedSideComboMontages[Step].Get();
+		}
+		break;
+	default:
+		break;
+	}
+	return ResolvedComboMontages.IsValidIndex(Step) ? ResolvedComboMontages[Step].Get() : nullptr;
 }
 
 void UDFComboComponent::CancelCurrentMontage()
@@ -350,8 +526,7 @@ bool UDFComboComponent::IsOwnerAirborne() const
 
 bool UDFComboComponent::GetActiveComboStep(const int32 Step, FDFComboStep& OutStep) const
 {
-	const TArray<FDFComboStep>& Steps =
-		(IsOwnerAirborne() && AerialComboSteps.Num() > 0) ? AerialComboSteps : ComboSteps;
+	const TArray<FDFComboStep>& Steps = ShouldUseAerialComboSteps() ? AerialComboSteps : ComboSteps;
 	if (!Steps.IsValidIndex(Step))
 	{
 		return false;
@@ -360,11 +535,24 @@ bool UDFComboComponent::GetActiveComboStep(const int32 Step, FDFComboStep& OutSt
 	return true;
 }
 
-UAnimMontage* UDFComboComponent::PickComboVariant(const TArray<FDFComboVariant>& Variants) const
+UAnimMontage* UDFComboComponent::PickComboVariant(TArray<FDFComboVariant> const& Variants) const
 {
 	if (Variants.Num() == 0)
 	{
 		return nullptr;
+	}
+
+	if (!GetOwner()->HasAuthority() && AuthorityComboVariantIndex >= 0 && Variants.IsValidIndex(AuthorityComboVariantIndex))
+	{
+		auto GetLoadedEarly = [](const TSoftObjectPtr<UAnimMontage>& Soft) -> UAnimMontage*
+		{
+			if (UAnimMontage* const M = Soft.Get())
+			{
+				return M;
+			}
+			return Soft.IsNull() ? nullptr : Soft.LoadSynchronous();
+		};
+		return GetLoadedEarly(Variants[AuthorityComboVariantIndex].Montage);
 	}
 
 	const AActor* const Owner = GetOwner();
@@ -437,16 +625,37 @@ UAnimMontage* UDFComboComponent::PickComboVariant(const TArray<FDFComboVariant>&
 		}
 		return nullptr;
 	}
-	float Roll = FMath::FRand() * WeightSum;
+	const int32 StepKey = LockedComboActivationStep >= 0 ? LockedComboActivationStep : CurrentComboStep;
+	uint32 VariantHash = HashCombine(GetTypeHash(GetOwner()), GetTypeHash(StepKey));
+	VariantHash = HashCombine(VariantHash, GetTypeHash(Variants.Num()));
+	const FRandomStream VariantStream(static_cast<int32>(VariantHash));
+	float Roll = VariantStream.FRand() * WeightSum;
 	for (const int32 Idx : EligibleIdx)
 	{
 		Roll -= Variants[Idx].Weight;
 		if (Roll <= 0.f)
 		{
+			if (GetOwner()->HasAuthority())
+			{
+				AuthorityComboVariantIndex = Idx;
+			}
 			return GetLoaded(Variants[Idx].Montage);
 		}
 	}
+	if (GetOwner()->HasAuthority() && EligibleIdx.Num() > 0)
+	{
+		AuthorityComboVariantIndex = EligibleIdx.Last();
+	}
 	return GetLoaded(Variants[EligibleIdx.Last()].Montage);
+}
+
+void UDFComboComponent::OnRep_AuthorityComboVariantIndex()
+{
+}
+
+void UDFComboComponent::ClearAuthorityComboVariantIndex()
+{
+	AuthorityComboVariantIndex = -1;
 }
 
 UAnimMontage* UDFComboComponent::ResolveStepMontageFromData(const FDFComboStep& StepData) const
@@ -655,12 +864,14 @@ void UDFComboComponent::TickComponent(const float DeltaTime, ELevelTick TickType
 
 int32 UDFComboComponent::GetEffectiveMaxComboSteps() const
 {
-	const int32 MontageCount = ComboSteps.Num() > 0 ? ComboSteps.Num() : ComboMontages.Num();
-	if (MontageCount <= 0)
+	const int32 StepTableCount = ShouldUseAerialComboSteps()
+		? AerialComboSteps.Num()
+		: (ComboSteps.Num() > 0 ? ComboSteps.Num() : ComboMontages.Num());
+	if (StepTableCount <= 0)
 	{
 		return MaxComboSteps;
 	}
-	return FMath::Min(MaxComboSteps, MontageCount);
+	return FMath::Min(MaxComboSteps, StepTableCount);
 }
 
 bool UDFComboComponent::ShouldBypassMeleeAbilityCooldown() const
@@ -785,6 +996,8 @@ void UDFComboComponent::ApplyCombatTuningFromDataAsset()
 	HeavyStaminaCost = Tuning->HeavyStaminaCost;
 	HeavyTraceRadiusBonus = Tuning->HeavyTraceRadiusBonus;
 	AttackInputBufferDuration = Tuning->AttackInputBufferDuration;
+	MaxAerialJuggleHits = Tuning->MaxAerialJuggleHits;
+	AerialComboLandResetGrace = Tuning->AerialComboLandResetGrace;
 }
 
 void UDFComboComponent::StartChargeWindupMontage()
@@ -1172,7 +1385,7 @@ void UDFComboComponent::LogPrimaryMeleeActivateFailure(
 		if (const UDFGameplayAbility* const DFAbility = Cast<UDFGameplayAbility>(TargetSpec->Ability))
 		{
 			BaseCooldown = DFAbility->BaseCooldown;
-			StaminaCost = DFAbility->AbilityCost_Stamina;
+			StaminaCost = DFAbility->GetAbilityStaminaCost();
 			if (const FGameplayTagContainer* const CooldownTags = DFAbility->GetCooldownTags())
 			{
 				if (CooldownTags->Num() > 0 && ASC->HasAnyMatchingGameplayTags(*CooldownTags))
@@ -1331,6 +1544,19 @@ void UDFComboComponent::NotifyAbilitySwingMontageStarted(UAnimMontage* Montage)
 	if (MeleeTrace)
 	{
 		MeleeTrace->ScheduleAuthorityTraceWindowsFromMontage(Montage, 1.f);
+	}
+	if (ShouldUseAerialComboSteps())
+	{
+		if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(GetOwner()))
+		{
+			if (UAbilitySystemComponent* const ASC = PC->GetAbilitySystemComponent())
+			{
+				if (FDFGameplayTags::State_Attacking_Aerial.IsValid())
+				{
+					ASC->AddLooseGameplayTag(FDFGameplayTags::State_Attacking_Aerial);
+				}
+			}
+		}
 	}
 #if !UE_BUILD_SHIPPING
 	if (DFCombatDebug::IsChannelEnabled(DFCombatDebug::EChannel::Combo))
@@ -1553,6 +1779,8 @@ void UDFComboComponent::OnComboWindowTimerExpired()
 
 void UDFComboComponent::ResetCombo()
 {
+	ClearAuthorityComboVariantIndex();
+	ExitAerialComboMode();
 	if (UWorld* W = GetWorld())
 	{
 		W->GetTimerManager().ClearTimer(ComboWindowTimer);
@@ -1864,8 +2092,7 @@ UAnimMontage* UDFComboComponent::ResolveActiveHeavyMontage() const
 
 UAnimMontage* UDFComboComponent::ResolveDirectionalComboMontage(const int32 Step) const
 {
-	const TArray<FDFComboStep>& ActiveSteps =
-		(IsOwnerAirborne() && AerialComboSteps.Num() > 0) ? AerialComboSteps : ComboSteps;
+	const TArray<FDFComboStep>& ActiveSteps = ShouldUseAerialComboSteps() ? AerialComboSteps : ComboSteps;
 	if (ActiveSteps.IsValidIndex(Step))
 	{
 		if (UAnimMontage* const Resolved = ResolveStepMontageFromData(ActiveSteps[Step]))
@@ -1874,48 +2101,22 @@ UAnimMontage* UDFComboComponent::ResolveDirectionalComboMontage(const int32 Step
 		}
 	}
 
-	const AActor* const Owner = GetOwner();
-	if (!Owner)
+	const EDFDodgeDirection Dir = ResolveComboInputDirection();
+	if (bUseEightWayDirectionalCombo
+		&& ResolvedDirectionalComboMontages.IsValidIndex(Step)
+		&& ResolvedDirectionalComboMontages[Step].IsConfigured())
 	{
-		return ResolvedComboMontages.IsValidIndex(Step) ? ResolvedComboMontages[Step].Get() : nullptr;
-	}
-
-	FVector LocalInput = FVector::ZeroVector;
-	if (const ACharacter* const Char = Cast<ACharacter>(Owner))
-	{
-		if (const UCharacterMovementComponent* const CMC = Char->GetCharacterMovement())
+		if (UAnimMontage* const EightWay = ResolvedDirectionalComboMontages[Step].ResolveWithFallback(Dir))
 		{
-			LocalInput = Char->GetActorTransform().InverseTransformVectorNoScale(CMC->GetLastInputVector());
-		}
-	}
-	if (LocalInput.SizeSquared2D() < DirectionalInputThreshold * DirectionalInputThreshold)
-	{
-		const FVector WorldVel = Owner->GetVelocity();
-		if (WorldVel.SizeSquared2D() >= DirectionalInputThreshold * DirectionalInputThreshold)
-		{
-			LocalInput = Owner->GetActorTransform().InverseTransformVectorNoScale(WorldVel);
+			return EightWay;
 		}
 	}
 
-	if (LocalInput.SizeSquared2D() < DirectionalInputThreshold * DirectionalInputThreshold)
+	if (UAnimMontage* const Legacy = ResolveLegacyDirectionalMontage(Step, Dir))
 	{
-		return ResolvedComboMontages.IsValidIndex(Step) ? ResolvedComboMontages[Step].Get() : nullptr;
+		return Legacy;
 	}
-	const float Threshold = DirectionalInputThreshold;
-	if (LocalInput.X < -Threshold)
-	{
-		if (ResolvedBackwardComboMontages.IsValidIndex(Step) && ResolvedBackwardComboMontages[Step])
-		{
-			return ResolvedBackwardComboMontages[Step].Get();
-		}
-	}
-	else if (FMath::Abs(LocalInput.Y) > Threshold && FMath::Abs(LocalInput.Y) > FMath::Abs(LocalInput.X))
-	{
-		if (ResolvedSideComboMontages.IsValidIndex(Step) && ResolvedSideComboMontages[Step])
-		{
-			return ResolvedSideComboMontages[Step].Get();
-		}
-	}
+
 	return ResolvedComboMontages.IsValidIndex(Step) ? ResolvedComboMontages[Step].Get() : nullptr;
 }
 
@@ -2286,6 +2487,15 @@ void UDFComboComponent::DrawCombatDebug() const
 				bComboWindowActive ? TEXT("OPEN") : TEXT("-"),
 				WindowRemain,
 				bComboInputBuffered ? TEXT("Y") : TEXT("n")));
+		if (bAerialComboActive || AerialComboSteps.Num() > 0)
+		{
+			DrawLine(FColor::Magenta,
+				FString::Printf(TEXT("  aerial active=%s hits=%d/%d table=%d"),
+					bAerialComboActive ? TEXT("Y") : TEXT("n"),
+					AerialJuggleHitCount,
+					MaxAerialJuggleHits,
+					AerialComboSteps.Num()));
+		}
 		if (LastComboWindowOpenWorldTime >= 0.f)
 		{
 			DrawLine(FColor::Green,

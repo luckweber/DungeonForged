@@ -223,3 +223,27 @@ void ADFNexusHUD::OnNotificationChainStep()
 	bNotificationShowing = false;
 	DequeueAndShowNextNotification();
 }
+
+void ADFNexusHUD::ShowArrivalBanner(const FText& Title, const FText& Body, const float DisplaySeconds)
+{
+	if (GetNetMode() == NM_DedicatedServer || !PlayerOwner || !UnlockNotificationClass)
+	{
+		return;
+	}
+	if (UDFNexusUnlockNotificationWidget* const Widget =
+			CreateWidget<UDFNexusUnlockNotificationWidget>(PlayerOwner, UnlockNotificationClass))
+	{
+		Widget->SetUnlockContent(Title, Body, nullptr);
+		UOverlay* const Tray = RootWidget ? RootWidget->GetNotificationOverlay() : nullptr;
+		if (Tray)
+		{
+			RootWidget->SetNotificationTrayVisible(true);
+			Tray->AddChildToOverlay(Widget);
+		}
+		else
+		{
+			Widget->AddToViewport(30);
+		}
+		Widget->PlayShowThenHide(FMath::Max(1.f, DisplaySeconds));
+	}
+}

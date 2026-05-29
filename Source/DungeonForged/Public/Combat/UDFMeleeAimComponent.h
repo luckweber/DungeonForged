@@ -14,9 +14,10 @@ class APawn;
  *
  * Priority chain:
  *   1. Hard lock-on (player only, via `UDFLockOnComponent::GetCurrentTarget`).
- *   2. Manual override (set per-attack, e.g. by AI BT or by an ability).
- *   3. Blackboard `TargetActor` (for AI pawns).
- *   4. Forward cone soft-search (sphere overlap + cone scoring) — used when none of the above.
+ *   2. Soft lock-on (player only, via `UDFLockOnComponent::GetSoftTarget` when unlocked).
+ *   3. Manual override (set per-attack, e.g. by AI BT or by an ability).
+ *   4. Blackboard `TargetActor` (for AI pawns).
+ *   5. Forward cone soft-search (sphere overlap + cone scoring) — used when none of the above.
  *
  * Pair with @c UANS_DFMeleeWarp on the attack montage so the windup can rotate/translate
  * toward the chosen target via Motion Warping (and as a safety, snap-rotate the actor's yaw

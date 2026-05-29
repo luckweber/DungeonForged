@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/GAS/Abilities/Boss/DFBossAbilityCommons.cpp
 #include "GAS/Abilities/Boss/DFBossAbilityCommons.h"
+#include "AI/UDFAILibrary.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/Effects/UGE_Debuff_Stun.h"
 #include "AbilitySystemBlueprintLibrary.h"
@@ -9,7 +10,11 @@
 #include "GameFramework/Controller.h"
 #include "GameplayEffect.h"
 #include "GameplayEffectTypes.h"
-#include "Kismet/GameplayStatics.h"
+
+namespace
+{
+constexpr float BossHostileSearchRadiusCm = 12000.f;
+} // namespace
 
 ACharacter* DFBossAbilityCommons::GetFirstPlayerCharacter(UWorld* const World, AActor* const Ignore)
 {
@@ -17,17 +22,8 @@ ACharacter* DFBossAbilityCommons::GetFirstPlayerCharacter(UWorld* const World, A
 	{
 		return nullptr;
 	}
-	if (APlayerController* const PC = UGameplayStatics::GetPlayerController(World, 0))
-	{
-		if (ACharacter* const C = Cast<ACharacter>(PC->GetPawn()))
-		{
-			if (C != Ignore)
-			{
-				return C;
-			}
-		}
-	}
-	return nullptr;
+	const FVector Origin = Ignore ? Ignore->GetActorLocation() : FVector::ZeroVector;
+	return UDFAILibrary::FindNearestHostilePlayerCharacter(World, Origin, BossHostileSearchRadiusCm, Ignore, nullptr);
 }
 
 void DFBossAbilityCommons::ApplySetCallerCooldown(

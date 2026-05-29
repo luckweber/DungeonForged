@@ -1,11 +1,46 @@
 // Source/DungeonForged/Private/GAS/DFDamageCalculation.cpp
 #include "GAS/DFDamageCalculation.h"
 #include "GAS/DFGameplayTags.h"
+#include "GAS/Elemental/UDFElementalLibrary.h"
+#include "GAS/Elemental/UDFElementalReactionSubsystem.h"
 #include "GAS/UDFAttributeSet.h"
 #include "AbilitySystemComponent.h"
+#include "Engine/World.h"
 #include "GameplayEffect.h"
 #include "GameplayEffectTypes.h"
 #include "GameplayTagContainer.h"
+
+namespace
+{
+	/** Deterministic 0..1 roll from instigator/target/damage key so server and predicting clients agree. */
+	float CombatProcRoll(
+		const FGameplayEffectSpec& Spec,
+		const UAbilitySystemComponent* SourceASC,
+		const UAbilitySystemComponent* TargetASC,
+		const uint8 Salt)
+	{
+		uint32 Hash = Salt;
+		if (const AActor* Src = SourceASC ? SourceASC->GetAvatarActor() : nullptr)
+		{
+			Hash = HashCombine(Hash, GetTypeHash(Src));
+		}
+		if (const AActor* Tgt = TargetASC ? TargetASC->GetAvatarActor() : nullptr)
+		{
+			Hash = HashCombine(Hash, GetTypeHash(Tgt));
+		}
+		const FGameplayTag DataDamageTag = FDFGameplayTags::ResolveDataDamageTag();
+		const float DmgKey = DataDamageTag.IsValid()
+			? Spec.GetSetByCallerMagnitude(DataDamageTag, false, 0.f)
+			: 0.f;
+		Hash = HashCombine(Hash, GetTypeHash(FMath::RoundToInt(DmgKey * 100.f)));
+		if (const UObject* SO = Spec.GetEffectContext().GetSourceObject())
+		{
+			Hash = HashCombine(Hash, GetTypeHash(SO));
+		}
+		const FRandomStream Stream(static_cast<int32>(Hash));
+		return Stream.FRand();
+	}
+}
 
 UDFDamageCalculation::UDFDamageCalculation()
 	: UGameplayEffectExecutionCalculation()
@@ -34,6 +69,7 @@ void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExe
 	FGameplayEffectCustomExecutionOutput& OutExecutionOutput) const
 {
 	const UAbilitySystemComponent* const TargetASC = ExecutionParams.GetTargetAbilitySystemComponent();
+	const UAbilitySystemComponent* const SourceASC = ExecutionParams.GetSourceAbilitySystemComponent();
 	if (!TargetASC)
 	{
 		return;
@@ -79,15 +115,34 @@ void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExe
 	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(BlockChanceCapture, EvalParams, Block);
 
 	const float DodgeEff = FMath::Clamp(Dodge, 0.f, 0.75f);
-	if (DodgeEff > KINDA_SMALL_NUMBER && FMath::FRand() < DodgeEff)
+	if (DodgeEff > KINDA_SMALL_NUMBER && CombatProcRoll(Spec, SourceASC, TargetASC, 1) < DodgeEff)
 	{
 		return;
 	}
 
 	const FGameplayTag DataDamageTag = FDFGameplayTags::ResolveDataDamageTag();
-	const float SetByCallerBase = DataDamageTag.IsValid()
+	float SetByCallerBase = DataDamageTag.IsValid()
 		? Spec.GetSetByCallerMagnitude(DataDamageTag, false, 0.f)
 		: 0.f;
+
+	const EDFElementType AttackElement = UDFElementalLibrary::ResolveElementFromEffectSpec(Spec);
+	if (AttackElement != EDFElementType::None)
+	{
+		AActor* TargetActor = TargetASC->GetAvatarActor();
+		AActor* Instigator = Spec.GetEffectContext().GetInstigator();
+		if (!Instigator && SourceASC)
+		{
+			Instigator = SourceASC->GetAvatarActor();
+		}
+		if (UWorld* const World = TargetASC->GetWorld())
+		{
+			if (UDFElementalReactionSubsystem* const ElemSub = World->GetSubsystem<UDFElementalReactionSubsystem>())
+			{
+				SetByCallerBase = ElemSub->ScaleBaseDamageWithElement(
+					SetByCallerBase, AttackElement, TargetActor, Instigator);
+			}
+		}
+	}
 
 	static const FGameplayTagContainer GEmpty;
 	const FGameplayTagContainer& AssetTags = Spec.Def ? Spec.Def->GetAssetTags() : GEmpty;
@@ -126,7 +181,7 @@ void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExe
 
 	const float CritRaw = FMath::Clamp(CritChance, 0.f, 1.f);
 	const float CritEffective = CritRaw <= 0.5f ? CritRaw : 0.5f + (CritRaw - 0.5f) * 0.6f;
-	const bool bCrit = FMath::FRand() < FMath::Clamp(CritEffective, 0.f, 0.75f);
+	const bool bCrit = CombatProcRoll(Spec, SourceASC, TargetASC, 2) < FMath::Clamp(CritEffective, 0.f, 0.75f);
 	if (bCrit)
 	{
 		PreMitigation *= FMath::Max(1.f, CritMult);
@@ -136,7 +191,11 @@ void UDFDamageCalculation::Execute_Implementation(const FGameplayEffectCustomExe
 	{
 		MutSpec.SetSetByCallerMagnitude(FDFGameplayTags::Data_CriticalHit, bCrit ? 1.f : 0.f);
 	}
+	if (bCrit && FDFGameplayTags::Effect_Critical.IsValid())
+	{
+		MutSpec.AddDynamicAssetTag(FDFGameplayTags::Effect_Critical);
+	}
 
-	OutExecutionOutput.AddOutputModifier(FGameplayModifierEvaluatedData(UDFAttributeSet::GetHealthAttribute(),
-		EGameplayModOp::Additive, -PreMitigation));
+	OutExecutionOutput.AddOutputModifier(FGameplayModifierEvaluatedData(UDFAttributeSet::GetIncomingDamageAttribute(),
+		EGameplayModOp::Additive, PreMitigation));
 }

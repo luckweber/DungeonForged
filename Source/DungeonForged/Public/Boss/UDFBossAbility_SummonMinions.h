@@ -2,6 +2,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Boss/UDFBossMinionComponent.h"
 #include "GAS/UDFGameplayAbility.h"
 #include "UDFBossAbility_SummonMinions.generated.h"
 
@@ -26,6 +27,9 @@ protected:
 
 	virtual void PostInitProperties() override;
 
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Boss|Summon", meta = (ClampMin = "1"))
+	int32 MaxLivingMinions = 6;
+
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Boss|Summon")
 	TSubclassOf<ADFEnemyBase> MinionClass;
 
@@ -37,6 +41,16 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Boss|Summon")
 	FName MinionRowName = NAME_None;
+
+	/** Role per spawn index; cycles when the array is shorter than socket count. */
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Boss|Summon")
+	TArray<EDFBossMinionRole> MinionSpawnRoles = {
+		EDFBossMinionRole::Guard,
+		EDFBossMinionRole::Exploder,
+		EDFBossMinionRole::Guard,
+		EDFBossMinionRole::Guard,
+		EDFBossMinionRole::Exploder,
+		EDFBossMinionRole::Guard};
 
 	UFUNCTION()
 	void OnSummonMontageCompleted();

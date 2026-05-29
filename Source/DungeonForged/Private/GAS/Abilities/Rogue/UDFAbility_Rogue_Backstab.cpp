@@ -84,13 +84,6 @@ void UDFAbility_Rogue_Backstab::ActivateAbility(
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
-	if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (ASC->GetOwner() && ASC->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(ASC);
-		}
-	}
 	LastGCD = FPlatformTime::Seconds();
 	const TObjectPtr<UAnimMontage> M = BackstabMontage ? BackstabMontage : AbilityMontage;
 	if (!M)

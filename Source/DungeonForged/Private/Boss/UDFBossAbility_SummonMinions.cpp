@@ -1,7 +1,9 @@
 // Source/DungeonForged/Private/Boss/UDFBossAbility_SummonMinions.cpp
 #include "Boss/UDFBossAbility_SummonMinions.h"
 #include "Boss/ADFBossBase.h"
+#include "Boss/UDFBossMinionComponent.h"
 #include "Characters/ADFEnemyBase.h"
+#include "Combat/UDFCombatDirectorSubsystem.h"
 #include "GAS/DFGameplayTags.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Engine/World.h"
@@ -19,7 +21,7 @@ void UDFBossAbility_SummonMinions::PostInitProperties()
 	Super::PostInitProperties();
 	if (HasAnyFlags(RF_ClassDefaultObject))
 	{
-		AbilityTags.AddTag(FDFGameplayTags::Ability_Ice_Blizzard);
+		AbilityTags.AddTag(FDFGameplayTags::Ability_Boss_SummonMinions);
 	}
 }
 
@@ -48,13 +50,23 @@ void UDFBossAbility_SummonMinions::ActivateAbility(const FGameplayAbilitySpecHan
 		return;
 	}
 
-	const int32 Cap = 6;
+	const int32 Cap = FMath::Max(1, MaxLivingMinions);
+	UDFCombatDirectorSubsystem* const Director = W->GetSubsystem<UDFCombatDirectorSubsystem>();
+	int32 SpawnIndex = 0;
 	for (const FName& Sock : SpawnSocketNames)
 	{
 		if (Boss->GetLivingMinionCount() >= Cap)
 		{
 			break;
 		}
+		if (Director && !Director->CanSpawnBossMinion())
+		{
+			break;
+		}
+		const EDFBossMinionRole Role = MinionSpawnRoles.IsValidIndex(SpawnIndex)
+			? MinionSpawnRoles[SpawnIndex]
+			: EDFBossMinionRole::Guard;
+		++SpawnIndex;
 		FVector Loc = Ch->GetActorLocation();
 		FRotator Rot = Ch->GetActorRotation();
 		if (Sk->DoesSocketExist(Sock))
@@ -76,7 +88,7 @@ void UDFBossAbility_SummonMinions::ActivateAbility(const FGameplayAbilitySpecHan
 		{
 			S->InitializeFromDataTable(MinionDataTable, MinionRowName);
 		}
-		Boss->RegisterSpawnedMinion(S);
+		Boss->RegisterSpawnedMinion(S, Role);
 	}
 
 	if (AbilityMontage)

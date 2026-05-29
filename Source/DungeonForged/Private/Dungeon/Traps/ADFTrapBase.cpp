@@ -2,6 +2,7 @@
 #include "Dungeon/Traps/ADFTrapBase.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "GAS/DFGameplayTags.h"
+#include "GAS/Elemental/UDFElementalLibrary.h"
 #include "GameplayEffect.h"
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
@@ -244,7 +245,7 @@ void ADFTrapBase::TryApplyTrapEffect(AActor* Target, AActor* InstigatorPawn) con
 	const FGameplayEffectSpecHandle S = TrapAbilitySystem->MakeOutgoingSpec(TrapEffect, 1.f, Cx);
 	if (S.IsValid() && S.Data)
 	{
-		TrapAbilitySystem->ApplyGameplayEffectSpecToTarget(*S.Data, TASC);
+		UDFElementalLibrary::ApplyOutgoingDamageSpecToTarget(TrapAbilitySystem, TASC, *S.Data);
 	}
 }
 
@@ -273,7 +274,7 @@ void ADFTrapBase::ApplyDamageGE(
 	{
 		S.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Damage, DamageAmount);
 	}
-	TrapAbilitySystem->ApplyGameplayEffectSpecToTarget(*S.Data, TASC);
+	UDFElementalLibrary::ApplyOutgoingDamageSpecToTarget(TrapAbilitySystem, TASC, *S.Data);
 }
 
 void ADFTrapBase::ApplyEffectWithMagnitude(
@@ -311,7 +312,7 @@ void ADFTrapBase::ApplyEffectWithMagnitude(
 			S.Data->SetSetByCallerMagnitude(Du, FMath::Max(0.f, OptionalDuration));
 		}
 	}
-	TrapAbilitySystem->ApplyGameplayEffectSpecToTarget(*S.Data, TASC);
+	UDFElementalLibrary::ApplyOutgoingDamageSpecToTarget(TrapAbilitySystem, TASC, *S.Data);
 }
 
 void ADFTrapBase::TelegraphActivation_Implementation(AActor* /*InstigatorActor*/)

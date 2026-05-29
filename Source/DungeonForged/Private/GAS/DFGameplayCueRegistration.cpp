@@ -2,8 +2,11 @@
 #include "GAS/DFGameplayCueRegistration.h"
 
 #include "AbilitySystemGlobals.h"
+#include "GAS/Cues/UDFGameplayCueNotify_CombatImpact.h"
 #include "GAS/Cues/UDFGameplayCueNotify_EnemyDeath.h"
+#include "GAS/Cues/UDFGameplayCueNotify_ElementReaction.h"
 #include "GAS/DFGameplayTags.h"
+#include "GAS/UDFGameplayCueRegistry.h"
 #include "GameplayCueManager.h"
 #include "GameplayCueSet.h"
 
@@ -17,7 +20,8 @@ static void RegisterNativeCues()
 	{
 		return;
 	}
-	if (!FDFGameplayTags::GameplayCue_Enemy_Death.IsValid())
+	if (!FDFGameplayTags::GameplayCue_Enemy_Death.IsValid()
+		&& !FDFGameplayTags::GameplayCue_Combat_Impact_Light.IsValid())
 	{
 		return;
 	}
@@ -40,26 +44,48 @@ static void RegisterNativeCues()
 		return;
 	}
 
-	const FGameplayTag DeathCueTag = FDFGameplayTags::GameplayCue_Enemy_Death;
-	for (const FGameplayCueNotifyData& Existing : CueSet->GameplayCueData)
+	const TSubclassOf<UGameplayCueNotify_Static> DeathClass = UDFGameplayCueNotify_EnemyDeath::StaticClass();
+	const TSubclassOf<UGameplayCueNotify_Static> CombatClass = UDFGameplayCueNotify_CombatImpact::StaticClass();
+	const TSubclassOf<UGameplayCueNotify_Static> ElementClass = UDFGameplayCueNotify_ElementReaction::StaticClass();
+	auto HasNativeCue = [CueSet](const FGameplayTag& Tag, const UClass* const Class) -> bool
 	{
-		if (Existing.GameplayCueTag == DeathCueTag
-			&& Existing.LoadedGameplayCueClass == UDFGameplayCueNotify_EnemyDeath::StaticClass())
+		for (const FGameplayCueNotifyData& Existing : CueSet->GameplayCueData)
 		{
-			GRegisteredNativeCues = true;
-			return;
+			if (Existing.GameplayCueTag == Tag && Existing.LoadedGameplayCueClass == Class)
+			{
+				return true;
+			}
 		}
-	}
+		return false;
+	};
 
 	TArray<FGameplayCueReferencePair> Refs;
-	Refs.Emplace(DeathCueTag, FSoftObjectPath(UDFGameplayCueNotify_EnemyDeath::StaticClass()));
-	CueSet->AddCues(Refs);
+	const FGameplayTag DeathCueTag = FDFGameplayTags::GameplayCue_Enemy_Death;
+	if (DeathCueTag.IsValid() && !HasNativeCue(DeathCueTag, DeathClass))
+	{
+		Refs.Emplace(DeathCueTag, FSoftObjectPath(DeathClass));
+	}
+	if (FDFGameplayTags::GameplayCue_Combat_Impact_Light.IsValid()
+		&& !HasNativeCue(FDFGameplayTags::GameplayCue_Combat_Impact_Light, CombatClass))
+	{
+		UDFGameplayCueRegistry::AppendNativeCombatCueReferences(Refs);
+	}
+	if (FDFGameplayTags::GameplayCue_Element_Reaction_Melt.IsValid()
+		&& !HasNativeCue(FDFGameplayTags::GameplayCue_Element_Reaction_Melt, ElementClass))
+	{
+		UDFGameplayCueRegistry::AppendNativeElementCueReferences(Refs);
+	}
+	if (!Refs.IsEmpty())
+	{
+		CueSet->AddCues(Refs);
+	}
 	GRegisteredNativeCues = true;
 }
 
 void RegisterNativeGameplayCues()
 {
-	if (!FDFGameplayTags::GameplayCue_Enemy_Death.IsValid())
+	if (!FDFGameplayTags::GameplayCue_Enemy_Death.IsValid()
+		|| !FDFGameplayTags::GameplayCue_Combat_Impact_Light.IsValid())
 	{
 		FDFGameplayTags::RegisterGameplayTags();
 	}

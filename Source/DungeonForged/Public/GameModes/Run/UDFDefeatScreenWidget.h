@@ -65,4 +65,12 @@ public:
 	/** Skip the 5s defeat timer and return to Nexus immediately. */
 	UFUNCTION(BlueprintCallable, Category = "Run|UI")
 	void RequestSkipToNexus();
+
+	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Run|UI", meta = (ClampMin = "0.0"))
+	float MinSecondsBeforeSkip = 0.5f;
+
+	UPROPERTY(Transient)
+	float ShownAtSeconds = 0.f;
 };

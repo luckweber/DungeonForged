@@ -8,6 +8,7 @@
 #include "GameplayEffectTypes.h"
 #include "AbilitySystemInterface.h"
 #include "GenericTeamAgentInterface.h"
+#include "FX/UDFCombatFeedbackTypes.h"
 #include "UI/Status/UDFStatusLibrary.h"
 #include "ADFEnemyBase.generated.h"
 
@@ -20,9 +21,13 @@ class UDFAttributeSet;
 class UUserWidget;
 class UWidgetComponent;
 class UDFHitReactionComponent;
+class UDFImpactFramingComponent;
 class UDFElementalComponent;
 class UDFMeleeAimComponent;
 class UDFStaggerComponent;
+class UDFCombatCrowdControlComponent;
+class UDFAIThreatComponent;
+class UDFEnemySignificanceComponent;
 class UMotionWarpingComponent;
 class UBehaviorTree;
 class UGameplayAbility;
@@ -57,6 +62,7 @@ public:
 
 	//~ AActor
 	virtual void PostInitializeComponents() override;
+	virtual void PostInitProperties() override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
@@ -82,6 +88,10 @@ public:
 	UFUNCTION(NetMulticast, Reliable, Category = "DF|Enemy")
 	void Multicast_PlaySpawnBirthMontage(UAnimMontage* Montage);
 
+	/** Client montage rate-scale when this enemy is hit (all machines). */
+	UFUNCTION(NetMulticast, Unreliable, Category = "DF|Enemy|Feel")
+	void Multicast_PlayVictimHitFraming(EDFHitFeedbackBand Band, float MagnitudeFactor);
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GAS")
 	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;
 
@@ -90,6 +100,10 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	TObjectPtr<UDFHitReactionComponent> HitReaction;
+
+	/** Per-montage hit-stop for hit reactions (client-side victim framing). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Feel")
+	TObjectPtr<UDFImpactFramingComponent> ImpactFraming;
 
 	/** Resolves player target and snaps yaw on melee activation (so the swing isn't done with the back to the player). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
@@ -102,6 +116,16 @@ public:
 	/** Poise / sliding-window stagger system. Drives Sekiro-style break reactions on accumulated damage. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	TObjectPtr<UDFStaggerComponent> Stagger;
+
+	/** Unified poise / stagger / hit-react / juggle coordinator (preferred hit pipeline). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+	TObjectPtr<UDFCombatCrowdControlComponent> CrowdControl;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|AI")
+	TObjectPtr<UDFAIThreatComponent> Threat;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Performance")
+	TObjectPtr<UDFEnemySignificanceComponent> Significance;
 
 	/** Data-driven `DT_EnemyElemental` row when `FDFEnemyTableRow::ElementalAffinityRowName` is set. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GAS|Elemental")
@@ -402,6 +426,7 @@ protected:
 	void ApplyMovementConfigFromRow(const FDFEnemyTableRow& Row);
 	void ApplyAIConfigFromRow(const FDFEnemyTableRow& Row);
 	void GrantAbilitiesForRow(const FDFEnemyTableRow& Row);
+	void SyncAIBlackboardFromArchetype();
 
 	/**
 	 * Starts @a CachedAIBehaviorTree on the AI controller if both exist.

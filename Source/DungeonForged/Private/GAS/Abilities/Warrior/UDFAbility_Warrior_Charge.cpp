@@ -100,13 +100,6 @@ void UDFAbility_Warrior_Charge::ActivateAbility(
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
-	if (UAbilitySystemComponent* asc = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (asc->GetOwner() && asc->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(asc);
-		}
-	}
 	bChargeImpactDone = false;
 	ACharacter* const Char = Cast<ACharacter>(GetAvatarActorFromActorInfo());
 	if (!Char || !Char->HasAuthority())

@@ -2,6 +2,7 @@
 #include "GAS/DFAbility_Fireball.h"
 #include "GAS/DFGameplayTags.h"
 #include "Combat/DFFireballProjectile.h"
+#include "Combat/UDFProjectilePoolLibrary.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
 #include "GameFramework/Character.h"
@@ -84,16 +85,8 @@ void UDFAbility_Fireball::OnFireLaunchEvent(FGameplayEventData Payload)
 	const FTransform SocketXform = Sk->DoesSocketExist(MuzzleSocketName)
 		? Sk->GetSocketTransform(MuzzleSocketName, ERelativeTransformSpace::RTS_World)
 		: FTransform(Char->GetActorRotation(), Char->GetActorLocation());
-	FActorSpawnParameters Params;
-	Params.Instigator = Char;
-	Params.Owner = Char;
-	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
-	UWorld* const World = GetWorld();
-	if (!World)
-	{
-		return;
-	}
-	World->SpawnActor<ADFFireballProjectile>(FireballProjectileClass, SocketXform.GetLocation(), SocketXform.Rotator(), Params);
+	const FTransform SpawnTransform(SocketXform.Rotator(), SocketXform.GetLocation());
+	(void)UDFProjectilePoolLibrary::AcquireProjectile(this, FireballProjectileClass, SpawnTransform, Char, Char);
 }
 
 void UDFAbility_Fireball::OnMontageCompleted()

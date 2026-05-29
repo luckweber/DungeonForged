@@ -92,6 +92,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Run|Defeat")
 	void SkipDefeatToNexus();
 
+	/** Clears victory timer and travels to Nexus (any-key / button skip). */
+	UFUNCTION(BlueprintCallable, Category = "Run|Victory")
+	void SkipVictoryToNexus();
+
 protected:
 	UFUNCTION()
 	void HandleDungeonRunCompleted();

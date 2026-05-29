@@ -97,13 +97,6 @@ void UDFAbility_Warrior_WarCry::ActivateAbility(
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
-	if (UAbilitySystemComponent* asc = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (asc->GetOwner() && asc->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(asc);
-		}
-	}
 	const TObjectPtr<UAnimMontage> M = WarCryMontage ? WarCryMontage : AbilityMontage;
 	if (!M)
 	{

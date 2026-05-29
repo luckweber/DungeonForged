@@ -3,13 +3,14 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "FX/UDFCombatFeedbackTypes.h"
 #include "UDFImpactFramingComponent.generated.h"
 
 class UAnimMontage;
 
 /**
- * Per-actor montage rate-scale on confirmed hits. Independent from global hit-stop —
- * gives the attacker a brief "weight pause" without freezing the world.
+ * Per-actor montage rate-scale on confirmed hits (attacker swing or victim hit-react).
+ * Independent from global hit-stop; supports multi-hit by extending the freeze window.
  */
 UCLASS(ClassGroup = (Combat), meta = (BlueprintSpawnableComponent))
 class DUNGEONFORGED_API UDFImpactFramingComponent : public UActorComponent
@@ -43,14 +44,26 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|ImpactFraming")
 	void TriggerCustom(float Duration);
 
+	/** Victim/attacker montage rate-scale for a combat feedback band (client-side). */
+	UFUNCTION(BlueprintCallable, Category = "DF|ImpactFraming")
+	void PlayBand(EDFHitFeedbackBand Band, float MagnitudeFactor = 1.f);
+
+	/** Wall-clock seconds left in the active montage freeze (screen FX sync). */
+	UFUNCTION(BlueprintPure, Category = "DF|ImpactFraming")
+	float GetActiveFreezeRemainingSeconds() const;
+
 protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	void RestoreRate();
 	class UAnimInstance* GetAnimInstance() const;
 
+	void ApplyFreezeToMontage(UAnimMontage* Montage, float Duration, float Rate);
+
 	FTimerHandle RestoreTimer;
 	TWeakObjectPtr<UAnimMontage> FrozenMontage;
 	float PriorRate = 1.f;
+	float ActiveFreezeRate = 1.f;
+	double FreezeEndRealTime = 0.0;
 	bool bRateActive = false;
 };

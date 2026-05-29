@@ -10,6 +10,7 @@ class ADFRunGameState;
 class ADFBossBase;
 class UDFBossHealthBarWidget;
 class UUserWidget;
+class UDFRunHUDRootWidget;
 
 UCLASS(Blueprintable)
 class DUNGEONFORGED_API ADFRunHUD : public ADFHUDBase
@@ -18,6 +19,10 @@ class DUNGEONFORGED_API ADFRunHUD : public ADFHUDBase
 
 public:
 	ADFRunHUD();
+
+	/** Single viewport root; child layers mounted internally. Falls back to legacy multi-root when unset. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|UI")
+	TSubclassOf<UDFRunHUDRootWidget> WBP_RootClass;
 
 	/** 0-9: main HUD. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|UI")
@@ -33,7 +38,8 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|UI")
 	TSubclassOf<UUserWidget> WBP_BossHealthBarClass;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|UI")
+	/** @deprecated Lock-on indicator is spawned by @c UDFLockOnComponent; kept for legacy WBP defaults. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|UI", meta = (DeprecatedProperty))
 	TSubclassOf<UUserWidget> WBP_LockOnIndicatorClass;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|UI")
@@ -41,6 +47,9 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Run|UI")
 	TSubclassOf<UUserWidget> WBP_KillCounterClass;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Run|UI")
+	TObjectPtr<UDFRunHUDRootWidget> WBP_Root;
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Run|UI")
 	TObjectPtr<UUserWidget> WBP_HUD;
@@ -54,7 +63,8 @@ public:
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Run|UI")
 	TObjectPtr<UDFBossHealthBarWidget> WBP_BossHealthBar;
 
-	UPROPERTY(Transient, BlueprintReadOnly, Category = "Run|UI")
+	/** @deprecated Unused — see @c UDFLockOnComponent. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Run|UI", meta = (DeprecatedProperty))
 	TObjectPtr<UUserWidget> WBP_LockOnIndicator;
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Run|UI")

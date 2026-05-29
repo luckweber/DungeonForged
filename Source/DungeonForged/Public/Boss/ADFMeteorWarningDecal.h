@@ -18,6 +18,11 @@ class DUNGEONFORGED_API ADFMeteorWarningDecal : public AActor
 public:
 	ADFMeteorWarningDecal();
 
+	/** Optional tuning after spawn (multicast path). */
+	void ConfigureWarning(float InDecalRadius, float LifeSeconds);
+
+	float GetDecalRadius() const { return DecalRadius; }
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;

@@ -6,6 +6,7 @@
 #include "Combat/DFDodgeDebug.h"
 #include "Combat/DFJumpDebug.h"
 #include "Combat/UDFComboComponent.h"
+#include "Combat/UDFCombatCrowdControlComponent.h"
 #include "DFAssetManager.h"
 #include "Data/UDFCombatTuningData.h"
 #include "GAS/DFGameplayTags.h"
@@ -519,6 +520,18 @@ void UDFCharacterMovementComponent::OnMovementModeChanged(EMovementMode Previous
 		{
 			TimeLastLanded = W->GetTimeSeconds();
 		}
+		if (UDFCombatCrowdControlComponent* const CC =
+			CharacterOwner->FindComponentByClass<UDFCombatCrowdControlComponent>())
+		{
+			CC->OnOwnerLanded();
+		}
+		if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(CharacterOwner))
+		{
+			if (UDFComboComponent* const Combo = PC->Combo)
+			{
+				Combo->OnOwnerLanded();
+			}
+		}
 
 		float LandingRecoveryDuration = DFLandingRecoveryWindow;
 		if (UWorld* const W = GetWorld())
@@ -902,6 +915,8 @@ void FSavedMove_DF::Clear()
 {
 	FSavedMove_Character::Clear();
 	bWantsSprint = false;
+	bIsDodging = false;
+	bAirDashActive = false;
 }
 
 uint8 FSavedMove_DF::GetCompressedFlags() const
@@ -910,6 +925,14 @@ uint8 FSavedMove_DF::GetCompressedFlags() const
 	if (bWantsSprint)
 	{
 		F |= static_cast<uint8>(FSavedMove_Character::FLAG_Custom_0);
+	}
+	if (bIsDodging)
+	{
+		F |= static_cast<uint8>(FSavedMove_Character::FLAG_Custom_1);
+	}
+	if (bAirDashActive)
+	{
+		F |= static_cast<uint8>(FSavedMove_Character::FLAG_Custom_2);
 	}
 	return F;
 }
@@ -926,6 +949,8 @@ void FSavedMove_DF::SetMoveFor(
 		if (const UDFCharacterMovementComponent* const DF = Cast<UDFCharacterMovementComponent>(C->GetCharacterMovement()))
 		{
 			bWantsSprint = DF->bIsSprinting;
+			bIsDodging = DF->bIsDodging;
+			bAirDashActive = DF->IsAirDashDriveActive() || DF->IsAirDashAltitudeLocked();
 		}
 	}
 }
@@ -951,7 +976,9 @@ bool FSavedMove_DF::CanCombineWith(
 	}
 	if (const FSavedMove_DF* const B = static_cast<FSavedMove_DF*>(NewMove.Get()))
 	{
-		return bWantsSprint == B->bWantsSprint;
+		return bWantsSprint == B->bWantsSprint
+			&& bIsDodging == B->bIsDodging
+			&& bAirDashActive == B->bAirDashActive;
 	}
 	return true;
 }

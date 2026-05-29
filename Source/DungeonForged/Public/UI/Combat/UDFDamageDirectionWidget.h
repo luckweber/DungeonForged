@@ -7,7 +7,7 @@
 
 class UImage;
 
-/** Screen-edge damage indicator (4 optional edge images). */
+/** Screen-edge damage indicator — optional 360° radial arrow or 4-way cardinal fallback. */
 UCLASS(Blueprintable)
 class DUNGEONFORGED_API UDFDamageDirectionWidget : public UUserWidget
 {
@@ -19,6 +19,10 @@ public:
 
 protected:
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+
+	/** Optional single arrow rotated toward damage source (360°). */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UImage> Indicator_Radial = nullptr;
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UImage> Indicator_Top = nullptr;
@@ -35,12 +39,22 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "DF|UI|Damage")
 	float PulseFadeOutDuration = 1.1f;
 
-private:
-	void PulseIndicator(UImage* Target, float Intensity);
-	void ClearPulse();
+	UPROPERTY(EditAnywhere, Category = "DF|UI|Damage", meta = (ClampMin = "1", ClampMax = "6"))
+	int32 MaxConcurrentPulses = 4;
 
-	TWeakObjectPtr<UImage> ActiveIndicator;
-	float PulseElapsed = 0.f;
-	float PulseTotalDuration = 0.f;
-	float PulsePeakOpacity = 0.f;
+private:
+	struct FDamagePulseSlot
+	{
+		TWeakObjectPtr<UImage> Image;
+		float Elapsed = 0.f;
+		float TotalDuration = 0.f;
+		float PeakOpacity = 0.f;
+	};
+
+	void StartPulseOnImage(UImage* Target, float Intensity);
+	UImage* ResolveCardinalIndicator(float Dot, float Side) const;
+	void StepPulseSlot(FDamagePulseSlot& Slot, float DeltaTime);
+	void HideImage(UImage* Image) const;
+
+	TArray<FDamagePulseSlot> ActivePulses;
 };

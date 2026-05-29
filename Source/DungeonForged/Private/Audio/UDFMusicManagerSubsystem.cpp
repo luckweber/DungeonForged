@@ -248,7 +248,6 @@ void UDFMusicManagerSubsystem::CrossfadeToStateInternal(const EMusicState Target
 		SetLayerTargetVolumes(1.f, 0.f, 0.f);
 		break;
 	case EMusicState::Combat:
-	case EMusicState::Elite:
 		AssignLoopingSoundIfNeeded(H->MusicLayerBase, SoundExplorationBase, true);
 		AssignLoopingSoundIfNeeded(H->MusicLayerCombat, SoundCombat, true);
 		{
@@ -260,6 +259,14 @@ void UDFMusicManagerSubsystem::CrossfadeToStateInternal(const EMusicState Target
 			}
 			SetLayerTargetVolumes(0.25f, CombatVol, 0.f);
 		}
+		break;
+	case EMusicState::Elite:
+		AssignLoopingSoundIfNeeded(H->MusicLayerBase, SoundExplorationBase, true);
+		AssignLoopingSoundIfNeeded(
+			H->MusicLayerCombat,
+			SoundElite ? SoundElite : SoundCombat,
+			true);
+		SetLayerTargetVolumes(0.12f, 1.f, 0.f);
 		break;
 	case EMusicState::Boss:
 		AssignLoopingSoundIfNeeded(H->MusicLayerBase, SoundExplorationBase, false);
@@ -356,7 +363,7 @@ void UDFMusicManagerSubsystem::TickLayerVolumes()
 		return;
 	}
 	const float Dt = 0.05f;
-	const float S = 5.f; // lerp rate
+	const float S = 1.f / FMath::Max(0.01f, CrossfadeDuration);
 	CBase = FMath::FInterpTo(CBase, TBase, Dt, S);
 	CCombat = FMath::FInterpTo(CCombat, TCombat, Dt, S);
 	CBoss = FMath::FInterpTo(CBoss, TBoss, Dt, S);

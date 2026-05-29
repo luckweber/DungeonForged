@@ -5,6 +5,7 @@
 #include "AlphaBlend.h"
 #include "Components/ActorComponent.h"
 #include "Data/DFDataTableStructs.h"
+#include "Combat/DFComboDirectionalTypes.h"
 #include "GameplayTagContainer.h"
 #include "UDFComboComponent.generated.h"
 
@@ -49,6 +50,15 @@ public:
 	UPROPERTY(ReplicatedUsing = OnRep_LockedComboActivationStep, BlueprintReadOnly, Category = "Combat|Combo")
 	int32 LockedComboActivationStep = -1;
 
+	/** Server-picked index into the variant array for co-op montage parity. */
+	UPROPERTY(ReplicatedUsing = OnRep_AuthorityComboVariantIndex, BlueprintReadOnly, Category = "Combat|Combo")
+	mutable int32 AuthorityComboVariantIndex = -1;
+
+	UFUNCTION()
+	void OnRep_AuthorityComboVariantIndex();
+
+	void ClearAuthorityComboVariantIndex();
+
 	/** @deprecated display / server sync mirror; use @c LockedComboActivationStep for activation. */
 	UPROPERTY(BlueprintReadOnly, Category = "Combat|Combo")
 	int32 PendingComboActivationStep = -1;
@@ -85,9 +95,32 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo")
 	TArray<FDFComboStep> ComboSteps;
 
-	/** Used when @c IsOwnerAirborne() and this array is non-empty. */
+	/** Used when @c ShouldUseAerialComboSteps() and this array is non-empty. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Aerial")
 	TArray<FDFComboStep> AerialComboSteps;
+
+	/** True after a launcher hit until land or combo reset — drives aerial step table + tags. */
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Combat|Combo|Aerial")
+	bool bAerialComboActive = false;
+
+	/** Confirmed aerial hits during the current juggle window (local display / style hooks). */
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Combat|Combo|Aerial")
+	int32 AerialJuggleHitCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Aerial", meta = (ClampMin = "0"))
+	int32 MaxAerialJuggleHits = 5;
+
+	/** Grace after landing before aerial combo counters reset when no montage is playing. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Aerial", meta = (ClampMin = "0.0"))
+	float AerialComboLandResetGrace = 0.25f;
+
+	/** When true, @c ResolveDirectionalComboMontage uses 8-way octant snapping (falls back to 3-way legacy). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Directional")
+	bool bUseEightWayDirectionalCombo = true;
+
+	/** Per-step 8-way montage overrides (populated from DT_Combos / class fallback). */
+	UPROPERTY(Transient)
+	TArray<FDFComboDirectionalMontageCache> ResolvedDirectionalComboMontages;
 
 	/** Loops while primary attack is held before heavy tier commits (optional). Soft to keep CDO light. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Heavy")
@@ -339,6 +372,34 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Aerial")
 	bool IsOwnerAirborne() const;
 
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Aerial")
+	bool IsAerialComboActive() const { return bAerialComboActive; }
+
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Aerial")
+	int32 GetAerialJuggleHitCount() const { return AerialJuggleHitCount; }
+
+	/** Ground vs aerial step table selector. */
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Aerial")
+	bool ShouldUseAerialComboSteps() const;
+
+	/** Called when a launcher step confirms — enters aerial juggle mode. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Aerial")
+	void EnterAerialComboMode();
+
+	/** Increment aerial juggle counter after a confirmed hit while @c bAerialComboActive. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Aerial")
+	void NotifyAerialJuggleHit();
+
+	/** Called from movement when the owner lands. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Aerial")
+	void OnOwnerLanded();
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Aerial")
+	void ApplyAerialComboStepData(const TArray<FDFComboStep>& Steps);
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Directional")
+	void SetDirectionalComboMontagesFromData(const TArray<FDFComboDirectionalMontageSet>& Sets);
+
 	/** Active step data (aerial vs grounded). */
 	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
 	bool GetActiveComboStep(int32 Step, FDFComboStep& OutStep) const;
@@ -481,6 +542,10 @@ protected:
 	bool bSwingHitConfirmedThisActivation = false;
 	int32 LastRepLockedComboStep = -1;
 	void ApplyCombatTuningFromDataAsset();
+	void ExitAerialComboMode();
+	void SyncAerialComboTags(bool bActive);
+	EDFDodgeDirection ResolveComboInputDirection() const;
+	UAnimMontage* ResolveLegacyDirectionalMontage(int32 Step, EDFDodgeDirection Dir) const;
 	void BufferComboInputAndTryAdvance();
 	void DrawCombatDebug() const;
 	void StartChargeWindupMontage();
