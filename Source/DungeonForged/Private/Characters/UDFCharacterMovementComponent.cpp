@@ -30,12 +30,30 @@ UDFCharacterMovementComponent::UDFCharacterMovementComponent(const FObjectInitia
 	JumpZVelocity = DFJumpZVelocity;
 	AirControl = DFAirControl;
 	GravityScale = DFGravityScale;
+
+	// ── Locomotion stop glide ────────────────────────────────────────────
+	// UE's default braking (GroundFriction 8 × BrakingFrictionFactor 2 = friction 16) stops the
+	// capsule in ~6 cm — far short of the ~202 cm the Stop animations (root-motion, distance-matched)
+	// are authored to cover. The result is a hard, animation-less "brusco" stop. Use a pure, separate
+	// braking deceleration so the capsule glides the authored distance and the Stop clip actually
+	// plays with planted feet. Tune via WalkStopBrakingDeceleration.
+	bUseSeparateBrakingFriction = true;
+	BrakingFriction = 0.f;
+	BrakingDecelerationWalking = WalkStopBrakingDeceleration;
 }
 
 void UDFCharacterMovementComponent::BeginPlay()
 {
 	Super::BeginPlay();
 	ApplyJumpTuningFromDataAsset();
+
+	// Re-assert the locomotion stop-glide braking after Blueprint/DataAsset class defaults are
+	// applied (the constructor runs before them, so an edited WalkStopBrakingDeceleration would
+	// otherwise be ignored). This is also the value the landing brake restores back to.
+	bUseSeparateBrakingFriction = true;
+	BrakingFriction = 0.f;
+	BrakingDecelerationWalking = WalkStopBrakingDeceleration;
+	NormalBrakingDecelerationWalking = WalkStopBrakingDeceleration;
 }
 
 void UDFCharacterMovementComponent::ClearLooseGameplayTagAll(UAbilitySystemComponent* const ASC, const FGameplayTag& Tag) const

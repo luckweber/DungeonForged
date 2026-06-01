@@ -200,6 +200,12 @@ public:
 	/** One-line locomotion / blend space state for df.LockOnDebug. */
 	FString BuildLocomotionDebugString() const;
 
+	/** Multi-line 8-way Start/Loop/Stop locomotion state for df.LocomotionDebug / dump. */
+	FString BuildDirectionalLocomotionDebugString() const;
+
+	/** Extra lines: CMC caps, stride scale, loop anim Distance/RM (df.LocomotionDebug 4). */
+	FString BuildDirectionalLocomotionDeepDebugString() const;
+
 	/** Multi-line jump SM transition debug for df.JumpDebug 3 / dump. */
 	FString BuildJumpTransitionDebugString() const;
 
@@ -352,6 +358,14 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
 	EDFMovementDirection LocomotionStopDirection = EDFMovementDirection::Forward;
 
+	/** Gait frozen when Idle→Start fired (used by Get Locomotion Start Anim). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	EDFGait LocomotionStartGait = EDFGait::Idle;
+
+	/** Gait frozen when Loop→Stop begins (used by Get Locomotion Stop Anim). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	EDFGait LocomotionStopGait = EDFGait::Idle;
+
 	/** Current gait (Idle/Walk/Run/Sprint) based on speed thresholds. */
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
 	EDFGait Gait = EDFGait::Idle;
@@ -368,13 +382,17 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
 	bool bTransition_StartToLoop = false;
 
-	/** Edge: true when input released and still moving. */
+	/** True while decelerating after input release (sustained until stop distance consumed or re-accelerate). */
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
 	bool bTransition_LoopToStop = false;
 
 	/** Edge: true when Stop finished and speed ~= 0. */
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
 	bool bTransition_StopToIdle = false;
+
+	/** True when input returns during Stop — wire Stop → Start (or Start/Loop) in the layer SM. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	bool bTransition_StopToMove = false;
 
 	/** Cached time since Start was triggered (for fallback Start→Loop). */
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
@@ -392,9 +410,9 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Directional|Tuning", meta = (ClampMin = "0.0"))
 	float IdleSpeedDeadband = 5.f;
 
-	/** Max time spent in Start before forcing Start→Loop (safety cap). */
+	/** Max time spent in Start before forcing Start→Loop (safety cap). Match authored Start length (~0.83s for Run_Start_F_0). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Directional|Tuning", meta = (ClampMin = "0.0"))
-	float StartMaxPlayTime = 0.45f;
+	float StartMaxPlayTime = 0.80f;
 
 	// ── Distance Matching ──
 	/** Distance accumulated since the last Idle→Start (0 while stopped). Feed into Distance Matching node. */
@@ -405,14 +423,81 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|DistanceMatching")
 	float DistanceMatchingStartSpeed = 0.f;
 
+	/** XY distance traveled this frame (cm). Feed Advance Time by Distance Matching on Start (Sequence Evaluator). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|DistanceMatching")
+	float DistanceMatchingDelta = 0.f;
+
+	/** Distance remaining until full stop (cm). Feed Distance Match to Target on Stop (Sequence Evaluator). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|DistanceMatching")
+	float DistanceMatchingStopToTarget = 0.f;
+
+	/**
+	 * Seconds into the active Stop sequence (0 → play length). Wire to Sequence Evaluator → Explicit Time
+	 * when the asset has no Distance curve yet, or remove any constant 0 on that pin.
+	 */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|DistanceMatching")
+	float DistanceMatchingStopExplicitTime = 0.f;
+
+	/** True when the resolved Stop anim has a usable baked "Distance" curve (runtime). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|DistanceMatching")
+	bool bActiveStopAnimHasDistanceCurve = false;
+
+	/** Total stop distance on the authored Distance curve (e.g. Run_Stop_F_0: |min curve| ≈ 202). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|DistanceMatching", meta = (ClampMin = "1.0"))
+	float AuthoredStopDistance = 202.f;
+
+	/** When true, sets AuthoredStopDistance from default Run stop Distance curve at init (if curve exists). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|DistanceMatching")
+	bool bAutoTuneAuthoredStopDistanceFromRunStop = true;
+
+	/**
+	 * Once the catch-up is active, drain the remaining StopTarget over this time-constant so the
+	 * Stop clip's explicit time advances at a natural rate instead of crawling. Lower = the Stop
+	 * animation completes faster (snappier settle); higher = slower. ~0.20 plays close to 1x.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|DistanceMatching", meta = (ClampMin = "0.05"))
+	float StopTailCatchUpSeconds = 0.20f;
+
+	/**
+	 * Speed (cm/s) below which the Stop tail catch-up engages. MUST be set high enough to cover the
+	 * deceleration band, otherwise the Stop clip is purely distance-driven while the capsule glides
+	 * slowly and the animation plays in SLOW MOTION (explicit time crawls because little distance is
+	 * consumed per frame). The authored Stop clip front-loads its translation and ends in a long
+	 * low-distance "settle"; with WalkStopBrakingDeceleration the capsule also stops short of the
+	 * clip's full authored distance, so the catch-up is what lets the clip finish on time. Set this
+	 * near the run speed (e.g. ~220 for a 429 run) so catch-up covers the whole settle.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|DistanceMatching", meta = (ClampMin = "0.0"))
+	float StopTailCatchUpSpeedThreshold = 220.f;
+
+	/** |Distance curve| below this (cm) is treated as end-of-motion for Stop playback (skips flat tail). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|DistanceMatching", meta = (ClampMin = "0.5"))
+	float StopCurveNearZeroCm = 8.f;
+
 	// ── Stride Warping ──
 	/** Computed alpha for Stride Warping node (1 = full warp, 0 = none). */
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|StrideWarping")
 	float StrideWarpingAlpha = 0.f;
 
-	/** Authored speed of Loop animations (cm/s) — Stride Warping divides actual / authored. */
+	/** Stride scale (capsule speed / AuthoredLoopSpeed). Feed into the Stride Warping node's Stride Scale pin. 1 = native. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|StrideWarping")
+	float StrideScale = 1.f;
+
+	/** Play-rate multiplier for the Loop sequence player to match capsule cadence. Use INSTEAD of StrideScale, not with it. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|StrideWarping")
+	float LocomotionPlayRate = 1.f;
+
+	/** Mesh component-space movement direction for the Stride Warping node's Stride Direction pin (Manual mode). Defaults to forward (1,0,0). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|StrideWarping")
+	FVector StrideWarpingDirection = FVector(1.f, 0.f, 0.f);
+
+	/** Authored speed of Loop animations (cm/s) — Stride Warping divides actual / authored. Tune to match loop Distance curve (see debug avgSpd~). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|StrideWarping", meta = (ClampMin = "1.0"))
-	float AuthoredLoopSpeed = 400.f;
+	float AuthoredLoopSpeed = 429.f;
+
+	/** When true, sets AuthoredLoopSpeed from default Run loop Distance curve at init (if curve exists). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|StrideWarping")
+	bool bAutoTuneAuthoredLoopSpeedFromRunLoop = true;
 
 	/** Min speed to engage stride warping (avoid warping during deceleration tail). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|StrideWarping", meta = (ClampMin = "0.0"))
@@ -525,6 +610,8 @@ private:
 	void PlayFallLoopSlotAfterAirDash();
 	void StopFallLoopSlotOverlay();
 	void UpdateDirectionalLocomotion(float DeltaSeconds);
+	void TryAutoTuneAuthoredLoopSpeedFromDefaultRunLoop();
+	void TryAutoTuneAuthoredStopDistanceFromDefaultRunStop();
 	void UpdateDistanceMatching(float DeltaSeconds);
 	void UpdateStrideWarping(float DeltaSeconds);
 	void UpdateTurnInPlace(float DeltaSeconds);
@@ -570,11 +657,29 @@ private:
 	float DistanceMatchingAccum = 0.f;        // raw XY distance integrator while moving
 	bool bAimOffsetRequested = false;         // gameplay toggles this
 	bool bWasAcceleratingPreviousFrame = false; // edge detection for Idle↔Start / Loop→Stop
+	bool bWasInLocomotionStopPhasePreviousFrame = false;
+	bool bStopToMoveLatch = false;             // sustained Stop→Start while re-accelerating after Stop
+	bool bInLocomotionStopPhase = false;       // sustained Loop→Stop until stop match consumed or re-accelerate
+	float LocomotionPeakSpeedThisBurst = 0.f;  // max speed while accelerating (stop gait snapshot)
+	float LocomotionStopInitialTarget = 0.f;   // StopTarget at input release (for curve time lookup)
+	float LocomotionStopDistanceConsumed = 0.f;
+	float CachedAuthoredStopPlayLength = 1.5f; // Run_Stop play length for fallback target decay
+	float CachedStopMotionEndTime = 1.2f;    // Time where |Distance| curve nears zero (no slow hold tail)
 
 	void SyncEquippedWeaponAnimLayerFromOwner();
 
+	/** Push 8-way locomotion state from the mesh primary instance to linked layer instances. */
+	void CopyDirectionalLocomotionStateFrom(const UUDFAnimInstance& Source);
+	void SyncDirectionalLocomotionFromPrimaryMesh();
+	void PropagateDirectionalLocomotionToLinkedAnimLayers();
+
 	/** Layer class last applied via LinkAnimClassLayers (from item or manual). */
 	TSubclassOf<UAnimInstance> CachedLinkedWeaponLayerClass;
+
+#if !UE_BUILD_SHIPPING
+	float LocomotionDebugPrevSpeed = 0.f;
+	float LocomotionVerboseLogTimer = 0.f;
+#endif
 
 	/** Item row whose WeaponAnimSet is currently applied to ActiveAnimSet (NAME_None = unarmed default). */
 	FName CachedAnimSetItemRow = NAME_None;

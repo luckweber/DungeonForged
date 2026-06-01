@@ -2,7 +2,9 @@
 #include "Animation/UDFAnimInstance.h"
 
 #include "Combat/DFJumpDebug.h"
+#include "Animation/DFLocomotionDebug.h"
 #include "Animation/UDFLocomotionTypes.h"
+#include "DungeonForgedModule.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "DrawDebugHelpers.h"
@@ -11,6 +13,7 @@
 #include "Characters/ADFPlayerCharacter.h"
 #include "Characters/UDFCharacterMovementComponent.h"
 #include "Animation/AnimSequence.h"
+#include "Animation/AnimSequenceBase.h"
 #include "Animation/AnimSequenceBase.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimEnums.h"
@@ -30,6 +33,66 @@
 #include "Engine/World.h"
 #include "Components/SkeletalMeshComponent.h"
 
+namespace DFLocomotionDistanceCurve
+{
+	static const FName DistanceCurveName(TEXT("Distance"));
+
+	float FindStopSequenceTimeForRemainingDistance(const UAnimSequence* Seq, const float RemainingDistanceCm)
+	{
+		if (!Seq)
+		{
+			return 0.f;
+		}
+		const float PlayLength = Seq->GetPlayLength();
+		if (PlayLength <= KINDA_SMALL_NUMBER || RemainingDistanceCm <= KINDA_SMALL_NUMBER)
+		{
+			return PlayLength;
+		}
+
+		const float TargetCurveValue = -FMath::Abs(RemainingDistanceCm);
+		constexpr int32 Samples = 48;
+		float BestTime = 0.f;
+		float BestError = TNumericLimits<float>::Max();
+		for (int32 Index = 0; Index <= Samples; ++Index)
+		{
+			const float T = PlayLength * static_cast<float>(Index) / static_cast<float>(Samples);
+			const float CurveValue = Seq->EvaluateCurveData(DistanceCurveName, T);
+			const float Error = FMath::Abs(CurveValue - TargetCurveValue);
+			if (Error < BestError)
+			{
+				BestError = Error;
+				BestTime = T;
+			}
+		}
+		return BestTime;
+	}
+
+	/** Last time (s) the Distance curve still has meaningful decel; after this the clip is mostly hold. */
+	float FindStopMotionEndTime(const UAnimSequence* Seq, const float NearZeroCm = 8.f)
+	{
+		if (!Seq)
+		{
+			return 0.f;
+		}
+		const float PlayLength = Seq->GetPlayLength();
+		if (PlayLength <= KINDA_SMALL_NUMBER)
+		{
+			return PlayLength;
+		}
+
+		constexpr int32 Samples = 64;
+		for (int32 Index = Samples; Index >= 0; --Index)
+		{
+			const float T = PlayLength * static_cast<float>(Index) / static_cast<float>(Samples);
+			if (FMath::Abs(Seq->EvaluateCurveData(DistanceCurveName, T)) > NearZeroCm)
+			{
+				return FMath::Min(PlayLength, T + (PlayLength / static_cast<float>(Samples)));
+			}
+		}
+		return PlayLength * 0.85f;
+	}
+}
+
 void UUDFAnimInstance::NativeInitializeAnimation()
 {
 	Super::NativeInitializeAnimation();
@@ -42,6 +105,8 @@ void UUDFAnimInstance::NativeInitializeAnimation()
 	bLastYawInit = false;
 
 	ActiveAnimSet = DefaultAnimSet;
+	TryAutoTuneAuthoredLoopSpeedFromDefaultRunLoop();
+	TryAutoTuneAuthoredStopDistanceFromDefaultRunStop();
 }
 
 void UUDFAnimInstance::ApplyAnimSet(const FUDAnimSet& NewAnimSet)
@@ -49,12 +114,16 @@ void UUDFAnimInstance::ApplyAnimSet(const FUDAnimSet& NewAnimSet)
 	if (NewAnimSet.IsValid())
 	{
 		ActiveAnimSet = NewAnimSet;
+		TryAutoTuneAuthoredLoopSpeedFromDefaultRunLoop();
+		TryAutoTuneAuthoredStopDistanceFromDefaultRunStop();
 	}
 }
 
 void UUDFAnimInstance::RevertToDefaultAnimSet()
 {
 	ActiveAnimSet = DefaultAnimSet;
+	TryAutoTuneAuthoredLoopSpeedFromDefaultRunLoop();
+	TryAutoTuneAuthoredStopDistanceFromDefaultRunStop();
 }
 
 void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
@@ -143,6 +212,7 @@ void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 
 	if (!IsPrimaryMeshAnimInstance())
 	{
+		SyncDirectionalLocomotionFromPrimaryMesh();
 		CalculateLean(DeltaSeconds);
 		CalculateAimOffsets();
 		UpdateFootIK(DeltaSeconds);
@@ -396,6 +466,96 @@ void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 	UpdateFootIK(DeltaSeconds);
 	UpdateFootPlantCurves();
 	SyncEquippedWeaponAnimLayerFromOwner();
+	PropagateDirectionalLocomotionToLinkedAnimLayers();
+
+#if !UE_BUILD_SHIPPING
+	if (GEngine && OwningCharacter && OwningCharacter->IsLocallyControlled())
+	{
+		const bool bPrimary = IsPrimaryMeshAnimInstance();
+		const float SpeedDelta = Speed - LocomotionDebugPrevSpeed;
+		LocomotionDebugPrevSpeed = Speed;
+
+		if (DFLocomotionDebug::IsLogEnabled())
+		{
+			if (DFLocomotionDebug::IsVerboseEnabled() && bPrimary)
+			{
+				const float MaxWS = DFCharacterMovement ? DFCharacterMovement->MaxWalkSpeed : 0.f;
+				UE_LOG(LogDungeonForged, Log,
+					TEXT("[Loco|Main] Spd=%.0f(d%+.0f) MaxWS=%.0f Gait=%d Dir=%d Stride=%.2f | I>S=%d S>L=%d L>P=%d S>M=%d P>I=%d"),
+					Speed, SpeedDelta, MaxWS, static_cast<int32>(Gait), static_cast<int32>(MovementDirection),
+					StrideScale, bTransition_IdleToStart ? 1 : 0, bTransition_StartToLoop ? 1 : 0,
+					bTransition_LoopToStop ? 1 : 0, bTransition_StopToMove ? 1 : 0, bTransition_StopToIdle ? 1 : 0);
+			}
+			else
+			{
+				UE_LOG(LogDungeonForged, Log,
+					TEXT("[Loco|%s] Spd=%.0f Gait=%d Dir=%d Accel=%d | I>S=%d S>L=%d L>P=%d S>M=%d P>I=%d"),
+					bPrimary ? TEXT("Main") : TEXT("Layer"),
+					Speed, static_cast<int32>(Gait), static_cast<int32>(MovementDirection),
+					bIsAccelerating ? 1 : 0, bTransition_IdleToStart ? 1 : 0, bTransition_StartToLoop ? 1 : 0,
+					bTransition_LoopToStop ? 1 : 0, bTransition_StopToMove ? 1 : 0, bTransition_StopToIdle ? 1 : 0);
+			}
+		}
+
+		// Mirror on-screen HUD lines to Output Log (same content, throttled).
+		if (DFLocomotionDebug::IsHudEnabled() && DFLocomotionDebug::IsLogEnabled() && bPrimary)
+		{
+			const float HudLogInterval = DFLocomotionDebug::IsVerboseEnabled() ? 0.25f : 0.5f;
+			LocomotionVerboseLogTimer += DeltaSeconds;
+			if (LocomotionVerboseLogTimer >= HudLogInterval)
+			{
+				LocomotionVerboseLogTimer = 0.f;
+				const FString HudBody = DFLocomotionDebug::IsVerboseEnabled()
+					? (BuildDirectionalLocomotionDebugString() + BuildDirectionalLocomotionDeepDebugString())
+					: BuildDirectionalLocomotionDebugString();
+				TArray<FString> HudLines;
+				HudBody.ParseIntoArrayLines(HudLines);
+				UE_LOG(LogDungeonForged, Log, TEXT("[Loco|HUD] ----------"));
+				for (const FString& Line : HudLines)
+				{
+					if (!Line.IsEmpty())
+					{
+						UE_LOG(LogDungeonForged, Log, TEXT("[Loco|HUD] %s"), *Line);
+					}
+				}
+			}
+		}
+		else if (!DFLocomotionDebug::IsHudEnabled())
+		{
+			LocomotionVerboseLogTimer = 0.f;
+		}
+
+		if (DFLocomotionDebug::IsHudEnabled())
+		{
+			const int32 KeyBase = bPrimary ? 0x200 : 0x220;
+			const FColor Col = bPrimary ? FColor::Green : FColor::Yellow;
+			const int32 MaxHudLines = DFLocomotionDebug::IsVerboseEnabled() ? 24 : 14;
+			TArray<FString> Lines;
+			const FString HudBody = DFLocomotionDebug::IsVerboseEnabled()
+				? (BuildDirectionalLocomotionDebugString() + BuildDirectionalLocomotionDeepDebugString())
+				: BuildDirectionalLocomotionDebugString();
+			HudBody.ParseIntoArrayLines(Lines);
+			for (int32 i = 0; i < Lines.Num() && i < MaxHudLines; ++i)
+			{
+				GEngine->AddOnScreenDebugMessage(KeyBase + i, 0.f, Col, Lines[i]);
+			}
+		}
+		if (DFLocomotionDebug::IsDrawEnabled() && bPrimary)
+		{
+			if (const UWorld* const World = GetWorld())
+			{
+				const FVector Origin = OwningCharacter->GetActorLocation();
+				const FVector Facing = OwningCharacter->GetActorForwardVector();
+				DrawDebugDirectionalArrow(World, Origin, Origin + Facing * 120.f, 30.f, FColor::Blue, false, -1.f, 0, 2.f);
+				if (Velocity.SizeSquared2D() > 1.f)
+				{
+					const FVector VelDir = Velocity.GetSafeNormal2D();
+					DrawDebugDirectionalArrow(World, Origin, Origin + VelDir * 150.f, 36.f, FColor::Green, false, -1.f, 0, 3.f);
+				}
+			}
+		}
+	}
+#endif
 }
 
 void UUDFAnimInstance::SyncEquippedWeaponAnimLayerFromOwner()
@@ -579,6 +739,90 @@ void UUDFAnimInstance::CalculateAimOffsets()
 	AimYaw = FMath::Clamp(Delta.Yaw, -180.f, 180.f);
 }
 
+void UUDFAnimInstance::CopyDirectionalLocomotionStateFrom(const UUDFAnimInstance& Source)
+{
+	MovementDirection = Source.MovementDirection;
+	LocomotionStartDirection = Source.LocomotionStartDirection;
+	LocomotionStopDirection = Source.LocomotionStopDirection;
+	LocomotionStartGait = Source.LocomotionStartGait;
+	LocomotionStopGait = Source.LocomotionStopGait;
+	Gait = Source.Gait;
+	bIsAccelerating = Source.bIsAccelerating;
+	bTransition_IdleToStart = Source.bTransition_IdleToStart;
+	bTransition_StartToLoop = Source.bTransition_StartToLoop;
+	bTransition_LoopToStop = Source.bTransition_LoopToStop;
+	bTransition_StopToIdle = Source.bTransition_StopToIdle;
+	bTransition_StopToMove = Source.bTransition_StopToMove;
+	LocomotionStartElapsed = Source.LocomotionStartElapsed;
+	bWasAcceleratingPreviousFrame = Source.bWasAcceleratingPreviousFrame;
+	bWasInLocomotionStopPhasePreviousFrame = Source.bWasInLocomotionStopPhasePreviousFrame;
+	bStopToMoveLatch = Source.bStopToMoveLatch;
+	bInLocomotionStopPhase = Source.bInLocomotionStopPhase;
+	LocomotionPeakSpeedThisBurst = Source.LocomotionPeakSpeedThisBurst;
+	LocomotionStopInitialTarget = Source.LocomotionStopInitialTarget;
+	LocomotionStopDistanceConsumed = Source.LocomotionStopDistanceConsumed;
+	CachedStopMotionEndTime = Source.CachedStopMotionEndTime;
+	DistanceMatchingDistance = Source.DistanceMatchingDistance;
+	DistanceMatchingStartSpeed = Source.DistanceMatchingStartSpeed;
+	DistanceMatchingDelta = Source.DistanceMatchingDelta;
+	DistanceMatchingStopToTarget = Source.DistanceMatchingStopToTarget;
+	DistanceMatchingStopExplicitTime = Source.DistanceMatchingStopExplicitTime;
+	bActiveStopAnimHasDistanceCurve = Source.bActiveStopAnimHasDistanceCurve;
+	StrideWarpingAlpha = Source.StrideWarpingAlpha;
+	StrideScale = Source.StrideScale;
+	LocomotionPlayRate = Source.LocomotionPlayRate;
+	StrideWarpingDirection = Source.StrideWarpingDirection;
+}
+
+void UUDFAnimInstance::SyncDirectionalLocomotionFromPrimaryMesh()
+{
+	const USkeletalMeshComponent* const Skel = GetSkelMeshComponent();
+	if (!Skel)
+	{
+		return;
+	}
+	const UUDFAnimInstance* const Primary = Cast<UUDFAnimInstance>(Skel->GetAnimInstance());
+	if (!Primary || Primary == this)
+	{
+		return;
+	}
+	CopyDirectionalLocomotionStateFrom(*Primary);
+}
+
+void UUDFAnimInstance::PropagateDirectionalLocomotionToLinkedAnimLayers()
+{
+	if (!IsPrimaryMeshAnimInstance())
+	{
+		return;
+	}
+
+	auto PropagateTo = [this](UAnimInstance* const Inst)
+	{
+		if (!Inst || Inst == this)
+		{
+			return;
+		}
+		if (UUDFAnimInstance* const LayerDF = Cast<UUDFAnimInstance>(Inst))
+		{
+			LayerDF->CopyDirectionalLocomotionStateFrom(*this);
+		}
+	};
+
+	// Matches "Default Shared Group" in Anim Layer Interface (editor label).
+	static const FName DefaultSharedGroup(TEXT("DefaultSharedGroup"));
+	TArray<UAnimInstance*> LinkedByGroup;
+	GetLinkedAnimLayerInstancesByGroup(DefaultSharedGroup, LinkedByGroup);
+	for (UAnimInstance* const Inst : LinkedByGroup)
+	{
+		PropagateTo(Inst);
+	}
+
+	if (CachedLinkedWeaponLayerClass)
+	{
+		PropagateTo(GetLinkedAnimLayerInstanceByClass(CachedLinkedWeaponLayerClass, true));
+	}
+}
+
 void UUDFAnimInstance::UpdateDirectionalLocomotion(const float DeltaSeconds)
 {
 	if (bIsInAir)
@@ -589,6 +833,7 @@ void UUDFAnimInstance::UpdateDirectionalLocomotion(const float DeltaSeconds)
 		bTransition_StartToLoop = false;
 		bTransition_LoopToStop = false;
 		bTransition_StopToIdle = false;
+		bInLocomotionStopPhase = false;
 		return;
 	}
 
@@ -615,52 +860,153 @@ void UUDFAnimInstance::UpdateDirectionalLocomotion(const float DeltaSeconds)
 	const bool bMoving = CurrentSpeed > IdleSpeedDeadband;
 	bIsAccelerating = bHasInput && bMoving;
 
-	// Tracks whether we are mid Start-phase (not yet promoted to Loop).
-	const bool bInStartPhase = LocomotionStartElapsed > 0.f && LocomotionStartElapsed < StartMaxPlayTime;
-
-	// All flags are level-triggered (high while the AnimBP transition condition holds);
-	// AnimBP only consumes the rising edge anyway. NOTE: bTransition_IdleToStart is the
-	// ONLY one fired strictly on the rising edge (snapshot of start direction).
+	// Reset edge flags each frame; recompute below.
 	bTransition_IdleToStart = false;
 	bTransition_StartToLoop = false;
 	bTransition_LoopToStop = false;
 	bTransition_StopToIdle = false;
 
-	// Idle → Start rising edge: input pressed while we were not in Start phase OR fully stopped.
-	const bool bEligibleForRestart = !bInStartPhase && !bWasAcceleratingPreviousFrame;
-	if (bHasInput && bMoving && bEligibleForRestart)
+	// Idle → Start: true rising edge of acceleration, independent of the start-phase timer.
+	// Capturing the snapshot here (and ONLY here) guarantees it fires once per movement,
+	// which also drives the Distance Matching reset (see UpdateDistanceMatching).
+	const bool bStartRisingEdge = bIsAccelerating && !bWasAcceleratingPreviousFrame;
+	if (bStartRisingEdge)
 	{
 		LocomotionStartDirection = MovementDirection;
+		LocomotionStartGait = (Gait > EDFGait::Idle) ? Gait : EDFGait::Walk;
 		LocomotionStartElapsed = 0.f;
+		LocomotionPeakSpeedThisBurst = CurrentSpeed;
+		bInLocomotionStopPhase = false;
 		bTransition_IdleToStart = true;
 	}
 
-	// Tick start-phase timer while we still have input AND have not yet reached Loop.
-	if (bHasInput && (LocomotionStartElapsed > 0.f || bTransition_IdleToStart))
+	if (bIsAccelerating)
 	{
+		LocomotionPeakSpeedThisBurst = FMath::Max(LocomotionPeakSpeedThisBurst, CurrentSpeed);
+	}
+
+	// Start phase: still accelerating and the start timer has not reached the cap.
+	const bool bInStartPhase = bIsAccelerating && LocomotionStartElapsed < StartMaxPlayTime;
+	if (bInStartPhase && !bStartRisingEdge)
+	{
+		// Follow the settling direction and (only-upward) gait so the chosen Start clip matches
+		// where the character is actually going — WITHOUT resetting the timer. Resetting here is
+		// what caused the Start clip to restart mid-acceleration and never reach Loop.
+		LocomotionStartDirection = MovementDirection;
+		if (Gait > LocomotionStartGait)
+		{
+			LocomotionStartGait = Gait;
+		}
+
 		LocomotionStartElapsed += DeltaSeconds;
 		if (LocomotionStartElapsed >= StartMaxPlayTime)
 		{
-			bTransition_StartToLoop = true;
+			LocomotionStartElapsed = StartMaxPlayTime;
 		}
 	}
 
-	// Loop → Stop: input released while still moving. Snapshot direction ONCE on the falling edge.
+	// Start → Loop: level-triggered so the AnimBP can leave Start whenever the cap is reached
+	// (covers the case where the rising-edge frame already advanced past the cap).
+	bTransition_StartToLoop = bIsAccelerating && LocomotionStartElapsed >= StartMaxPlayTime;
+
+	// Loop → Stop: latch on input release (stay true until stop distance consumed or re-accelerate).
 	const bool bJustReleasedInput = !bHasInput && bWasAcceleratingPreviousFrame;
-	if (bJustReleasedInput && bMoving)
+	if (bJustReleasedInput && (bMoving || LocomotionPeakSpeedThisBurst > IdleSpeedDeadband))
 	{
 		LocomotionStopDirection = MovementDirection;
-	}
-	if (!bHasInput && bMoving)
-	{
-		bTransition_LoopToStop = true;
+		const float ReleaseSpeed = FMath::Max(CurrentSpeed, LocomotionPeakSpeedThisBurst);
+		if (ReleaseSpeed >= RunSpeedThreshold)
+		{
+			LocomotionStopGait = bIsSprinting ? EDFGait::Sprint : EDFGait::Run;
+		}
+		else if (ReleaseSpeed >= WalkSpeedThreshold)
+		{
+			LocomotionStopGait = EDFGait::Walk;
+		}
+		else
+		{
+			LocomotionStopGait = EDFGait::Idle;
+		}
+
+		float StopDistanceSpan = AuthoredStopDistance;
+		if (const UAnimSequenceBase* const PendingStopAnim = ActiveAnimSet.ResolveLocomotionStop(
+			LocomotionStopGait, LocomotionStopDirection))
+		{
+			if (const UAnimSequence* const StopSeq = Cast<UAnimSequence>(PendingStopAnim))
+			{
+				static const FName DistanceCurveName(TEXT("Distance"));
+				const float PlayLength = StopSeq->GetPlayLength();
+				const float DistStart = StopSeq->EvaluateCurveData(DistanceCurveName, 0.f);
+				const float DistEnd = StopSeq->EvaluateCurveData(DistanceCurveName, PlayLength);
+				const float Span = FMath::Abs(DistEnd - DistStart);
+				if (Span > 0.5f)
+				{
+					StopDistanceSpan = Span;
+				}
+			}
+		}
+
+		const float RefSpeed = FMath::Max(RunSpeedThreshold, 1.f);
+		const float SpeedRatio = FMath::Clamp(ReleaseSpeed / RefSpeed, 0.f, 1.25f);
+		DistanceMatchingStopToTarget = FMath::Clamp(StopDistanceSpan * SpeedRatio, 40.f, StopDistanceSpan);
+		LocomotionStopInitialTarget = DistanceMatchingStopToTarget;
+		LocomotionStopDistanceConsumed = 0.f;
+		DistanceMatchingStopExplicitTime = 0.f;
+		bInLocomotionStopPhase = true;
 	}
 
-	// Fully stopped: reset Start timer so the next Idle→Start rising edge fires correctly.
+	if (!bIsAccelerating)
+	{
+		bStopToMoveLatch = false;
+	}
+	else if (bWasInLocomotionStopPhasePreviousFrame)
+	{
+		bStopToMoveLatch = true;
+	}
+	bTransition_StopToMove = bStopToMoveLatch;
+	if (bIsAccelerating)
+	{
+		bInLocomotionStopPhase = false;
+		DistanceMatchingStopToTarget = 0.f;
+		DistanceMatchingStopExplicitTime = 0.f;
+		LocomotionStopInitialTarget = 0.f;
+		LocomotionStopDistanceConsumed = 0.f;
+	}
+
+	bTransition_LoopToStop = bInLocomotionStopPhase;
+	bWasInLocomotionStopPhasePreviousFrame = bInLocomotionStopPhase;
+
+	// Fully stopped: end the Stop phase and reset Start state so the next Idle→Start
+	// rising edge fires cleanly.
+	//
+	// The Stop phase MUST end unconditionally here. The distance-matching catch-up
+	// (UpdateDistanceMatching / StopTailCatchUpSeconds) only smooths the visual stop tail
+	// WHILE the capsule is still sliding above IdleSpeedDeadband. Once Speed is inside the
+	// deadband with no input, the character is physically idle: keeping bInLocomotionStopPhase
+	// alive just because the authored Stop distance has not fully drained (which happens
+	// whenever BrakingDecelerationWalking decelerates faster than the Stop clip's Distance
+	// curve — e.g. the hard 4096 brake left over from a landing) holds bTransition_LoopToStop
+	// true at the SAME time as bTransition_StopToIdle. The AnimBP then receives two conflicting
+	// transition edges and deadlocks on the Stop state (df.LocomotionDebug: L>P=1 & P>I=1, Stop
+	// anim frozen at Time=0.77/1.50). Force-clearing makes the two edges mutually exclusive.
 	if (!bMoving && !bHasInput)
 	{
 		bTransition_StopToIdle = true;
+		bTransition_LoopToStop = false;
+		bTransition_StopToMove = false;
+		bInLocomotionStopPhase = false;
+		bStopToMoveLatch = false;
+		bWasInLocomotionStopPhasePreviousFrame = false;
+		// Distance-match target/time are zeroed authoritatively by the
+		// `else if (!bInLocomotionStopPhase)` branch in UpdateDistanceMatching (runs right
+		// after this), so no need to touch the settled Stop pose here.
 		LocomotionStartElapsed = 0.f;
+		LocomotionStartGait = EDFGait::Idle;
+		LocomotionStartDirection = EDFMovementDirection::Forward;
+		LocomotionStopGait = EDFGait::Idle;
+		LocomotionPeakSpeedThisBurst = 0.f;
+		LocomotionStopInitialTarget = 0.f;
+		LocomotionStopDistanceConsumed = 0.f;
 	}
 
 	bWasAcceleratingPreviousFrame = bIsAccelerating;
@@ -673,29 +1019,182 @@ void UUDFAnimInstance::UpdateDistanceMatching(const float DeltaSeconds)
 	{
 		DistanceMatchingAccum = 0.f;
 		DistanceMatchingStartSpeed = Speed;
+		DistanceMatchingStopToTarget = 0.f;
+		DistanceMatchingStopExplicitTime = 0.f;
 	}
 
 	const bool bMoving = Speed > IdleSpeedDeadband;
 	if (bMoving && !bIsInAir)
 	{
-		DistanceMatchingAccum += Speed * DeltaSeconds;
+		DistanceMatchingDelta = Speed * DeltaSeconds;
+		DistanceMatchingAccum += DistanceMatchingDelta;
 	}
-	else if (!bMoving)
+	else
 	{
-		DistanceMatchingAccum = 0.f;
+		DistanceMatchingDelta = 0.f;
+		if (!bMoving)
+		{
+			DistanceMatchingAccum = 0.f;
+		}
 	}
 	DistanceMatchingDistance = DistanceMatchingAccum;
+
+	// Deceleration: shrink remaining stop distance (feed Distance Match to Target / Explicit Time).
+	if (bInLocomotionStopPhase && !bIsInAir)
+	{
+		if (!bWasInLocomotionStopPhasePreviousFrame)
+		{
+			LocomotionStopDistanceConsumed = 0.f;
+			if (LocomotionStopInitialTarget <= KINDA_SMALL_NUMBER && DistanceMatchingStopToTarget > KINDA_SMALL_NUMBER)
+			{
+				LocomotionStopInitialTarget = DistanceMatchingStopToTarget;
+			}
+		}
+
+		const UAnimSequence* StopSeq = Cast<UAnimSequence>(GetLocomotionStopAnim());
+		if (StopSeq)
+		{
+			const float PlayLength = StopSeq->GetPlayLength();
+			const float DistStart = StopSeq->EvaluateCurveData(DFLocomotionDistanceCurve::DistanceCurveName, 0.f);
+			const float DistEnd = StopSeq->EvaluateCurveData(DFLocomotionDistanceCurve::DistanceCurveName, PlayLength);
+			bActiveStopAnimHasDistanceCurve = FMath::Abs(DistEnd - DistStart) > 0.5f;
+			if (PlayLength > KINDA_SMALL_NUMBER)
+			{
+				CachedAuthoredStopPlayLength = PlayLength;
+			}
+			if (bActiveStopAnimHasDistanceCurve)
+			{
+				CachedStopMotionEndTime = DFLocomotionDistanceCurve::FindStopMotionEndTime(StopSeq, StopCurveNearZeroCm);
+			}
+		}
+		else
+		{
+			bActiveStopAnimHasDistanceCurve = false;
+		}
+
+		float Decay = DistanceMatchingDelta;
+		if (Speed < StopTailCatchUpSpeedThreshold && DistanceMatchingStopToTarget > KINDA_SMALL_NUMBER)
+		{
+			const float CatchUpDecay = (DistanceMatchingStopToTarget / FMath::Max(StopTailCatchUpSeconds, 0.05f)) * DeltaSeconds;
+			Decay = FMath::Max(Decay, CatchUpDecay);
+		}
+
+		LocomotionStopDistanceConsumed += Decay;
+		if (LocomotionStopInitialTarget > KINDA_SMALL_NUMBER)
+		{
+			DistanceMatchingStopToTarget = FMath::Max(
+				0.f, LocomotionStopInitialTarget - LocomotionStopDistanceConsumed);
+		}
+		else
+		{
+			DistanceMatchingStopToTarget = FMath::Max(0.f, DistanceMatchingStopToTarget - Decay);
+		}
+
+		if (DistanceMatchingStopToTarget <= KINDA_SMALL_NUMBER)
+		{
+			bInLocomotionStopPhase = false;
+		}
+
+		const float MotionEndTime = (CachedStopMotionEndTime > KINDA_SMALL_NUMBER)
+			? CachedStopMotionEndTime
+			: CachedAuthoredStopPlayLength;
+
+		if (StopSeq && bActiveStopAnimHasDistanceCurve)
+		{
+			const float RawTime = DFLocomotionDistanceCurve::FindStopSequenceTimeForRemainingDistance(
+				StopSeq, DistanceMatchingStopToTarget);
+			DistanceMatchingStopExplicitTime = FMath::Min(RawTime, MotionEndTime);
+
+			if (Speed < StopTailCatchUpSpeedThreshold && DistanceMatchingStopExplicitTime < MotionEndTime)
+			{
+				const float TimeGap = MotionEndTime - DistanceMatchingStopExplicitTime;
+				const float TimeAdvance = (TimeGap / FMath::Max(StopTailCatchUpSeconds, 0.05f)) * DeltaSeconds;
+				DistanceMatchingStopExplicitTime = FMath::Min(
+					MotionEndTime, DistanceMatchingStopExplicitTime + TimeAdvance);
+				const float CurveValue = StopSeq->EvaluateCurveData(
+					DFLocomotionDistanceCurve::DistanceCurveName, DistanceMatchingStopExplicitTime);
+				DistanceMatchingStopToTarget = FMath::Max(0.f, -CurveValue);
+				if (LocomotionStopInitialTarget > KINDA_SMALL_NUMBER)
+				{
+					LocomotionStopDistanceConsumed = FMath::Max(
+						0.f, LocomotionStopInitialTarget - DistanceMatchingStopToTarget);
+				}
+			}
+		}
+		else if (LocomotionStopInitialTarget > KINDA_SMALL_NUMBER && CachedAuthoredStopPlayLength > KINDA_SMALL_NUMBER)
+		{
+			const float Alpha = 1.f - FMath::Clamp(
+				DistanceMatchingStopToTarget / LocomotionStopInitialTarget, 0.f, 1.f);
+			DistanceMatchingStopExplicitTime = FMath::Min(Alpha * CachedAuthoredStopPlayLength, MotionEndTime);
+		}
+
+		// Release to Idle the moment the Stop clip reaches its authored motion end — do NOT wait for
+		// the capsule speed to fall under IdleSpeedDeadband. The catch-up drives the explicit time to
+		// the motion end while the capsule still has a small residual glide (Speed ~50-70 cm/s); if we
+		// kept the Stop state until Speed≈0, the last Stop frame would freeze for ~0.1s, a visible
+		// hitch right before Idle. Once the authored settle is done (and the player is not feeding new
+		// movement input), end the Stop phase and raise Stop→Idle now. The residual glide is tiny
+		// (a few cm) so the Idle pose blends in without noticeable foot sliding.
+		const bool bStopClipFinished = MotionEndTime > KINDA_SMALL_NUMBER
+			&& DistanceMatchingStopExplicitTime >= (MotionEndTime - KINDA_SMALL_NUMBER);
+		const bool bReaccelerating = DFCharacterMovement
+			&& DFCharacterMovement->GetLastInputVector().SizeSquared2D() > 0.01f;
+		if (bStopClipFinished && !bReaccelerating)
+		{
+			bInLocomotionStopPhase = false;
+			bTransition_LoopToStop = false;
+			bTransition_StopToIdle = true;
+		}
+	}
+	else if (!bInLocomotionStopPhase)
+	{
+		DistanceMatchingStopToTarget = 0.f;
+		DistanceMatchingStopExplicitTime = 0.f;
+		bActiveStopAnimHasDistanceCurve = false;
+	}
 }
 
 void UUDFAnimInstance::UpdateStrideWarping(const float DeltaSeconds)
 {
+	// How much the loop must stretch each step so the feet match the capsule:
+	// capsule speed / speed the loop was authored at. 1.0 = native (no warp needed).
+	const float TargetScale = (AuthoredLoopSpeed > KINDA_SMALL_NUMBER) ? (Speed / AuthoredLoopSpeed) : 1.f;
+
+	// Stride Direction (Manual mode): velocity expressed in mesh component space. While not
+	// strafing the character faces velocity so this stays ~(1,0,0); when strafing it points
+	// to the true travel direction. Falls back to forward when nearly stopped.
+	if (const USkeletalMeshComponent* const Skel = GetSkelMeshComponent())
+	{
+		const FVector CompVel = Skel->GetComponentTransform().InverseTransformVectorNoScale(Velocity);
+		const FVector FlatVel(CompVel.X, CompVel.Y, 0.f);
+		if (FlatVel.SizeSquared() > 1.f)
+		{
+			StrideWarpingDirection = FlatVel.GetSafeNormal();
+		}
+	}
+
+	// No stride warp during Stop — avoids half-scale feet (slow-motion look) on the settle.
+	if (bInLocomotionStopPhase)
+	{
+		StrideWarpingAlpha = FMath::FInterpTo(StrideWarpingAlpha, 0.f, DeltaSeconds, 12.f);
+		StrideScale = FMath::FInterpTo(StrideScale, 1.f, DeltaSeconds, 12.f);
+		LocomotionPlayRate = 1.f;
+		return;
+	}
+
 	// Engage stride warping only when moving above the min threshold and grounded.
 	if (bIsInAir || Speed < StrideWarpingMinSpeed || AuthoredLoopSpeed <= KINDA_SMALL_NUMBER)
 	{
 		StrideWarpingAlpha = FMath::FInterpTo(StrideWarpingAlpha, 0.f, DeltaSeconds, 10.f);
+		StrideScale = FMath::FInterpTo(StrideScale, 1.f, DeltaSeconds, 10.f);
+		LocomotionPlayRate = 1.f;
 		return;
 	}
 	StrideWarpingAlpha = FMath::FInterpTo(StrideWarpingAlpha, 1.f, DeltaSeconds, 8.f);
+	StrideScale = FMath::FInterpTo(StrideScale, TargetScale, DeltaSeconds, 8.f);
+	// Alternative to stride warping: drive the loop sequence player's Play Rate instead.
+	// Use ONE of StrideScale (warp) OR LocomotionPlayRate (play rate), never both.
+	LocomotionPlayRate = FMath::Clamp(TargetScale, 0.2f, 3.f);
 }
 
 void UUDFAnimInstance::UpdateTurnInPlace(const float DeltaSeconds)
@@ -762,7 +1261,8 @@ void UUDFAnimInstance::UpdateAimOffsetBlend(const float DeltaSeconds)
 
 UAnimSequenceBase* UUDFAnimInstance::GetLocomotionStartAnim() const
 {
-	return ActiveAnimSet.ResolveLocomotionStart(Gait, LocomotionStartDirection);
+	const EDFGait StartGait = (LocomotionStartGait != EDFGait::Idle) ? LocomotionStartGait : Gait;
+	return ActiveAnimSet.ResolveLocomotionStart(StartGait, LocomotionStartDirection);
 }
 
 UAnimSequenceBase* UUDFAnimInstance::GetLocomotionLoopAnim() const
@@ -772,7 +1272,8 @@ UAnimSequenceBase* UUDFAnimInstance::GetLocomotionLoopAnim() const
 
 UAnimSequenceBase* UUDFAnimInstance::GetLocomotionStopAnim() const
 {
-	return ActiveAnimSet.ResolveLocomotionStop(Gait, LocomotionStopDirection);
+	const EDFGait StopGait = (LocomotionStopGait != EDFGait::Idle) ? LocomotionStopGait : Gait;
+	return ActiveAnimSet.ResolveLocomotionStop(StopGait, LocomotionStopDirection);
 }
 
 void UUDFAnimInstance::DetermineMovementDirection(const bool bUseEightWay)
@@ -1476,11 +1977,133 @@ const TCHAR* LocomotionDirName(const EDFMovementDirection Dir)
 	}
 }
 
+const TCHAR* LocomotionGaitName(const EDFGait Gait)
+{
+	switch (Gait)
+	{
+	case EDFGait::Idle:
+		return TEXT("Idle");
+	case EDFGait::Walk:
+		return TEXT("Walk");
+	case EDFGait::Run:
+		return TEXT("Run");
+	case EDFGait::Sprint:
+		return TEXT("Sprint");
+	default:
+		return TEXT("?");
+	}
+}
+
 static FString BlendSpaceDebugName(const UBlendSpace* const BS)
 {
 	return BS ? BS->GetName() : FString(TEXT("(null)"));
 }
+
+struct FDFLocoAnimSample
+{
+	float PlayLength = 0.f;
+	bool bRootMotion = false;
+	float DistStart = 0.f;
+	float DistEnd = 0.f;
+	float AvgCurveSpeed = 0.f;
+	bool bHasDistanceCurve = false;
+};
+
+static FDFLocoAnimSample SampleLocomotionAnim(const UAnimSequenceBase* const Anim)
+{
+	FDFLocoAnimSample S;
+	if (!Anim)
+	{
+		return S;
+	}
+	S.PlayLength = Anim->GetPlayLength();
+	if (const UAnimSequence* const Seq = Cast<UAnimSequence>(Anim))
+	{
+		S.bRootMotion = Seq->bEnableRootMotion;
+		static const FName DistanceCurveName(TEXT("Distance"));
+		S.DistStart = Seq->EvaluateCurveData(DistanceCurveName, 0.f);
+		S.DistEnd = Seq->EvaluateCurveData(DistanceCurveName, S.PlayLength);
+		const float DistSpan = FMath::Abs(S.DistEnd - S.DistStart);
+		S.bHasDistanceCurve = DistSpan > 0.5f;
+		if (S.bHasDistanceCurve && S.PlayLength > KINDA_SMALL_NUMBER)
+		{
+			S.AvgCurveSpeed = DistSpan / S.PlayLength;
+		}
+	}
+	return S;
+}
+
+static FString FormatAnimSampleLine(const TCHAR* const Label, const UAnimSequenceBase* const Anim)
+{
+	const FDFLocoAnimSample S = SampleLocomotionAnim(Anim);
+	if (!Anim)
+	{
+		return FString::Printf(TEXT("%s: (null)"), Label);
+	}
+	if (S.bHasDistanceCurve)
+	{
+		return FString::Printf(TEXT("%s: %s len=%.2fs RM=%d Dist %.0f->%.0f avgSpd~%.0f"),
+			Label, *Anim->GetName(), S.PlayLength, S.bRootMotion ? 1 : 0,
+			S.DistStart, S.DistEnd, S.AvgCurveSpeed);
+	}
+	return FString::Printf(TEXT("%s: %s len=%.2fs RM=%d (no Distance curve)"),
+		Label, *Anim->GetName(), S.PlayLength, S.bRootMotion ? 1 : 0);
+}
 } // namespace
+
+void UUDFAnimInstance::TryAutoTuneAuthoredLoopSpeedFromDefaultRunLoop()
+{
+	if (!bAutoTuneAuthoredLoopSpeedFromRunLoop)
+	{
+		return;
+	}
+	UAnimSequenceBase* const LoopAnim = ActiveAnimSet.ResolveLocomotionLoop(EDFGait::Run, EDFMovementDirection::Forward);
+	if (!LoopAnim)
+	{
+		return;
+	}
+	if (const UAnimSequence* const Seq = Cast<UAnimSequence>(LoopAnim))
+	{
+		static const FName DistanceCurveName(TEXT("Distance"));
+		const float PlayLength = Seq->GetPlayLength();
+		const float DistStart = Seq->EvaluateCurveData(DistanceCurveName, 0.f);
+		const float DistEnd = Seq->EvaluateCurveData(DistanceCurveName, PlayLength);
+		if (PlayLength > KINDA_SMALL_NUMBER && FMath::Abs(DistEnd - DistStart) > 0.5f)
+		{
+			AuthoredLoopSpeed = FMath::Abs(DistEnd - DistStart) / PlayLength;
+		}
+	}
+}
+
+void UUDFAnimInstance::TryAutoTuneAuthoredStopDistanceFromDefaultRunStop()
+{
+	if (!bAutoTuneAuthoredStopDistanceFromRunStop)
+	{
+		return;
+	}
+	UAnimSequenceBase* const StopAnim = ActiveAnimSet.ResolveLocomotionStop(EDFGait::Run, EDFMovementDirection::Forward);
+	if (!StopAnim)
+	{
+		return;
+	}
+	if (const UAnimSequence* const Seq = Cast<UAnimSequence>(StopAnim))
+	{
+		static const FName DistanceCurveName(TEXT("Distance"));
+		const float PlayLength = Seq->GetPlayLength();
+		const float DistStart = Seq->EvaluateCurveData(DistanceCurveName, 0.f);
+		const float DistEnd = Seq->EvaluateCurveData(DistanceCurveName, PlayLength);
+		const float DistSpan = FMath::Abs(DistEnd - DistStart);
+		if (PlayLength > KINDA_SMALL_NUMBER)
+		{
+			CachedAuthoredStopPlayLength = PlayLength;
+		}
+		if (DistSpan > 0.5f)
+		{
+			AuthoredStopDistance = DistSpan;
+			CachedStopMotionEndTime = DFLocomotionDistanceCurve::FindStopMotionEndTime(Seq, StopCurveNearZeroCm);
+		}
+	}
+}
 
 FString UUDFAnimInstance::BuildLocomotionDebugString() const
 {
@@ -1507,5 +2130,89 @@ FString UUDFAnimInstance::BuildLocomotionDebugString() const
 		VerticalVelocity,
 		PredictedLandingDistance,
 		LocomotionDirName(LastJumpDirection));
+}
+
+FString UUDFAnimInstance::BuildDirectionalLocomotionDebugString() const
+{
+	const UAnimSequenceBase* const StartA = GetLocomotionStartAnim();
+	const UAnimSequenceBase* const LoopA = GetLocomotionLoopAnim();
+	const UAnimSequenceBase* const StopA = GetLocomotionStopAnim();
+	const bool bPrimary = IsPrimaryMeshAnimInstance();
+
+	FString Out;
+	Out += FString::Printf(TEXT("== Locomotion [%s] %s =="),
+		bPrimary ? TEXT("MAIN") : TEXT("LAYER"), *GetClass()->GetName());
+	Out += FString::Printf(TEXT("\nSpeed=%.0f Gait=%s Dir=%s Accel=%d Strafe=%d"),
+		Speed, LocomotionGaitName(Gait), LocomotionDirName(MovementDirection),
+		bIsAccelerating ? 1 : 0, bShouldStrafe ? 1 : 0);
+	Out += FString::Printf(TEXT("\nStartDir=%s StartGait=%s StopDir=%s StopGait=%s StartElapsed=%.2f/%.2fs"),
+		LocomotionDirName(LocomotionStartDirection), LocomotionGaitName(LocomotionStartGait),
+		LocomotionDirName(LocomotionStopDirection), LocomotionGaitName(LocomotionStopGait),
+		LocomotionStartElapsed, StartMaxPlayTime);
+	Out += FString::Printf(TEXT("\nTrans: Idle>Start=%d Start>Loop=%d Loop>Stop=%d Stop>Move=%d Stop>Idle=%d TIP=%d"),
+		bTransition_IdleToStart ? 1 : 0, bTransition_StartToLoop ? 1 : 0,
+		bTransition_LoopToStop ? 1 : 0, bTransition_StopToMove ? 1 : 0, bTransition_StopToIdle ? 1 : 0,
+		bTransition_TurnInPlace ? 1 : 0);
+	Out += FString::Printf(TEXT("\nAnim Start=%s"), *GetNameSafe(StartA));
+	Out += FString::Printf(TEXT("\nAnim Loop =%s"), *GetNameSafe(LoopA));
+	Out += FString::Printf(TEXT("\nAnim Stop =%s"), *GetNameSafe(StopA));
+	const float StopInitDisplay = (LocomotionStopInitialTarget > KINDA_SMALL_NUMBER)
+		? LocomotionStopInitialTarget
+		: AuthoredStopDistance;
+	const float MotionEndDisplay = (CachedStopMotionEndTime > KINDA_SMALL_NUMBER)
+		? CachedStopMotionEndTime
+		: CachedAuthoredStopPlayLength;
+	Out += FString::Printf(
+		TEXT("\nStrideAlpha=%.2f DistMatch=%.0f Delta=%.1f Stop=%.0f/%.0f(consumed %.0f) Time=%.2f/%.2f(end %.2f) DistCurve=%d"),
+		StrideWarpingAlpha, DistanceMatchingDistance, DistanceMatchingDelta, DistanceMatchingStopToTarget,
+		StopInitDisplay, LocomotionStopDistanceConsumed, DistanceMatchingStopExplicitTime,
+		CachedAuthoredStopPlayLength, MotionEndDisplay, bActiveStopAnimHasDistanceCurve ? 1 : 0);
+	return Out;
+}
+
+FString UUDFAnimInstance::BuildDirectionalLocomotionDeepDebugString() const
+{
+	const UAnimSequenceBase* const LoopA = GetLocomotionLoopAnim();
+	const FDFLocoAnimSample LoopS = SampleLocomotionAnim(LoopA);
+	const float CurveStrideScale = (LoopS.AvgCurveSpeed > KINDA_SMALL_NUMBER) ? (Speed / LoopS.AvgCurveSpeed) : 0.f;
+
+	float MaxWS = 0.f;
+	float CmcRun = 0.f;
+	float CmcSprint = 0.f;
+	float InputMag = 0.f;
+	if (DFCharacterMovement)
+	{
+		MaxWS = DFCharacterMovement->MaxWalkSpeed;
+		CmcRun = DFCharacterMovement->RunSpeed;
+		CmcSprint = DFCharacterMovement->SprintSpeed;
+		InputMag = DFCharacterMovement->GetLastInputVector().Size2D();
+	}
+
+	FString Out;
+	Out += FString::Printf(TEXT("\n--- Deep (capsule vs anim) ---"));
+	Out += FString::Printf(TEXT("\nVelXY=%.0f Dir=%.1f Input=%.2f MaxWS=%.0f RunCfg=%.0f SprintCfg=%.0f Sprint=%d"),
+		Speed, Direction, InputMag, MaxWS, CmcRun, CmcSprint, bIsSprinting ? 1 : 0);
+	Out += FString::Printf(TEXT("\nGaitThr Walk>=%.0f Run>=%.0f | AuthoredLoop=%.0f StrideScale=%.2f (vs curve %.2f)"),
+		WalkSpeedThreshold, RunSpeedThreshold, AuthoredLoopSpeed, StrideScale, CurveStrideScale);
+	Out += FString::Printf(TEXT("\nDistMatchStartSpd=%.0f YawDelta=%.1f RootYawOff=%.1f"),
+		DistanceMatchingStartSpeed, YawDeltaThisFrame, RootYawOffset);
+	Out += FString::Printf(TEXT("\n%s"), *FormatAnimSampleLine(TEXT("Loop"), LoopA));
+	Out += FString::Printf(TEXT("\n%s"), *FormatAnimSampleLine(TEXT("Start"), GetLocomotionStartAnim()));
+	Out += FString::Printf(TEXT("\n%s"), *FormatAnimSampleLine(TEXT("Stop"), GetLocomotionStopAnim()));
+
+	if (LoopS.bHasDistanceCurve && AuthoredLoopSpeed > KINDA_SMALL_NUMBER
+		&& FMath::Abs(LoopS.AvgCurveSpeed - AuthoredLoopSpeed) > 25.f)
+	{
+		Out += FString::Printf(TEXT("\nWARN AuthoredLoopSpeed(%.0f) != loop Distance avg(%.0f) — tune Class Defaults"),
+			AuthoredLoopSpeed, LoopS.AvgCurveSpeed);
+	}
+	if (MaxWS > KINDA_SMALL_NUMBER && Speed > WalkSpeedThreshold
+		&& FMath::Abs(Speed - MaxWS) < 60.f && LoopS.bHasDistanceCurve
+		&& FMath::Abs(LoopS.AvgCurveSpeed - MaxWS) > 50.f)
+	{
+		Out += FString::Printf(TEXT("\nWARN Capsule~MaxWS(%.0f) but loop curve~%.0f — stride/RM mismatch"),
+			MaxWS, LoopS.AvgCurveSpeed);
+	}
+	return Out;
 }
 #endif
