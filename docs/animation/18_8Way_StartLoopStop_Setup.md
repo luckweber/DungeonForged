@@ -9,6 +9,8 @@ Suporte C++ para alimentar animações direcionais 8-way com **Start → Loop �
 > **Engine alvo:** Unreal Engine **5.4** (`DungeonForged.uproject` → `EngineAssociation: 5.4`). Os nomes de nós/funções e o fluxo de Distance Matching abaixo foram validados contra a documentação oficial da Epic (ver §11 — Referências externas).
 >
 > **Mapa de assets do seu pacote Fab:** se você está usando o pacote *Fighter / Action-RPG* (Idle/Attack/Walk/Run/Jump/Dodge/Roll/Hit/Turn — armado e desarmado), vá direto à **§10 — Mapeamento do pacote Fab → sistemas** para ver onde cada categoria de animação entra (locomoção 8-way, weapon layers combat, dodge/roll, dash aéreo, jump 4-way, turn-in-place).
+>
+> **Turn In Place (guia dedicado):** [`20_TurnInPlace_Setup.md`](20_TurnInPlace_Setup.md) — `GetLocomotionIdleAnim`, `GetLocomotionTurnAnim`, estado Turn no AnimBP, `df.LocomotionDebug` com linhas `TIP=`.
 
 ---
 
@@ -829,6 +831,8 @@ Configuração de **Two Bone IK** (esquerda, espelhe para a direita):
 ---
 
 ### 5.4 Turn-In-Place — Giro quando parado
+
+> **Guia atualizado (2026-05):** implementação com `GetLocomotionIdleAnim`, `GetLocomotionTurnAnim`, `TurnInPlaceExplicitTime` e `FUDTurnInPlaceAnimSet` — ver **[`20_TurnInPlace_Setup.md`](20_TurnInPlace_Setup.md)**. O texto abaixo descreve o conceito; o passo-a-passo do AnimBP está no doc 20.
 
 **Problema que resolve:** sem TIP, se o player gira a câmera com personagem parado, o personagem teleporta (ou roda instantaneamente) para alinhar. Com TIP, ele toca uma animação de giro suave.
 

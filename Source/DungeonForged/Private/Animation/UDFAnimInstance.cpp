@@ -3,6 +3,7 @@
 
 #include "Combat/DFJumpDebug.h"
 #include "Animation/DFLocomotionDebug.h"
+#include "Animation/DFTurnInPlaceDebug.h"
 #include "Animation/UDFLocomotionTypes.h"
 #include "DungeonForgedModule.h"
 #include "Engine/Engine.h"
@@ -105,6 +106,7 @@ void UUDFAnimInstance::NativeInitializeAnimation()
 	bLastYawInit = false;
 
 	ActiveAnimSet = DefaultAnimSet;
+	EnsureActiveAnimSetTurnSet();
 	TryAutoTuneAuthoredLoopSpeedFromDefaultRunLoop();
 	TryAutoTuneAuthoredStopDistanceFromDefaultRunStop();
 }
@@ -114,6 +116,7 @@ void UUDFAnimInstance::ApplyAnimSet(const FUDAnimSet& NewAnimSet)
 	if (NewAnimSet.IsValid())
 	{
 		ActiveAnimSet = NewAnimSet;
+		EnsureActiveAnimSetTurnSet();
 		TryAutoTuneAuthoredLoopSpeedFromDefaultRunLoop();
 		TryAutoTuneAuthoredStopDistanceFromDefaultRunStop();
 	}
@@ -122,8 +125,117 @@ void UUDFAnimInstance::ApplyAnimSet(const FUDAnimSet& NewAnimSet)
 void UUDFAnimInstance::RevertToDefaultAnimSet()
 {
 	ActiveAnimSet = DefaultAnimSet;
+	EnsureActiveAnimSetTurnSet();
 	TryAutoTuneAuthoredLoopSpeedFromDefaultRunLoop();
 	TryAutoTuneAuthoredStopDistanceFromDefaultRunStop();
+}
+
+void UUDFAnimInstance::EnsureActiveAnimSetTurnSet()
+{
+	if (!ActiveAnimSet.TurnSet.IsValid())
+	{
+		ActiveAnimSet.MergeTurnSetFrom(DefaultAnimSet.TurnSet);
+	}
+	if (!ActiveAnimSet.TurnSet.IsValid())
+	{
+		DefaultAnimSet.TryAutoFillTurnSetFromIdlePackagePaths();
+		ActiveAnimSet.MergeTurnSetFrom(DefaultAnimSet.TurnSet);
+	}
+	if (!ActiveAnimSet.TurnSet.IsValid())
+	{
+		DefaultAnimSet.TryAutoFillTurnSetFromKnownContentPaths();
+		ActiveAnimSet.MergeTurnSetFrom(DefaultAnimSet.TurnSet);
+	}
+	if (!ActiveAnimSet.TurnSet.IsValid())
+	{
+		ActiveAnimSet.TryAutoFillTurnSetFromIdlePackagePaths();
+	}
+	if (!ActiveAnimSet.TurnSet.IsValid())
+	{
+		ActiveAnimSet.TryAutoFillTurnSetFromKnownContentPaths();
+	}
+	if (IsPrimaryMeshAnimInstance())
+	{
+		MergeTurnSetFromLinkedLayersIfEmpty();
+	}
+}
+
+void UUDFAnimInstance::MergeTurnSetFromLinkedLayersIfEmpty()
+{
+	if (!IsPrimaryMeshAnimInstance() || ActiveAnimSet.TurnSet.IsValid())
+	{
+		return;
+	}
+
+	auto TryMergeFromLayer = [this](UAnimInstance* const Inst)
+	{
+		if (!Inst || Inst == this)
+		{
+			return false;
+		}
+		UUDFAnimInstance* const LayerDF = Cast<UUDFAnimInstance>(Inst);
+		if (!LayerDF)
+		{
+			return false;
+		}
+		if (!LayerDF->DefaultAnimSet.TurnSet.IsValid() && !LayerDF->ActiveAnimSet.TurnSet.IsValid())
+		{
+			LayerDF->DefaultAnimSet.TryAutoFillTurnSetFromKnownContentPaths();
+		}
+		if (LayerDF->DefaultAnimSet.TurnSet.IsValid())
+		{
+			DefaultAnimSet.MergeTurnSetFrom(LayerDF->DefaultAnimSet.TurnSet);
+			ActiveAnimSet.MergeTurnSetFrom(LayerDF->DefaultAnimSet.TurnSet);
+		}
+		else if (LayerDF->ActiveAnimSet.TurnSet.IsValid())
+		{
+			ActiveAnimSet.MergeTurnSetFrom(LayerDF->ActiveAnimSet.TurnSet);
+		}
+		return ActiveAnimSet.TurnSet.IsValid();
+	};
+
+	static const FName DefaultSharedGroup(TEXT("DefaultSharedGroup"));
+	TArray<UAnimInstance*> LinkedByGroup;
+	GetLinkedAnimLayerInstancesByGroup(DefaultSharedGroup, LinkedByGroup);
+	for (UAnimInstance* const Inst : LinkedByGroup)
+	{
+		if (TryMergeFromLayer(Inst))
+		{
+			return;
+		}
+	}
+	if (CachedLinkedWeaponLayerClass)
+	{
+		TryMergeFromLayer(GetLinkedAnimLayerInstanceByClass(CachedLinkedWeaponLayerClass, true));
+	}
+}
+
+void UUDFAnimInstance::SyncTurnSetFromPrimaryMeshIfEmpty()
+{
+	if (IsPrimaryMeshAnimInstance() || ActiveAnimSet.TurnSet.IsValid())
+	{
+		return;
+	}
+	const USkeletalMeshComponent* const Skel = GetSkelMeshComponent();
+	if (!Skel)
+	{
+		return;
+	}
+	const UUDFAnimInstance* const Primary = Cast<UUDFAnimInstance>(Skel->GetAnimInstance());
+	if (!Primary || Primary == this)
+	{
+		return;
+	}
+	ActiveAnimSet.MergeTurnSetFrom(Primary->ActiveAnimSet.TurnSet);
+	if (!ActiveAnimSet.TurnSet.IsValid())
+	{
+		ActiveAnimSet.MergeTurnSetFrom(Primary->DefaultAnimSet.TurnSet);
+	}
+	if (!ActiveAnimSet.TurnSet.IsValid())
+	{
+		DefaultAnimSet.MergeTurnSetFrom(Primary->DefaultAnimSet.TurnSet);
+		ActiveAnimSet.MergeTurnSetFrom(DefaultAnimSet.TurnSet);
+	}
 }
 
 void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
@@ -461,6 +573,7 @@ void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 	UpdateStrideWarping(DeltaSeconds);
 	CalculateLean(DeltaSeconds);
 	CalculateAimOffsets();          // populates AimYaw / AimPitch — TIP depends on this
+	EnsureActiveAnimSetTurnSet();
 	UpdateTurnInPlace(DeltaSeconds); // must run after CalculateAimOffsets
 	UpdateAimOffsetBlend(DeltaSeconds);
 	UpdateFootIK(DeltaSeconds);
@@ -481,19 +594,21 @@ void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 			{
 				const float MaxWS = DFCharacterMovement ? DFCharacterMovement->MaxWalkSpeed : 0.f;
 				UE_LOG(LogDungeonForged, Log,
-					TEXT("[Loco|Main] Spd=%.0f(d%+.0f) MaxWS=%.0f Gait=%d Dir=%d Stride=%.2f | I>S=%d S>L=%d L>P=%d S>M=%d P>I=%d"),
+					TEXT("[Loco|Main] Spd=%.0f(d%+.0f) MaxWS=%.0f Gait=%d Dir=%d Stride=%.2f | I>S=%d S>L=%d L>P=%d S>M=%d P>I=%d TIP=%d T=%.0f° off=%.0f t=%.2f"),
 					Speed, SpeedDelta, MaxWS, static_cast<int32>(Gait), static_cast<int32>(MovementDirection),
 					StrideScale, bTransition_IdleToStart ? 1 : 0, bTransition_StartToLoop ? 1 : 0,
-					bTransition_LoopToStop ? 1 : 0, bTransition_StopToMove ? 1 : 0, bTransition_StopToIdle ? 1 : 0);
+					bTransition_LoopToStop ? 1 : 0, bTransition_StopToMove ? 1 : 0, bTransition_StopToIdle ? 1 : 0,
+					bInTurnInPlacePhase ? 1 : 0, TurnInPlaceAnimDegrees, RootYawOffset, TurnInPlaceExplicitTime);
 			}
 			else
 			{
 				UE_LOG(LogDungeonForged, Log,
-					TEXT("[Loco|%s] Spd=%.0f Gait=%d Dir=%d Accel=%d | I>S=%d S>L=%d L>P=%d S>M=%d P>I=%d"),
+					TEXT("[Loco|%s] Spd=%.0f Gait=%d Dir=%d Accel=%d | I>S=%d S>L=%d L>P=%d S>M=%d P>I=%d TIP=%d off=%.0f"),
 					bPrimary ? TEXT("Main") : TEXT("Layer"),
 					Speed, static_cast<int32>(Gait), static_cast<int32>(MovementDirection),
 					bIsAccelerating ? 1 : 0, bTransition_IdleToStart ? 1 : 0, bTransition_StartToLoop ? 1 : 0,
-					bTransition_LoopToStop ? 1 : 0, bTransition_StopToMove ? 1 : 0, bTransition_StopToIdle ? 1 : 0);
+					bTransition_LoopToStop ? 1 : 0, bTransition_StopToMove ? 1 : 0, bTransition_StopToIdle ? 1 : 0,
+					bInTurnInPlacePhase ? 1 : 0, RootYawOffset);
 			}
 		}
 
@@ -553,6 +668,42 @@ void UUDFAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 					DrawDebugDirectionalArrow(World, Origin, Origin + VelDir * 150.f, 36.f, FColor::Green, false, -1.f, 0, 3.f);
 				}
 			}
+		}
+
+		if (bPrimary && (DFTurnInPlaceDebug::IsLogEnabled() || DFTurnInPlaceDebug::IsHudEnabled()
+			|| DFTurnInPlaceDebug::IsDrawEnabled()))
+		{
+			const UWorld* const World = GetWorld();
+			if (DFTurnInPlaceDebug::IsLogEnabled())
+			{
+				const float Interval = DFTurnInPlaceDebug::IsHudEnabled() ? 0.35f : 0.2f;
+				TurnInPlaceDebugLogTimer += DeltaSeconds;
+				if (TurnInPlaceDebugLogTimer >= Interval
+					|| bTransition_TurnInPlace || (bInTurnInPlacePhase && !bWasInTurnInPlacePhasePreviousFrame))
+				{
+					TurnInPlaceDebugLogTimer = 0.f;
+					UE_LOG(LogDungeonForged, Log, TEXT("[TIP] %s"), *BuildTurnInPlaceDebugString());
+					UE_LOG(LogDungeonForged, Log, TEXT("%s"), *BuildTurnInPlaceDebugOneLiner());
+				}
+			}
+			if (DFTurnInPlaceDebug::IsHudEnabled())
+			{
+				const FColor TipCol(200, 120, 255);
+				TArray<FString> Lines;
+				BuildTurnInPlaceDebugString().ParseIntoArrayLines(Lines);
+				for (int32 i = 0; i < Lines.Num() && i < 10; ++i)
+				{
+					GEngine->AddOnScreenDebugMessage(0x200 + i, 0.f, TipCol, Lines[i]);
+				}
+			}
+			if (DFTurnInPlaceDebug::IsDrawEnabled() && World)
+			{
+				DrawTurnInPlaceDebug(World);
+			}
+		}
+		else
+		{
+			TurnInPlaceDebugLogTimer = 0.f;
 		}
 	}
 #endif
@@ -768,6 +919,15 @@ void UUDFAnimInstance::CopyDirectionalLocomotionStateFrom(const UUDFAnimInstance
 	DistanceMatchingStopToTarget = Source.DistanceMatchingStopToTarget;
 	DistanceMatchingStopExplicitTime = Source.DistanceMatchingStopExplicitTime;
 	bActiveStopAnimHasDistanceCurve = Source.bActiveStopAnimHasDistanceCurve;
+	RootYawOffset = Source.RootYawOffset;
+	YawDeltaThisFrame = Source.YawDeltaThisFrame;
+	bTransition_TurnInPlace = Source.bTransition_TurnInPlace;
+	TurnInPlaceDirection = Source.TurnInPlaceDirection;
+	bInTurnInPlacePhase = Source.bInTurnInPlacePhase;
+	TurnInPlaceExplicitTime = Source.TurnInPlaceExplicitTime;
+	TurnInPlaceAnimDegrees = Source.TurnInPlaceAnimDegrees;
+	CachedTurnAnimPlayLength = Source.CachedTurnAnimPlayLength;
+	bWasInTurnInPlacePhasePreviousFrame = Source.bWasInTurnInPlacePhasePreviousFrame;
 	StrideWarpingAlpha = Source.StrideWarpingAlpha;
 	StrideScale = Source.StrideScale;
 	LocomotionPlayRate = Source.LocomotionPlayRate;
@@ -786,6 +946,7 @@ void UUDFAnimInstance::SyncDirectionalLocomotionFromPrimaryMesh()
 	{
 		return;
 	}
+	SyncTurnSetFromPrimaryMeshIfEmpty();
 	CopyDirectionalLocomotionStateFrom(*Primary);
 }
 
@@ -804,6 +965,7 @@ void UUDFAnimInstance::PropagateDirectionalLocomotionToLinkedAnimLayers()
 		}
 		if (UUDFAnimInstance* const LayerDF = Cast<UUDFAnimInstance>(Inst))
 		{
+			LayerDF->SyncTurnSetFromPrimaryMeshIfEmpty();
 			LayerDF->CopyDirectionalLocomotionStateFrom(*this);
 		}
 	};
@@ -1200,46 +1362,303 @@ void UUDFAnimInstance::UpdateStrideWarping(const float DeltaSeconds)
 void UUDFAnimInstance::UpdateTurnInPlace(const float DeltaSeconds)
 {
 	bTransition_TurnInPlace = false;
-	TurnInPlaceDirection = 0.f;
 
 	ACharacter* const Owner = OwningCharacter.Get();
 	if (!Owner)
 	{
 		YawDeltaThisFrame = 0.f;
 		RootYawOffset = 0.f;
+		bInTurnInPlacePhase = false;
+		TurnInPlaceExplicitTime = 0.f;
+		TurnInPlaceAnimDegrees = 0.f;
+		TurnInPlaceDirection = 0.f;
+		TurnInPlaceYawAppliedTotal = 0.f;
 		return;
 	}
 
-	// Track raw actor-yaw delta for diagnostics (root motion / TIP montage drives it).
 	const float CurrentActorYaw = Owner->GetActorRotation().Yaw;
 	YawDeltaThisFrame = FMath::FindDeltaAngleDegrees(PreviousActorYaw, CurrentActorYaw);
 	PreviousActorYaw = CurrentActorYaw;
 
-	const bool bGroundedIdle = !bIsInAir && Speed <= IdleSpeedDeadband && !bIsAccelerating;
-	if (!bGroundedIdle)
+	const bool bGrounded = !bIsInAir && !bInLocomotionStopPhase;
+	const bool bIdleEnoughToStartTurn = bGrounded && Speed <= IdleSpeedDeadband && !bIsAccelerating;
+	// Do not abort a turn for Speed alone — SetActorRotation at clip end can spike Velocity.
+	const bool bAbortTurnPhase = !bGrounded
+		|| (!bInTurnInPlacePhase && !bIdleEnoughToStartTurn);
+
+	auto StopHorizontalVelocityAfterTurnSnap = [this]()
 	{
-		// While moving: locomotion absorbs the orientation — bleed the offset out smoothly.
-		RootYawOffset = FMath::FInterpTo(RootYawOffset, 0.f, DeltaSeconds, TurnInPlaceYawInterpSpeed * 0.25f);
+		if (UDFCharacterMovement)
+		{
+			FVector Vel = DFCharacterMovement->Velocity;
+			Vel.X = 0.f;
+			Vel.Y = 0.f;
+			DFCharacterMovement->Velocity = Vel;
+		}
+	};
+
+	auto FinishTurnPhase = [this](const TCHAR* EndReason, const bool bAllowImmediateRetrigger)
+	{
+		bInTurnInPlacePhase = false;
+		bTransition_TurnInPlace = false;
+		TurnInPlaceExplicitTime = 0.f;
+		TurnInPlaceAnimDegrees = 0.f;
+		TurnInPlaceDirection = 0.f;
+		TurnInPlaceYawAppliedTotal = 0.f;
+		bTurnInPlaceRetriggerArmed = bAllowImmediateRetrigger;
+		TurnInPlaceLastEndReason = EndReason ? EndReason : TEXT("?");
+	};
+
+	if (bAbortTurnPhase)
+	{
+		if (bInTurnInPlacePhase)
+		{
+			FinishTurnPhase(TEXT("NotGrounded"), true);
+		}
+		else
+		{
+			TurnInPlaceExplicitTime = 0.f;
+			TurnInPlaceAnimDegrees = 0.f;
+			TurnInPlaceDirection = 0.f;
+			TurnInPlaceYawAppliedTotal = 0.f;
+		}
+		if (!bInTurnInPlacePhase)
+		{
+			RootYawOffset = FMath::FInterpTo(RootYawOffset, 0.f, DeltaSeconds, TurnInPlaceYawInterpSpeed * 0.25f);
+		}
+		bWasInTurnInPlacePhasePreviousFrame = bInTurnInPlacePhase;
+		if (!bInTurnInPlacePhase)
+		{
+			return;
+		}
+	}
+
+	// While a turn plays, keep the latched offset; refreshing from AimYaw every frame fights consumption.
+	if (!bInTurnInPlacePhase)
+	{
+		RootYawOffset = AimYaw;
+		if (FMath::Abs(RootYawOffset) < TurnInPlaceRetriggerYaw)
+		{
+			bTurnInPlaceRetriggerArmed = true;
+		}
+	}
+
+	if (bInTurnInPlacePhase)
+	{
+		const float LatchedDir = FMath::IsNearlyZero(TurnInPlaceDirection)
+			? FMath::Sign(RootYawOffset)
+			: TurnInPlaceDirection;
+		const UAnimSequence* TurnSeq = Cast<UAnimSequence>(GetLocomotionTurnAnim());
+		if (TurnSeq)
+		{
+			const float PlayLength = TurnSeq->GetPlayLength();
+			if (PlayLength > KINDA_SMALL_NUMBER)
+			{
+				CachedTurnAnimPlayLength = PlayLength;
+			}
+			const float AbsDeg = TurnInPlaceAnimDegrees > KINDA_SMALL_NUMBER
+				? TurnInPlaceAnimDegrees
+				: 90.f;
+			const float DegPerSec = AbsDeg / FMath::Max(CachedTurnAnimPlayLength, 0.01f);
+			const float ConsumedYaw = LatchedDir * DegPerSec * DeltaSeconds;
+			TurnInPlaceExplicitTime += DeltaSeconds;
+
+			if (bTurnInPlaceApplyActorYawFromCode && Owner && !FMath::IsNearlyZero(ConsumedYaw))
+			{
+				FRotator R = Owner->GetActorRotation();
+				R.Yaw += ConsumedYaw;
+				Owner->SetActorRotation(R);
+				ConsumeRootYawOffset(ConsumedYaw);
+			}
+
+			const bool bClipDone = TurnInPlaceExplicitTime >= CachedTurnAnimPlayLength - 0.03f;
+			const bool bPastMinTime = TurnInPlaceExplicitTime >= TurnInPlaceMinPhaseTime;
+			const bool bOffsetDone = bTurnInPlaceApplyActorYawFromCode && bPastMinTime
+				&& FMath::Abs(RootYawOffset) <= TurnInPlaceCompleteYaw;
+			if (bClipDone || bOffsetDone)
+			{
+				// Anim-only path (Fab clips, no RM): rotate the pawn once when the clip finishes.
+				if (bClipDone && !bTurnInPlaceApplyActorYawFromCode && Owner)
+				{
+					const float RemainingBefore = RootYawOffset;
+					const float MaxApply = FMath::Min(AbsDeg, FMath::Abs(RemainingBefore));
+					const float YawToApply = LatchedDir * MaxApply;
+					if (!FMath::IsNearlyZero(YawToApply))
+					{
+						FRotator R = Owner->GetActorRotation();
+						R.Yaw += YawToApply;
+						Owner->SetActorRotation(R);
+						ConsumeRootYawOffset(YawToApply);
+						StopHorizontalVelocityAfterTurnSnap();
+					}
+				}
+
+				const float Remaining = RootYawOffset;
+				if (Owner && TurnInPlacePostTurnSnapMaxYaw > KINDA_SMALL_NUMBER
+					&& FMath::Abs(Remaining) > TurnInPlaceCompleteYaw
+					&& FMath::Abs(Remaining) <= TurnInPlacePostTurnSnapMaxYaw)
+				{
+					FRotator R = Owner->GetActorRotation();
+					R.Yaw += Remaining;
+					Owner->SetActorRotation(R);
+					ConsumeRootYawOffset(Remaining);
+					StopHorizontalVelocityAfterTurnSnap();
+				}
+				FinishTurnPhase(bOffsetDone ? TEXT("OffsetDone") : TEXT("ClipDone"), false);
+				RootYawOffset = AimYaw;
+				bTurnInPlaceRetriggerArmed = FMath::Abs(RootYawOffset) < TurnInPlaceRetriggerYaw;
+			}
+		}
+		else
+		{
+			FinishTurnPhase(TEXT("NoClip"), true);
+		}
+		bWasInTurnInPlacePhasePreviousFrame = bInTurnInPlacePhase;
 		return;
 	}
 
-	// While idle, the offset between Aim (controller) and Body (actor) IS the root-yaw offset.
-	// As the TIP montage rotates the actor (root motion or notify), AimYaw shrinks naturally,
-	// which in turn shrinks RootYawOffset — the system is self-correcting.
-	// AimYaw is populated by CalculateAimOffsets which runs immediately before this function.
-	RootYawOffset = AimYaw;
-
-	if (FMath::Abs(RootYawOffset) > TurnInPlaceTriggerYaw)
+	if (bIdleEnoughToStartTurn && bTurnInPlaceRetriggerArmed
+		&& FMath::Abs(RootYawOffset) > TurnInPlaceTriggerYaw)
 	{
+		EnsureActiveAnimSetTurnSet();
+		const float DirSign = bInvertTurnInPlaceDirection ? -1.f : 1.f;
+		const float AbsOff = FMath::Abs(RootYawOffset);
+		TurnInPlaceDirection = FMath::Sign(RootYawOffset) * DirSign;
+		const bool bUse180 = AbsOff >= TurnInPlace180Threshold;
+		TurnInPlaceAnimDegrees = bUse180 ? 180.f : 90.f;
+		const bool bTurnRight = TurnInPlaceDirection > 0.f;
+		if (!ActiveAnimSet.ResolveLocomotionTurn(bUse180, bTurnRight))
+		{
+#if !UE_BUILD_SHIPPING
+			if (!bWarnedMissingTurnSet)
+			{
+				bWarnedMissingTurnSet = true;
+				UE_LOG(LogDungeonForged, Warning,
+					TEXT("[TIP] %s: |RootYawOff|=%.0f but Turn Set is empty on main — fill Turn Set on ABP_Test_UnArmed_Layer (Default Anim Set / Overrides) or Sword_and_Shield/09_Turn; recompile C++ so main inherits layer Turn Set."),
+					*GetClass()->GetName(), RootYawOffset);
+			}
+#endif
+			return;
+		}
 		bTransition_TurnInPlace = true;
-		TurnInPlaceDirection = FMath::Sign(RootYawOffset);
+		bInTurnInPlacePhase = true;
+		TurnInPlaceExplicitTime = 0.f;
+		TurnInPlaceYawAppliedTotal = 0.f;
 	}
+
+	bWasInTurnInPlacePhasePreviousFrame = bInTurnInPlacePhase;
 }
 
 void UUDFAnimInstance::ConsumeRootYawOffset(const float ConsumedYaw)
 {
 	RootYawOffset -= ConsumedYaw;
 	RootYawOffset = FMath::UnwindDegrees(RootYawOffset);
+}
+
+#if !UE_BUILD_SHIPPING
+namespace DFLocoDebugDraw
+{
+static void DrawGroundCircle(const UWorld* World, const FVector& Center, const float Radius, const FColor& Color,
+	const float ZOffset, const int32 Segments, const float Thickness)
+{
+	if (!World || Radius <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+	const FVector Base(Center.X, Center.Y, Center.Z + ZOffset);
+	FVector Prev = Base + FVector(Radius, 0.f, 0.f);
+	for (int32 i = 1; i <= Segments; ++i)
+	{
+		const float Angle = (2.f * UE_PI) * static_cast<float>(i) / static_cast<float>(Segments);
+		const FVector Next = Base + FVector(FMath::Cos(Angle) * Radius, FMath::Sin(Angle) * Radius, 0.f);
+		DrawDebugLine(World, Prev, Next, Color, false, -1.f, 0, Thickness);
+		Prev = Next;
+	}
+}
+
+static void DrawGroundYawArc(const UWorld* World, const FVector& Center, const float Radius,
+	const float CenterYawDeg, const float SweepDeg, const FColor& Color, const float Thickness)
+{
+	if (!World || FMath::IsNearlyZero(SweepDeg) || Radius <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+	const FVector Base(Center.X, Center.Y, Center.Z + 2.f);
+	const int32 Segments = FMath::Clamp(FMath::RoundToInt(FMath::Abs(SweepDeg) / 8.f), 4, 48);
+	const float StartRad = FMath::DegreesToRadians(CenterYawDeg);
+	const float StepRad = FMath::DegreesToRadians(SweepDeg) / static_cast<float>(Segments);
+	FVector Prev = Base;
+	for (int32 i = 0; i <= Segments; ++i)
+	{
+		const float Angle = StartRad + StepRad * static_cast<float>(i);
+		const FVector Offset(FMath::Cos(Angle) * Radius, FMath::Sin(Angle) * Radius, 0.f);
+		const FVector Point = Base + Offset;
+		if (i > 0)
+		{
+			DrawDebugLine(World, Prev, Point, Color, false, -1.f, 0, Thickness);
+		}
+		Prev = Point;
+	}
+}
+
+static FVector YawToFlatVector(const float YawDeg)
+{
+	const float Rad = FMath::DegreesToRadians(YawDeg);
+	return FVector(FMath::Cos(Rad), FMath::Sin(Rad), 0.f);
+}
+} // namespace DFLocoDebugDraw
+#endif
+
+void UUDFAnimInstance::DrawTurnInPlaceDebug(const UWorld* World) const
+{
+#if !UE_BUILD_SHIPPING
+	if (!World || !OwningCharacter)
+	{
+		return;
+	}
+
+	const FVector Origin = OwningCharacter->GetActorLocation();
+	const float ActorYaw = OwningCharacter->GetActorRotation().Yaw;
+	const float Radius = DFTurnInPlaceDebug::GetCircleRadiusCm();
+	const float Z = 3.f;
+
+	DFLocoDebugDraw::DrawGroundCircle(World, Origin, Radius, FColor(180, 180, 180, 140), Z, 32, 1.5f);
+
+	const FVector BodyFwd = OwningCharacter->GetActorForwardVector().GetSafeNormal2D();
+	const FVector DesiredFwd = DFLocoDebugDraw::YawToFlatVector(ActorYaw + RootYawOffset);
+	const float Sweep = FMath::Clamp(RootYawOffset, -180.f, 180.f);
+
+	const FColor WedgeColor = FMath::Abs(RootYawOffset) >= TurnInPlaceTriggerYaw
+		? FColor::Cyan
+		: FColor(255, 200, 80, 200);
+	DFLocoDebugDraw::DrawGroundYawArc(World, Origin, Radius * 0.92f, ActorYaw, Sweep, WedgeColor, 3.f);
+
+	DrawDebugDirectionalArrow(World, Origin + FVector(0, 0, 12.f), Origin + FVector(0, 0, 12.f) + BodyFwd * 95.f,
+		22.f, FColor::Blue, false, -1.f, 0, 2.5f);
+	DrawDebugDirectionalArrow(World, Origin + FVector(0, 0, 14.f), Origin + FVector(0, 0, 14.f) + DesiredFwd * 110.f,
+		26.f, FColor::Orange, false, -1.f, 0, 3.f);
+
+	const float TriggerSign = RootYawOffset >= 0.f ? 1.f : -1.f;
+	const float TriggerEdgeYaw = ActorYaw + TriggerSign * TurnInPlaceTriggerYaw;
+	const FVector TriggerEdge = DFLocoDebugDraw::YawToFlatVector(TriggerEdgeYaw);
+	DrawDebugLine(World, Origin + FVector(0, 0, Z), Origin + FVector(0, 0, Z) + TriggerEdge * (Radius + 15.f),
+		FColor(255, 80, 80, 180), false, -1.f, 0, 2.f);
+
+	if (bInTurnInPlacePhase || bTransition_TurnInPlace)
+	{
+		DFLocoDebugDraw::DrawGroundCircle(World, Origin, Radius * 1.05f, FColor::Magenta, Z + 1.f, 40, 4.f);
+		const float TurnSweep = TurnInPlaceDirection * FMath::Min(TurnInPlaceAnimDegrees, FMath::Abs(RootYawOffset) + 5.f);
+		DFLocoDebugDraw::DrawGroundYawArc(World, Origin, Radius * 0.75f, ActorYaw, TurnSweep, FColor::Green, 5.f);
+		const FVector TurnEnd = DFLocoDebugDraw::YawToFlatVector(ActorYaw + TurnSweep);
+		DrawDebugDirectionalArrow(World, Origin + FVector(0, 0, 18.f), Origin + FVector(0, 0, 18.f) + TurnEnd * 70.f,
+			20.f, FColor::Green, false, -1.f, 0, 3.5f);
+	}
+
+	const FString Label = FString::Printf(TEXT("TIP off=%.0f trig=%.0f %s"),
+		RootYawOffset, TurnInPlaceTriggerYaw,
+		bInTurnInPlacePhase ? TEXT("TURN") : (FMath::Abs(RootYawOffset) >= TurnInPlaceTriggerYaw ? TEXT("READY") : TEXT("idle")));
+	DrawDebugString(World, Origin + FVector(0, 0, 110.f), Label, nullptr, FColor::White, 0.f, true, 1.1f);
+#endif
 }
 
 void UUDFAnimInstance::UpdateFootPlantCurves()
@@ -1274,6 +1693,33 @@ UAnimSequenceBase* UUDFAnimInstance::GetLocomotionStopAnim() const
 {
 	const EDFGait StopGait = (LocomotionStopGait != EDFGait::Idle) ? LocomotionStopGait : Gait;
 	return ActiveAnimSet.ResolveLocomotionStop(StopGait, LocomotionStopDirection);
+}
+
+UAnimSequenceBase* UUDFAnimInstance::GetLocomotionIdleAnim() const
+{
+	return ActiveAnimSet.ResolveLocomotionIdle();
+}
+
+UAnimSequenceBase* UUDFAnimInstance::GetLocomotionTurnAnim() const
+{
+	bool bUse180 = false;
+	bool bTurnRight = false;
+	if (bInTurnInPlacePhase || bTransition_TurnInPlace)
+	{
+		bUse180 = TurnInPlaceAnimDegrees >= 135.f;
+		const float Dir = FMath::IsNearlyZero(TurnInPlaceDirection)
+			? FMath::Sign(RootYawOffset)
+			: TurnInPlaceDirection;
+		bTurnRight = Dir > 0.f;
+	}
+	else
+	{
+		const float AbsOff = FMath::Abs(RootYawOffset);
+		bUse180 = AbsOff >= TurnInPlace180Threshold;
+		const float DirSign = bInvertTurnInPlaceDirection ? -1.f : 1.f;
+		bTurnRight = (FMath::Sign(RootYawOffset) * DirSign) > 0.f;
+	}
+	return ActiveAnimSet.ResolveLocomotionTurn(bUse180, bTurnRight);
 }
 
 void UUDFAnimInstance::DetermineMovementDirection(const bool bUseEightWay)
@@ -2132,6 +2578,84 @@ FString UUDFAnimInstance::BuildLocomotionDebugString() const
 		LocomotionDirName(LastJumpDirection));
 }
 
+FString UUDFAnimInstance::BuildTurnInPlaceDebugString() const
+{
+	const UAnimSequence* const TurnSeq = Cast<UAnimSequence>(GetLocomotionTurnAnim());
+	const bool bRm = TurnSeq && TurnSeq->HasRootMotion();
+	const float AbsOff = FMath::Abs(RootYawOffset);
+	float ActorYaw = 0.f;
+	float CtrlYaw = 0.f;
+	if (const ACharacter* const Ch = OwningCharacter.Get())
+	{
+		ActorYaw = Ch->GetActorRotation().Yaw;
+		if (const AController* const C = Ch->GetController())
+		{
+			CtrlYaw = C->GetControlRotation().Yaw;
+		}
+	}
+	const bool bGrounded = !bIsInAir && !bInLocomotionStopPhase;
+	const bool bIdleEnoughToStartTurn = bGrounded && Speed <= IdleSpeedDeadband && !bIsAccelerating;
+	const bool bReady = bIdleEnoughToStartTurn && bTurnInPlaceRetriggerArmed
+		&& AbsOff > TurnInPlaceTriggerYaw;
+
+	FString Out;
+	Out += FString::Printf(TEXT("== TurnInPlace %s =="), *GetClass()->GetName());
+	Out += FString::Printf(TEXT("\noff=%.1f aim=%.1f |off|=%.0f trig=%.0f rearm=%.0f 180=%.0f"),
+		RootYawOffset, AimYaw, AbsOff, TurnInPlaceTriggerYaw, TurnInPlaceRetriggerYaw, TurnInPlace180Threshold);
+	Out += FString::Printf(TEXT("\nTrans=%d Phase=%d armed=%d ready=%d idleOk=%d"),
+		bTransition_TurnInPlace ? 1 : 0, bInTurnInPlacePhase ? 1 : 0,
+		bTurnInPlaceRetriggerArmed ? 1 : 0, bReady ? 1 : 0, bIdleEnoughToStartTurn ? 1 : 0);
+	Out += FString::Printf(TEXT("\nspd=%.0f accel=%d abortSpd=%.0f"),
+		Speed, bIsAccelerating ? 1 : 0, TurnInPlaceAbortSpeed);
+	Out += FString::Printf(TEXT("\nlatched dir=%+.0f deg=%.0f time=%.2f/%.2fs codeYaw=%d end=%s"),
+		TurnInPlaceDirection, TurnInPlaceAnimDegrees, TurnInPlaceExplicitTime, CachedTurnAnimPlayLength,
+		bTurnInPlaceApplyActorYawFromCode ? 1 : 0, *TurnInPlaceLastEndReason);
+	Out += FString::Printf(TEXT("\nactorYaw=%.0f ctrlYaw=%.0f yawDeltaFrame=%.1f"),
+		ActorYaw, CtrlYaw, YawDeltaThisFrame);
+	Out += FString::Printf(TEXT("\nclip=%s RM=%d turnSet=%d idle=%s"),
+		*GetNameSafe(GetLocomotionTurnAnim()), bRm ? 1 : 0, ActiveAnimSet.TurnSet.IsValid() ? 1 : 0,
+		*GetNameSafe(GetLocomotionIdleAnim()));
+	if (IsPrimaryMeshAnimInstance())
+	{
+		static const FName DefaultSharedGroup(TEXT("DefaultSharedGroup"));
+		TArray<UAnimInstance*> LinkedByGroup;
+		GetLinkedAnimLayerInstancesByGroup(DefaultSharedGroup, LinkedByGroup);
+		for (UAnimInstance* const Inst : LinkedByGroup)
+		{
+			if (const UUDFAnimInstance* const LayerDF = Cast<UUDFAnimInstance>(Inst))
+			{
+				Out += FString::Printf(TEXT("\nlayer=%s layerPhase=%d layerDir=%+.0f layerTime=%.2f"),
+					*LayerDF->GetClass()->GetName(),
+					LayerDF->bInTurnInPlacePhase ? 1 : 0,
+					LayerDF->TurnInPlaceDirection,
+					LayerDF->TurnInPlaceExplicitTime);
+				break;
+			}
+		}
+	}
+	return Out;
+}
+
+FString UUDFAnimInstance::BuildTurnInPlaceDebugOneLiner() const
+{
+	const float AbsOff = FMath::Abs(RootYawOffset);
+	const bool bIdleEnoughToStartTurn = !bIsInAir && !bInLocomotionStopPhase
+		&& Speed <= IdleSpeedDeadband && !bIsAccelerating;
+	const bool bReady = bIdleEnoughToStartTurn && bTurnInPlaceRetriggerArmed
+		&& AbsOff > TurnInPlaceTriggerYaw;
+	return FString::Printf(
+		TEXT("[TIP|1] %s off=%.1f aim=%.1f |off|=%.0f trans=%d phase=%d armed=%d ready=%d idle=%d spd=%.0f accel=%d dir=%+.0f deg=%.0f t=%.2f/%.2f clip=%s end=%s codeYaw=%d"),
+		*GetClass()->GetName(),
+		RootYawOffset, AimYaw, AbsOff,
+		bTransition_TurnInPlace ? 1 : 0, bInTurnInPlacePhase ? 1 : 0,
+		bTurnInPlaceRetriggerArmed ? 1 : 0, bReady ? 1 : 0, bIdleEnoughToStartTurn ? 1 : 0,
+		Speed, bIsAccelerating ? 1 : 0,
+		TurnInPlaceDirection, TurnInPlaceAnimDegrees,
+		TurnInPlaceExplicitTime, CachedTurnAnimPlayLength,
+		*GetNameSafe(GetLocomotionTurnAnim()), *TurnInPlaceLastEndReason,
+		bTurnInPlaceApplyActorYawFromCode ? 1 : 0);
+}
+
 FString UUDFAnimInstance::BuildDirectionalLocomotionDebugString() const
 {
 	const UAnimSequenceBase* const StartA = GetLocomotionStartAnim();
@@ -2149,13 +2673,19 @@ FString UUDFAnimInstance::BuildDirectionalLocomotionDebugString() const
 		LocomotionDirName(LocomotionStartDirection), LocomotionGaitName(LocomotionStartGait),
 		LocomotionDirName(LocomotionStopDirection), LocomotionGaitName(LocomotionStopGait),
 		LocomotionStartElapsed, StartMaxPlayTime);
-	Out += FString::Printf(TEXT("\nTrans: Idle>Start=%d Start>Loop=%d Loop>Stop=%d Stop>Move=%d Stop>Idle=%d TIP=%d"),
+	Out += FString::Printf(TEXT("\nTrans: Idle>Start=%d Start>Loop=%d Loop>Stop=%d Stop>Move=%d Stop>Idle=%d TIP=%d Turn=%d"),
 		bTransition_IdleToStart ? 1 : 0, bTransition_StartToLoop ? 1 : 0,
 		bTransition_LoopToStop ? 1 : 0, bTransition_StopToMove ? 1 : 0, bTransition_StopToIdle ? 1 : 0,
-		bTransition_TurnInPlace ? 1 : 0);
+		bTransition_TurnInPlace ? 1 : 0, bInTurnInPlacePhase ? 1 : 0);
+	Out += FString::Printf(TEXT("\nAnim Idle=%s"), *GetNameSafe(GetLocomotionIdleAnim()));
+	Out += FString::Printf(TEXT("\nAnim Turn =%s (%.0f° L/R=%+.0f) Time=%.2f/%.2fs"),
+		*GetNameSafe(GetLocomotionTurnAnim()), TurnInPlaceAnimDegrees, TurnInPlaceDirection,
+		TurnInPlaceExplicitTime, CachedTurnAnimPlayLength);
 	Out += FString::Printf(TEXT("\nAnim Start=%s"), *GetNameSafe(StartA));
 	Out += FString::Printf(TEXT("\nAnim Loop =%s"), *GetNameSafe(LoopA));
 	Out += FString::Printf(TEXT("\nAnim Stop =%s"), *GetNameSafe(StopA));
+	Out += FString::Printf(TEXT("\nTIP RootYawOff=%.1f AimYaw=%.1f Trig>=%.0f 180>=%.0f"),
+		RootYawOffset, AimYaw, TurnInPlaceTriggerYaw, TurnInPlace180Threshold);
 	const float StopInitDisplay = (LocomotionStopInitialTarget > KINDA_SMALL_NUMBER)
 		? LocomotionStopInitialTarget
 		: AuthoredStopDistance;
@@ -2194,8 +2724,8 @@ FString UUDFAnimInstance::BuildDirectionalLocomotionDeepDebugString() const
 		Speed, Direction, InputMag, MaxWS, CmcRun, CmcSprint, bIsSprinting ? 1 : 0);
 	Out += FString::Printf(TEXT("\nGaitThr Walk>=%.0f Run>=%.0f | AuthoredLoop=%.0f StrideScale=%.2f (vs curve %.2f)"),
 		WalkSpeedThreshold, RunSpeedThreshold, AuthoredLoopSpeed, StrideScale, CurveStrideScale);
-	Out += FString::Printf(TEXT("\nDistMatchStartSpd=%.0f YawDelta=%.1f RootYawOff=%.1f"),
-		DistanceMatchingStartSpeed, YawDeltaThisFrame, RootYawOffset);
+	Out += FString::Printf(TEXT("\nDistMatchStartSpd=%.0f YawDelta=%.1f RootYawOff=%.1f TurnPhase=%d"),
+		DistanceMatchingStartSpeed, YawDeltaThisFrame, RootYawOffset, bInTurnInPlacePhase ? 1 : 0);
 	Out += FString::Printf(TEXT("\n%s"), *FormatAnimSampleLine(TEXT("Loop"), LoopA));
 	Out += FString::Printf(TEXT("\n%s"), *FormatAnimSampleLine(TEXT("Start"), GetLocomotionStartAnim()));
 	Out += FString::Printf(TEXT("\n%s"), *FormatAnimSampleLine(TEXT("Stop"), GetLocomotionStopAnim()));

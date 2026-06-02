@@ -66,6 +66,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Directional")
 	UAnimSequenceBase* GetLocomotionStopAnim() const;
 
+	/** Grounded idle loop from ActiveAnimSet.IdleAnimation (layer / weapon set picks the clip). */
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Idle")
+	UAnimSequenceBase* GetLocomotionIdleAnim() const;
+
+	/** Turn-in-place clip for current RootYawOffset (90° or 180°, L/R). Wire Turn state. */
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|TurnInPlace")
+	UAnimSequenceBase* GetLocomotionTurnAnim() const;
+
 	/** Alpha 0..1 for early land blend: 1 when close to ground while falling. */
 	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Jump")
 	float GetLandPreparationAlpha() const;
@@ -205,6 +213,10 @@ public:
 
 	/** Extra lines: CMC caps, stride scale, loop anim Distance/RM (df.LocomotionDebug 4). */
 	FString BuildDirectionalLocomotionDeepDebugString() const;
+
+	/** Turn-in-place only — df.TurnDebug / df.DebugTurnInPlace. */
+	FString BuildTurnInPlaceDebugString() const;
+	FString BuildTurnInPlaceDebugOneLiner() const;
 
 	/** Multi-line jump SM transition debug for df.JumpDebug 3 / dump. */
 	FString BuildJumpTransitionDebugString() const;
@@ -520,11 +532,59 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|TurnInPlace")
 	float TurnInPlaceDirection = 0.f;
 
+	/** True while a turn clip is playing (Sequence Evaluator / Turn state). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|TurnInPlace")
+	bool bInTurnInPlacePhase = false;
+
+	/** Explicit time (s) for Turn Sequence Evaluator — advanced in C++ each frame. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|TurnInPlace")
+	float TurnInPlaceExplicitTime = 0.f;
+
+	/** 90 or 180 for the clip selected this turn (debug / AnimBP). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|TurnInPlace")
+	float TurnInPlaceAnimDegrees = 0.f;
+
 	/** Threshold (deg) to trigger a turn in place. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
 	float TurnInPlaceTriggerYaw = 60.f;
 
-	/** Yaw drained per second while playing TIP (smooth fallback if not using anim curve). */
+	/** |RootYawOffset| at or above this uses Turn_180_* instead of Turn_90_* (latched at turn start). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "45.0"))
+	float TurnInPlace180Threshold = 100.f;
+
+	/**
+	 * Rotate the actor yaw while a turn plays. Off = let the Turn sequence drive the pose only
+	 * (recommended for Fab clips that already rotate in the animation). On = C++ rotates the pawn
+	 * in sync with clip length (use when Enable Root Motion is off and the clip has no body yaw).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace")
+	bool bTurnInPlaceApplyActorYawFromCode = false;
+
+	/** Minimum time (s) in turn phase before bOffsetDone can end early (avoids 1-frame pops). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
+	float TurnInPlaceMinPhaseTime = 0.25f;
+
+	/** After the clip, snap actor yaw for leftover |RootYawOffset| up to this many degrees. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
+	float TurnInPlacePostTurnSnapMaxYaw = 35.f;
+
+	/** |RootYawOffset| must drop below this before another turn can start (anti spam / re-trigger). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
+	float TurnInPlaceRetriggerYaw = 45.f;
+
+	/** While in turn phase, abort only if Speed exceeds this (avoids cancel from end-of-turn rotation / input glitches). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
+	float TurnInPlaceAbortSpeed = 80.f;
+
+	/** Flip L/R clip selection if your Turn_* assets are authored with opposite naming. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace")
+	bool bInvertTurnInPlaceDirection = false;
+
+	/** Remaining |RootYawOffset| (deg) below which the turn phase ends. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
+	float TurnInPlaceCompleteYaw = 8.f;
+
+	/** Yaw drained per second while moving (bleed offset when not in TIP). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
 	float TurnInPlaceYawInterpSpeed = 360.f;
 
@@ -615,6 +675,10 @@ private:
 	void UpdateDistanceMatching(float DeltaSeconds);
 	void UpdateStrideWarping(float DeltaSeconds);
 	void UpdateTurnInPlace(float DeltaSeconds);
+	void EnsureActiveAnimSetTurnSet();
+	void MergeTurnSetFromLinkedLayersIfEmpty();
+	void SyncTurnSetFromPrimaryMeshIfEmpty();
+	void DrawTurnInPlaceDebug(const UWorld* World) const;
 	void UpdateFootPlantCurves();
 	void UpdateAimOffsetBlend(float DeltaSeconds);
 
@@ -638,6 +702,10 @@ private:
 	bool bPrevTransition_LandToLoco = false;
 	bool bPrevTransition_LoopToLandPrep = false;
 	bool bPrevTransition_JumpGroundedExit = false;
+	bool bWarnedMissingTurnSet = false;
+	float TurnInPlaceYawAppliedTotal = 0.f;
+	bool bTurnInPlaceRetriggerArmed = true;
+	FString TurnInPlaceLastEndReason;
 
 	bool bWasInAirPreviousFrame = false;
 	bool bWasDoubleJumpingPreviousFrame = false;
@@ -665,6 +733,9 @@ private:
 	float LocomotionStopDistanceConsumed = 0.f;
 	float CachedAuthoredStopPlayLength = 1.5f; // Run_Stop play length for fallback target decay
 	float CachedStopMotionEndTime = 1.2f;    // Time where |Distance| curve nears zero (no slow hold tail)
+	float CachedTurnAnimPlayLength = 1.f;
+	bool bWasInTurnInPlacePhasePreviousFrame = false;
+	float TurnInPlaceDebugLogTimer = 0.f;
 
 	void SyncEquippedWeaponAnimLayerFromOwner();
 

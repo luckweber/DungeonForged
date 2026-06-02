@@ -1,6 +1,9 @@
 // Source/DungeonForged/Private/Animation/DFAnimSetTypes.cpp
 #include "Animation/DFAnimSetTypes.h"
 
+#include "Misc/PackageName.h"
+#include "Misc/Paths.h"
+
 UAnimSequenceBase* FUDJumpAnimSet::ResolveStart(const EDFMovementDirection Dir) const
 {
 	switch (Dir)
@@ -222,4 +225,170 @@ UAnimSequenceBase* FUDAnimSet::ResolveLocomotionStop(const EDFGait Gait, const E
 		return WalkSet.ResolveStop(Dir);
 	}
 	return nullptr;
+}
+
+UAnimSequenceBase* FUDTurnInPlaceAnimSet::ResolveTurn(const bool bUse180, const bool bTurnRight) const
+{
+	if (bUse180)
+	{
+		if (bTurnRight)
+		{
+			return Turn_180_R ? Turn_180_R : Turn_90_R;
+		}
+		return Turn_180_L ? Turn_180_L : Turn_90_L;
+	}
+	if (bTurnRight)
+	{
+		return Turn_90_R ? Turn_90_R : Turn_180_R;
+	}
+	return Turn_90_L ? Turn_90_L : Turn_180_L;
+}
+
+UAnimSequenceBase* FUDAnimSet::ResolveLocomotionIdle() const
+{
+	return IdleAnimation;
+}
+
+UAnimSequenceBase* FUDAnimSet::ResolveLocomotionTurn(const bool bUse180, const bool bTurnRight) const
+{
+	return TurnSet.ResolveTurn(bUse180, bTurnRight);
+}
+
+void FUDAnimSet::MergeTurnSetFrom(const FUDTurnInPlaceAnimSet& Source)
+{
+	if (!Source.IsValid())
+	{
+		return;
+	}
+	if (!TurnSet.Turn_90_L && Source.Turn_90_L)
+	{
+		TurnSet.Turn_90_L = Source.Turn_90_L;
+	}
+	if (!TurnSet.Turn_90_R && Source.Turn_90_R)
+	{
+		TurnSet.Turn_90_R = Source.Turn_90_R;
+	}
+	if (!TurnSet.Turn_180_L && Source.Turn_180_L)
+	{
+		TurnSet.Turn_180_L = Source.Turn_180_L;
+	}
+	if (!TurnSet.Turn_180_R && Source.Turn_180_R)
+	{
+		TurnSet.Turn_180_R = Source.Turn_180_R;
+	}
+}
+
+namespace DFAnimSetTurnAutoFill
+{
+static UAnimSequenceBase* LoadTurnAtPath(const FString& ObjectPath)
+{
+	if (ObjectPath.IsEmpty())
+	{
+		return nullptr;
+	}
+	return LoadObject<UAnimSequenceBase>(nullptr, *ObjectPath);
+}
+
+static void AddCandidateDirs(const FString& IdlePackageDir, TArray<FString>& OutDirs)
+{
+	OutDirs.AddUnique(IdlePackageDir / TEXT("09_Turn/01_Turn"));
+	OutDirs.AddUnique(IdlePackageDir / TEXT("09_Turn"));
+	OutDirs.AddUnique(FPaths::GetPath(IdlePackageDir) / TEXT("09_Turn/01_Turn"));
+	OutDirs.AddUnique(FPaths::GetPath(IdlePackageDir) / TEXT("09_Turn"));
+
+	FString Replaced = IdlePackageDir;
+	if (Replaced.ReplaceInline(TEXT("/08_Idle"), TEXT("/09_Turn/01_Turn")) > 0)
+	{
+		OutDirs.AddUnique(Replaced);
+	}
+	Replaced = IdlePackageDir;
+	if (Replaced.ReplaceInline(TEXT("Idle"), TEXT("09_Turn/01_Turn")) > 0)
+	{
+		OutDirs.AddUnique(Replaced);
+	}
+}
+
+static UAnimSequenceBase* TryLoadNamedTurn(const TArray<FString>& Dirs, const TCHAR* AssetName)
+{
+	for (const FString& Dir : Dirs)
+	{
+		if (Dir.IsEmpty())
+		{
+			continue;
+		}
+		const FString ObjectPath = FString::Printf(TEXT("%s/%s.%s"), *Dir, AssetName, AssetName);
+		if (UAnimSequenceBase* const Loaded = LoadTurnAtPath(ObjectPath))
+		{
+			return Loaded;
+		}
+	}
+	return nullptr;
+}
+} // namespace DFAnimSetTurnAutoFill
+
+bool FUDAnimSet::TryAutoFillTurnSetFromIdlePackagePaths()
+{
+	if (TurnSet.IsValid() || !IdleAnimation)
+	{
+		return false;
+	}
+
+	const FString IdlePackageName = IdleAnimation->GetOutermost()->GetName();
+	const FString IdlePackageDir = FPackageName::GetLongPackagePath(IdlePackageName);
+	TArray<FString> CandidateDirs;
+	DFAnimSetTurnAutoFill::AddCandidateDirs(IdlePackageDir, CandidateDirs);
+
+	auto AssignIfNull = [this, &CandidateDirs](TObjectPtr<UAnimSequenceBase>& Slot, const TCHAR* Name)
+	{
+		if (!Slot)
+		{
+			Slot = DFAnimSetTurnAutoFill::TryLoadNamedTurn(CandidateDirs, Name);
+		}
+	};
+
+	AssignIfNull(TurnSet.Turn_90_L, TEXT("Turn_90_L_Seq"));
+	AssignIfNull(TurnSet.Turn_90_R, TEXT("Turn_90_R_Seq"));
+	AssignIfNull(TurnSet.Turn_180_L, TEXT("Turn_180_L_Seq"));
+	AssignIfNull(TurnSet.Turn_180_R, TEXT("Turn_180_R_Seq"));
+	// Fab / alternate naming without _Seq suffix
+	AssignIfNull(TurnSet.Turn_90_L, TEXT("Turn_90_L"));
+	AssignIfNull(TurnSet.Turn_90_R, TEXT("Turn_90_R"));
+	AssignIfNull(TurnSet.Turn_180_L, TEXT("Turn_180_L"));
+	AssignIfNull(TurnSet.Turn_180_R, TEXT("Turn_180_R"));
+
+	return TurnSet.IsValid();
+}
+
+bool FUDAnimSet::TryAutoFillTurnSetFromKnownContentPaths()
+{
+	if (TurnSet.IsValid())
+	{
+		return false;
+	}
+
+	static const TCHAR* TurnDirs[] = {
+		TEXT("/Game/Sword_and_Shield/Animations/Sequence2/09_Turn/01_Turn"),
+		TEXT("/Game/Sword_and_Shield/Animations/Sequence/09_Turn/01_Turn"),
+		TEXT("/Game/DungeonForged/Character/JSHero/Animation/Sword_and_Shield/Animations/Sequence2/09_Turn/01_Turn"),
+	};
+	TArray<FString> CandidateDirs;
+	for (const TCHAR* Dir : TurnDirs)
+	{
+		CandidateDirs.AddUnique(FString(Dir));
+	}
+
+	auto AssignIfNull = [this, &CandidateDirs](TObjectPtr<UAnimSequenceBase>& Slot, const TCHAR* Name)
+	{
+		if (!Slot)
+		{
+			Slot = DFAnimSetTurnAutoFill::TryLoadNamedTurn(CandidateDirs, Name);
+		}
+	};
+
+	AssignIfNull(TurnSet.Turn_90_L, TEXT("Turn_90_L_Seq"));
+	AssignIfNull(TurnSet.Turn_90_R, TEXT("Turn_90_R_Seq"));
+	AssignIfNull(TurnSet.Turn_180_L, TEXT("Turn_180_L_Seq"));
+	AssignIfNull(TurnSet.Turn_180_R, TEXT("Turn_180_R_Seq"));
+
+	return TurnSet.IsValid();
 }

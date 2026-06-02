@@ -2,7 +2,7 @@
 
 Guia dedicado para configurar o nó **Stride Warping** (plugin `AnimationWarping`) no `ABP_JSHeroCharacter`, eliminando o **WARNING** que aparece quando o nó está sem os bones definidos.
 
-> **Complementa** [`18_8Way_StartLoopStop_Setup.md`](18_8Way_StartLoopStop_Setup.md) §5.2. Engine alvo: **UE 5.4**. Nomes de campos validados na doc oficial *Pose Warping* (ver §10).
+> **Complementa** [`18_8Way_StartLoopStop_Setup.md`](18_8Way_StartLoopStop_Setup.md) §5.2 e [`20_TurnInPlace_Setup.md`](20_TurnInPlace_Setup.md) (idle/turn não usam stride warp). Engine alvo: **UE 5.4**. Nomes de campos validados na doc oficial *Pose Warping* (ver §10).
 
 ---
 

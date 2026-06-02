@@ -158,6 +158,36 @@ struct DUNGEONFORGED_API FUDLocomotionAnimSet
 };
 
 /**
+ * Turn-in-place clips (90° / 180° left & right). Idle loop uses FUDAnimSet::IdleAnimation
+ * (which Anim Set / linked layer is active defines unarmed vs armed idle).
+ */
+USTRUCT(BlueprintType)
+struct DUNGEONFORGED_API FUDTurnInPlaceAnimSet
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn|90")
+	TObjectPtr<UAnimSequenceBase> Turn_90_L;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn|90")
+	TObjectPtr<UAnimSequenceBase> Turn_90_R;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn|180")
+	TObjectPtr<UAnimSequenceBase> Turn_180_L;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Turn|180")
+	TObjectPtr<UAnimSequenceBase> Turn_180_R;
+
+	/** bTurnRight: true = Turn_*_R, false = Turn_*_L. bUse180: pick 180 vs 90 set. */
+	UAnimSequenceBase* ResolveTurn(const bool bUse180, const bool bTurnRight) const;
+
+	bool IsValid() const
+	{
+		return Turn_90_L || Turn_90_R || Turn_180_L || Turn_180_R;
+	}
+};
+
+/**
  * Animation bundle for idle / locomotion / jump driven by AnimGraph.
  */
 USTRUCT(BlueprintType)
@@ -181,6 +211,10 @@ struct DUNGEONFORGED_API FUDAnimSet
 	/** Optional: per-direction Start/Loop/Stop for run. Falls back to MovementBlendSpace if empty. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "DF|Anim Set - Locomotion|Directional")
 	FUDLocomotionAnimSet RunSet;
+
+	/** Turn-in-place clips only (09_Turn). Idle = IdleAnimation above. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "DF|Anim Set - Turn")
+	FUDTurnInPlaceAnimSet TurnSet;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "DF|Anim Set - Jump")
 	FUDJumpAnimSet JumpSet;
@@ -212,6 +246,20 @@ struct DUNGEONFORGED_API FUDAnimSet
 	UAnimSequenceBase* ResolveLocomotionStart(EDFGait Gait, EDFMovementDirection Dir) const;
 	UAnimSequenceBase* ResolveLocomotionLoop(EDFGait Gait, EDFMovementDirection Dir) const;
 	UAnimSequenceBase* ResolveLocomotionStop(EDFGait Gait, EDFMovementDirection Dir) const;
+	UAnimSequenceBase* ResolveLocomotionIdle() const;
+	UAnimSequenceBase* ResolveLocomotionTurn(const bool bUse180, const bool bTurnRight) const;
+
+	/** Copy any missing Turn_* slots from Source (layer inherits main Turn Set). */
+	void MergeTurnSetFrom(const FUDTurnInPlaceAnimSet& Source);
+
+	/**
+	 * When Turn Set is empty but IdleAnimation is set, try loading Turn_90/180_* from
+	 * sibling folders (09_Turn/01_Turn next to the idle package path).
+	 */
+	bool TryAutoFillTurnSetFromIdlePackagePaths();
+
+	/** Load Turn_* from standard Sword_and_Shield / Fab paths when idle-relative lookup fails. */
+	bool TryAutoFillTurnSetFromKnownContentPaths();
 
 	bool IsValid() const
 	{
