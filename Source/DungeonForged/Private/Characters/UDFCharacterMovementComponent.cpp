@@ -1,6 +1,7 @@
 // Source/DungeonForged/Private/Characters/UDFCharacterMovementComponent.cpp
 #include "Characters/UDFCharacterMovementComponent.h"
 
+#include "Animation/UDFAnimInstance.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Combat/DFAirDashDebug.h"
 #include "Combat/DFDodgeDebug.h"
@@ -433,6 +434,36 @@ void UDFCharacterMovementComponent::SetStrafeMode(const bool bStrafe)
 	bOrientRotationToMovement = !bStrafe;
 	bUseControllerDesiredRotation = bStrafe;
 	BrakingFrictionFactor = bStrafe ? 2.f : DefaultBrakingFrictionFactor;
+}
+
+void UDFCharacterMovementComponent::PhysicsRotation(float DeltaTime)
+{
+	if (ACharacter* const Char = CharacterOwner)
+	{
+		if (USkeletalMeshComponent* const Mesh = Char->GetMesh())
+		{
+			if (UUDFAnimInstance* const DFAnim = Cast<UUDFAnimInstance>(Mesh->GetAnimInstance()))
+			{
+				if (DFAnim->TryApplyTurnInPlaceRotationYawSpeed(DeltaTime))
+				{
+					return;
+				}
+				if (DFAnim->ShouldLockExplorationBodyYaw())
+				{
+					DFAnim->EnforceExplorationBodyYawLock();
+					return;
+				}
+			}
+		}
+	}
+
+	const bool bHasMoveInput = GetLastInputVector().SizeSquared2D() > 0.01f;
+	if (!bHasMoveInput && Velocity.Size2D() <= RunSpeed)
+	{
+		return;
+	}
+
+	Super::PhysicsRotation(DeltaTime);
 }
 
 FNetworkPredictionData_Client* UDFCharacterMovementComponent::GetPredictionData_Client() const

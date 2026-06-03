@@ -74,6 +74,25 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|TurnInPlace")
 	UAnimSequenceBase* GetLocomotionTurnAnim() const;
 
+	/** Parado estilo ALS: no chão, sem stick de movimento, velocidade ~0 (Stop phase OK se spd=0). */
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|TurnInPlace")
+	bool IsIdleForTurnInPlace() const;
+
+	/** True se este frame deve entrar em Turn (|RootYawOffset| > TurnInPlaceTriggerYaw + idle). */
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|TurnInPlace")
+	bool ShouldPlayTurnInPlaceTransition() const;
+
+	/** Cápsula só deve girar durante bInTurnInPlacePhase (não seguir câmera aos 30°). */
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|TurnInPlace")
+	bool ShouldDriveCapsuleYawFromTurn() const { return bInTurnInPlacePhase; }
+
+	/** Exploração idle: trava yaw da cápsula (câmera não gira o corpo abaixo do trigger). */
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|TurnInPlace")
+	bool ShouldLockExplorationBodyYaw() const;
+
+	/** Reaplica yaw travado — chamado de PhysicsRotation quando ShouldLockExplorationBodyYaw. */
+	void EnforceExplorationBodyYawLock();
+
 	/** Alpha 0..1 for early land blend: 1 when close to ground while falling. */
 	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Jump")
 	float GetLandPreparationAlpha() const;
@@ -226,6 +245,9 @@ public:
 
 	void LogJumpDeepSnapshot(const TCHAR* Reason);
 #endif
+
+	/** ALS ApplyRotationYawSpeedAnimationCurve — used by UDFCharacterMovementComponent::PhysicsRotation. */
+	bool TryApplyTurnInPlaceRotationYawSpeed(float DeltaSeconds);
 
 	// ── Default (unarmed) Anim Set ──
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "DF|Anim Set")
@@ -515,8 +537,11 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|StrideWarping", meta = (ClampMin = "0.0"))
 	float StrideWarpingMinSpeed = 150.f;
 
-	// ── Turn In Place ──
-	/** Accumulated yaw offset (deg) between aim/control rotation and actor — drains via TIP montages. */
+	// ── Turn In Place (ALS exploration) ──
+	/**
+	 * Câmera vs corpo (graus). Enquanto |valor| < TurnInPlaceTriggerYaw a cápsula NÃO gira —
+	 * use no Aim Offset / spine do AnimBP. Turn in place só quando idle + |valor| >= trigger.
+	 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|TurnInPlace")
 	float RootYawOffset = 0.f;
 
@@ -553,9 +578,19 @@ protected:
 	float TurnInPlace180Threshold = 100.f;
 
 	/**
-	 * Rotate the actor yaw while a turn plays. Off = let the Turn sequence drive the pose only
-	 * (recommended for Fab clips that already rotate in the animation). On = C++ rotates the pawn
-	 * in sync with clip length (use when Enable Root Motion is off and the clip has no body yaw).
+	 * ALS-style: read RotationYawSpeed from the evaluated Turn clip (deg/s) and apply on the pawn
+	 * via PhysicsRotation while bInTurnInPlacePhase. Do not also rotate the pawn from AnimInstance C++.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace")
+	bool bTurnInPlaceDriveYawFromRotationCurve = true;
+
+	/** Turn clip curve (empty = RotationYawSpeed, then legacy Rotation/Yaw). Bake with DF modifier. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace")
+	FName TurnInPlaceRotationCurveName;
+
+	/**
+	 * Legacy linear yaw (deg/sec from clip length). Off by default — causes pawn spins when combined
+	 * with small offsets. Prefer bTurnInPlaceDriveYawFromRotationCurve or pose-only + end snap.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace")
 	bool bTurnInPlaceApplyActorYawFromCode = false;
@@ -564,15 +599,15 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
 	float TurnInPlaceMinPhaseTime = 0.25f;
 
-	/** After the clip, snap actor yaw for leftover |RootYawOffset| up to this many degrees. */
+	/** After the clip, optional snap toward aim (0 = off; ALS relies on curve + view modes). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
-	float TurnInPlacePostTurnSnapMaxYaw = 35.f;
+	float TurnInPlacePostTurnSnapMaxYaw = 0.f;
 
 	/** |RootYawOffset| must drop below this before another turn can start (anti spam / re-trigger). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
 	float TurnInPlaceRetriggerYaw = 45.f;
 
-	/** While in turn phase, abort only if Speed exceeds this (avoids cancel from end-of-turn rotation / input glitches). */
+	/** Legacy / debug reference only — active turns no longer abort on Speed (see UpdateTurnInPlace). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
 	float TurnInPlaceAbortSpeed = 80.f;
 
@@ -675,6 +710,9 @@ private:
 	void UpdateDistanceMatching(float DeltaSeconds);
 	void UpdateStrideWarping(float DeltaSeconds);
 	void UpdateTurnInPlace(float DeltaSeconds);
+	void UpdateExplorationBodyYawLock();
+	bool HasMovementInputForTurnInPlace() const;
+	bool IsIdleForTurnInPlaceInternal() const;
 	void EnsureActiveAnimSetTurnSet();
 	void MergeTurnSetFromLinkedLayersIfEmpty();
 	void SyncTurnSetFromPrimaryMeshIfEmpty();
@@ -734,8 +772,16 @@ private:
 	float CachedAuthoredStopPlayLength = 1.5f; // Run_Stop play length for fallback target decay
 	float CachedStopMotionEndTime = 1.2f;    // Time where |Distance| curve nears zero (no slow hold tail)
 	float CachedTurnAnimPlayLength = 1.f;
+	float TurnInPlaceStartAbsOffset = 0.f;
+	float TurnInPlaceStartActorYaw = 0.f;
+	float TurnInPlaceCurveYawLastSample = 0.f;
+	bool bTurnInPlaceHasRotationCurve = false;
+	FName TurnInPlaceResolvedCurveName;
 	bool bWasInTurnInPlacePhasePreviousFrame = false;
 	float TurnInPlaceDebugLogTimer = 0.f;
+	float ExplorationLockedBodyYaw = 0.f;
+	bool bExplorationBodyYawLockActive = false;
+	bool bSavedOrientRotationToMovementForLock = false;
 
 	void SyncEquippedWeaponAnimLayerFromOwner();
 

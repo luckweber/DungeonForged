@@ -1359,6 +1359,72 @@ void UUDFAnimInstance::UpdateStrideWarping(const float DeltaSeconds)
 	LocomotionPlayRate = FMath::Clamp(TargetScale, 0.2f, 3.f);
 }
 
+namespace DFTurnRotationCurve
+{
+static const FName DefaultCurveName(TEXT("RotationYawSpeed"));
+/** UE 5.4+ HasCurveData / EvaluateCurveData require bForceUseRawData. */
+static constexpr bool bForceUseRawCurveData = false;
+
+static constexpr int32 NumFallbackCurveNames = 1;
+
+static FName GetFallbackCurveName(const int32 Index)
+{
+	static const FName Names[NumFallbackCurveNames] = {FName(TEXT("Yaw"))};
+	return Names[FMath::Clamp(Index, 0, NumFallbackCurveNames - 1)];
+}
+
+static bool SampleYawDegrees(const UAnimSequence* Seq, const FName CurveName, const float Time, float& OutYaw)
+{
+	if (!Seq || CurveName.IsNone() || !Seq->HasCurveData(CurveName, bForceUseRawCurveData))
+	{
+		return false;
+	}
+	OutYaw = Seq->EvaluateCurveData(CurveName, Time, bForceUseRawCurveData);
+	return true;
+}
+
+static bool SampleYawSpeedDegreesPerSecond(const UAnimSequence* Seq, const FName CurveName, const float Time,
+	float& OutYawSpeed)
+{
+	return SampleYawDegrees(Seq, CurveName, Time, OutYawSpeed);
+}
+
+static bool ResolveCurveName(const UAnimSequence* Seq, const FName PreferredName, FName& OutCurveName)
+{
+	if (!Seq)
+	{
+		return false;
+	}
+	if (!PreferredName.IsNone() && Seq->HasCurveData(PreferredName, bForceUseRawCurveData))
+	{
+		OutCurveName = PreferredName;
+		return true;
+	}
+	if (Seq->HasCurveData(DefaultCurveName, bForceUseRawCurveData))
+	{
+		OutCurveName = DefaultCurveName;
+		return true;
+	}
+	for (int32 i = 0; i < NumFallbackCurveNames; ++i)
+	{
+		const FName FallbackName = GetFallbackCurveName(i);
+		if (Seq->HasCurveData(FallbackName, bForceUseRawCurveData))
+		{
+			OutCurveName = FallbackName;
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool QueryClipHasTurnRotationCurve(const UAnimSequence* Seq, const FName PreferredName,
+	FName& OutResolvedName)
+{
+	OutResolvedName = NAME_None;
+	return Seq && ResolveCurveName(Seq, PreferredName, OutResolvedName);
+}
+} // namespace DFTurnRotationCurve
+
 void UUDFAnimInstance::UpdateTurnInPlace(const float DeltaSeconds)
 {
 	bTransition_TurnInPlace = false;
@@ -1380,15 +1446,15 @@ void UUDFAnimInstance::UpdateTurnInPlace(const float DeltaSeconds)
 	YawDeltaThisFrame = FMath::FindDeltaAngleDegrees(PreviousActorYaw, CurrentActorYaw);
 	PreviousActorYaw = CurrentActorYaw;
 
-	const bool bGrounded = !bIsInAir && !bInLocomotionStopPhase;
-	const bool bIdleEnoughToStartTurn = bGrounded && Speed <= IdleSpeedDeadband && !bIsAccelerating;
-	// Do not abort a turn for Speed alone — SetActorRotation at clip end can spike Velocity.
-	const bool bAbortTurnPhase = !bGrounded
-		|| (!bInTurnInPlacePhase && !bIdleEnoughToStartTurn);
+	const bool bHasMoveInput = HasMovementInputForTurnInPlace();
+	const bool bIdleEnoughToStartTurn = IsIdleForTurnInPlaceInternal();
+	const bool bAbortTurnPhase = bIsInAir
+		|| (!bInTurnInPlacePhase && !bIdleEnoughToStartTurn)
+		|| (bInTurnInPlacePhase && bHasMoveInput);
 
 	auto StopHorizontalVelocityAfterTurnSnap = [this]()
 	{
-		if (UDFCharacterMovement)
+		if (DFCharacterMovement)
 		{
 			FVector Vel = DFCharacterMovement->Velocity;
 			Vel.X = 0.f;
@@ -1397,7 +1463,7 @@ void UUDFAnimInstance::UpdateTurnInPlace(const float DeltaSeconds)
 		}
 	};
 
-	auto FinishTurnPhase = [this](const TCHAR* EndReason, const bool bAllowImmediateRetrigger)
+	auto FinishTurnPhase = [this, &StopHorizontalVelocityAfterTurnSnap, Owner](const TCHAR* EndReason, const bool bAllowImmediateRetrigger)
 	{
 		bInTurnInPlacePhase = false;
 		bTransition_TurnInPlace = false;
@@ -1405,15 +1471,26 @@ void UUDFAnimInstance::UpdateTurnInPlace(const float DeltaSeconds)
 		TurnInPlaceAnimDegrees = 0.f;
 		TurnInPlaceDirection = 0.f;
 		TurnInPlaceYawAppliedTotal = 0.f;
+		TurnInPlaceStartAbsOffset = 0.f;
+		bTurnInPlaceHasRotationCurve = false;
+		TurnInPlaceResolvedCurveName = NAME_None;
 		bTurnInPlaceRetriggerArmed = bAllowImmediateRetrigger;
 		TurnInPlaceLastEndReason = EndReason ? EndReason : TEXT("?");
+		StopHorizontalVelocityAfterTurnSnap();
+		if (Owner)
+		{
+			ExplorationLockedBodyYaw = Owner->GetActorRotation().Yaw;
+			bExplorationBodyYawLockActive = true;
+		}
 	};
 
 	if (bAbortTurnPhase)
 	{
 		if (bInTurnInPlacePhase)
 		{
-			FinishTurnPhase(TEXT("NotGrounded"), true);
+			const TCHAR* const AbortReason = bIsInAir ? TEXT("AbortAir") : TEXT("AbortInput");
+			FinishTurnPhase(AbortReason, true);
+			StopHorizontalVelocityAfterTurnSnap();
 		}
 		else
 		{
@@ -1424,7 +1501,7 @@ void UUDFAnimInstance::UpdateTurnInPlace(const float DeltaSeconds)
 		}
 		if (!bInTurnInPlacePhase)
 		{
-			RootYawOffset = FMath::FInterpTo(RootYawOffset, 0.f, DeltaSeconds, TurnInPlaceYawInterpSpeed * 0.25f);
+			RootYawOffset = AimYaw;
 		}
 		bWasInTurnInPlacePhasePreviousFrame = bInTurnInPlacePhase;
 		if (!bInTurnInPlacePhase)
@@ -1437,10 +1514,23 @@ void UUDFAnimInstance::UpdateTurnInPlace(const float DeltaSeconds)
 	if (!bInTurnInPlacePhase)
 	{
 		RootYawOffset = AimYaw;
-		if (FMath::Abs(RootYawOffset) < TurnInPlaceRetriggerYaw)
+		const float AbsOffIdle = FMath::Abs(RootYawOffset);
+		// Re-arm after a completed turn (|off| may still be > trigger) or when offset drops into retrigger band.
+		if (AbsOffIdle < TurnInPlaceRetriggerYaw || AbsOffIdle > TurnInPlaceTriggerYaw)
 		{
 			bTurnInPlaceRetriggerArmed = true;
 		}
+
+		// Kill CMC velocity spikes (stop tail / post-turn) so orient-to-movement cannot spin the capsule.
+		if (DFCharacterMovement && !bHasMoveInput && Speed > IdleSpeedDeadband)
+		{
+			StopHorizontalVelocityAfterTurnSnap();
+		}
+	}
+
+	if (bInTurnInPlacePhase && DFCharacterMovement && !bHasMoveInput && Speed > IdleSpeedDeadband)
+	{
+		StopHorizontalVelocityAfterTurnSnap();
 	}
 
 	if (bInTurnInPlacePhase)
@@ -1459,26 +1549,45 @@ void UUDFAnimInstance::UpdateTurnInPlace(const float DeltaSeconds)
 			const float AbsDeg = TurnInPlaceAnimDegrees > KINDA_SMALL_NUMBER
 				? TurnInPlaceAnimDegrees
 				: 90.f;
-			const float DegPerSec = AbsDeg / FMath::Max(CachedTurnAnimPlayLength, 0.01f);
-			const float ConsumedYaw = LatchedDir * DegPerSec * DeltaSeconds;
-			TurnInPlaceExplicitTime += DeltaSeconds;
 
-			if (bTurnInPlaceApplyActorYawFromCode && Owner && !FMath::IsNearlyZero(ConsumedYaw))
+			TurnInPlaceExplicitTime = FMath::Min(TurnInPlaceExplicitTime + DeltaSeconds, CachedTurnAnimPlayLength);
+
+			// Pawn yaw from RotationYawSpeed is applied in UDFCharacterMovementComponent::PhysicsRotation (ALS).
+			if (Owner && bTurnInPlaceApplyActorYawFromCode && !bTurnInPlaceHasRotationCurve)
 			{
-				FRotator R = Owner->GetActorRotation();
-				R.Yaw += ConsumedYaw;
-				Owner->SetActorRotation(R);
-				ConsumeRootYawOffset(ConsumedYaw);
+				const float DegPerSec = AbsDeg / FMath::Max(CachedTurnAnimPlayLength, 0.01f);
+				const float ConsumedYaw = LatchedDir * DegPerSec * DeltaSeconds;
+				if (!FMath::IsNearlyZero(ConsumedYaw))
+				{
+					FRotator R = Owner->GetActorRotation();
+					R.Yaw += ConsumedYaw;
+					Owner->SetActorRotation(R);
+					ConsumeRootYawOffset(ConsumedYaw);
+					TurnInPlaceYawAppliedTotal += ConsumedYaw;
+				}
 			}
 
 			const bool bClipDone = TurnInPlaceExplicitTime >= CachedTurnAnimPlayLength - 0.03f;
 			const bool bPastMinTime = TurnInPlaceExplicitTime >= TurnInPlaceMinPhaseTime;
-			const bool bOffsetDone = bTurnInPlaceApplyActorYawFromCode && bPastMinTime
+			const bool bOffsetDone = !bTurnInPlaceHasRotationCurve && bTurnInPlaceApplyActorYawFromCode && bPastMinTime
 				&& FMath::Abs(RootYawOffset) <= TurnInPlaceCompleteYaw;
 			if (bClipDone || bOffsetDone)
 			{
-				// Anim-only path (Fab clips, no RM): rotate the pawn once when the clip finishes.
-				if (bClipDone && !bTurnInPlaceApplyActorYawFromCode && Owner)
+				// Curve turn: close remaining aim offset once (prevents post-clip spin / AbortInput desync).
+				if (bClipDone && Owner && bTurnInPlaceHasRotationCurve && bTurnInPlaceDriveYawFromRotationCurve)
+				{
+					const float Remaining = RootYawOffset;
+					if (FMath::Abs(Remaining) > TurnInPlaceCompleteYaw)
+					{
+						FRotator R = Owner->GetActorRotation();
+						R.Yaw = FMath::UnwindDegrees(R.Yaw + Remaining);
+						Owner->SetActorRotation(R);
+						ConsumeRootYawOffset(Remaining);
+					}
+				}
+
+				// No curve on asset: one-shot yaw at clip end (Fab RM off).
+				if (bClipDone && !bTurnInPlaceHasRotationCurve && !bTurnInPlaceApplyActorYawFromCode && Owner)
 				{
 					const float RemainingBefore = RootYawOffset;
 					const float MaxApply = FMath::Min(AbsDeg, FMath::Abs(RemainingBefore));
@@ -1489,24 +1598,28 @@ void UUDFAnimInstance::UpdateTurnInPlace(const float DeltaSeconds)
 						R.Yaw += YawToApply;
 						Owner->SetActorRotation(R);
 						ConsumeRootYawOffset(YawToApply);
-						StopHorizontalVelocityAfterTurnSnap();
 					}
 				}
 
-				const float Remaining = RootYawOffset;
-				if (Owner && TurnInPlacePostTurnSnapMaxYaw > KINDA_SMALL_NUMBER
-					&& FMath::Abs(Remaining) > TurnInPlaceCompleteYaw
-					&& FMath::Abs(Remaining) <= TurnInPlacePostTurnSnapMaxYaw)
-				{
-					FRotator R = Owner->GetActorRotation();
-					R.Yaw += Remaining;
-					Owner->SetActorRotation(R);
-					ConsumeRootYawOffset(Remaining);
-					StopHorizontalVelocityAfterTurnSnap();
-				}
-				FinishTurnPhase(bOffsetDone ? TEXT("OffsetDone") : TEXT("ClipDone"), false);
+				FinishTurnPhase(bOffsetDone ? TEXT("OffsetDone") : TEXT("ClipDone"), true);
 				RootYawOffset = AimYaw;
-				bTurnInPlaceRetriggerArmed = FMath::Abs(RootYawOffset) < TurnInPlaceRetriggerYaw;
+				bTurnInPlaceRetriggerArmed = true;
+
+				// After syncing offset to camera aim, snap small residual (curve turns often end with |off| in 35–60 range).
+				if (Owner && TurnInPlacePostTurnSnapMaxYaw > KINDA_SMALL_NUMBER)
+				{
+					const float RemainingAfterClip = RootYawOffset;
+					if (FMath::Abs(RemainingAfterClip) > TurnInPlaceCompleteYaw
+						&& FMath::Abs(RemainingAfterClip) <= TurnInPlacePostTurnSnapMaxYaw)
+					{
+						FRotator R = Owner->GetActorRotation();
+						R.Yaw += RemainingAfterClip;
+						Owner->SetActorRotation(R);
+						ConsumeRootYawOffset(RemainingAfterClip);
+						RootYawOffset = AimYaw;
+					}
+				}
+				StopHorizontalVelocityAfterTurnSnap();
 			}
 		}
 		else
@@ -1542,11 +1655,153 @@ void UUDFAnimInstance::UpdateTurnInPlace(const float DeltaSeconds)
 		}
 		bTransition_TurnInPlace = true;
 		bInTurnInPlacePhase = true;
+		bExplorationBodyYawLockActive = false;
 		TurnInPlaceExplicitTime = 0.f;
 		TurnInPlaceYawAppliedTotal = 0.f;
+		TurnInPlaceStartAbsOffset = AbsOff;
+		TurnInPlaceStartActorYaw = CurrentActorYaw;
+		TurnInPlaceLastEndReason.Reset();
+		bTurnInPlaceHasRotationCurve = false;
+		TurnInPlaceResolvedCurveName = NAME_None;
+		TurnInPlaceCurveYawLastSample = 0.f;
+		const UAnimSequence* const TurnSeq = Cast<UAnimSequence>(GetLocomotionTurnAnim());
+		if (TurnSeq)
+		{
+			bTurnInPlaceHasRotationCurve = bTurnInPlaceDriveYawFromRotationCurve
+				&& DFTurnRotationCurve::ResolveCurveName(
+					TurnSeq, TurnInPlaceRotationCurveName, TurnInPlaceResolvedCurveName);
+		}
+		StopHorizontalVelocityAfterTurnSnap();
 	}
 
+	UpdateExplorationBodyYawLock();
 	bWasInTurnInPlacePhasePreviousFrame = bInTurnInPlacePhase;
+}
+
+bool UUDFAnimInstance::ShouldLockExplorationBodyYaw() const
+{
+	return !bShouldStrafe && !bIsInAir && IsIdleForTurnInPlaceInternal() && !bInTurnInPlacePhase;
+}
+
+void UUDFAnimInstance::EnforceExplorationBodyYawLock()
+{
+	if (!ShouldLockExplorationBodyYaw())
+	{
+		return;
+	}
+
+	ACharacter* const Owner = OwningCharacter.Get();
+	if (!Owner)
+	{
+		return;
+	}
+
+	if (!bExplorationBodyYawLockActive)
+	{
+		ExplorationLockedBodyYaw = Owner->GetActorRotation().Yaw;
+		bExplorationBodyYawLockActive = true;
+	}
+
+	if (UDFCharacterMovementComponent* const CMC = Cast<UDFCharacterMovementComponent>(Owner->GetCharacterMovement()))
+	{
+		if (!bSavedOrientRotationToMovementForLock)
+		{
+			bSavedOrientRotationToMovementForLock = true;
+			CMC->bOrientRotationToMovement = false;
+		}
+		FVector Vel = CMC->Velocity;
+		Vel.X = 0.f;
+		Vel.Y = 0.f;
+		CMC->Velocity = Vel;
+	}
+
+	FRotator R = Owner->GetActorRotation();
+	if (!FMath::IsNearlyEqual(FMath::UnwindDegrees(R.Yaw), FMath::UnwindDegrees(ExplorationLockedBodyYaw), 0.05f))
+	{
+		R.Yaw = ExplorationLockedBodyYaw;
+		Owner->SetActorRotation(R);
+	}
+}
+
+void UUDFAnimInstance::UpdateExplorationBodyYawLock()
+{
+	if (ShouldLockExplorationBodyYaw())
+	{
+		EnforceExplorationBodyYawLock();
+		return;
+	}
+
+	if (bExplorationBodyYawLockActive || bSavedOrientRotationToMovementForLock)
+	{
+		bExplorationBodyYawLockActive = false;
+		if (bSavedOrientRotationToMovementForLock)
+		{
+			bSavedOrientRotationToMovementForLock = false;
+			if (ACharacter* const Owner = OwningCharacter.Get())
+			{
+				if (UDFCharacterMovementComponent* const CMC = Cast<UDFCharacterMovementComponent>(Owner->GetCharacterMovement()))
+				{
+					CMC->bOrientRotationToMovement = !CMC->bIsStrafing;
+				}
+			}
+		}
+	}
+}
+
+bool UUDFAnimInstance::TryApplyTurnInPlaceRotationYawSpeed(const float DeltaSeconds)
+{
+	if (!bInTurnInPlacePhase)
+	{
+		return false;
+	}
+
+	// Block default orient-to-movement for the whole turn phase (ALS: curve drives yaw while idle).
+	if (!bTurnInPlaceDriveYawFromRotationCurve || !bTurnInPlaceHasRotationCurve
+		|| TurnInPlaceResolvedCurveName.IsNone())
+	{
+		return true;
+	}
+
+	ACharacter* const Owner = OwningCharacter.Get();
+	if (!Owner || DeltaSeconds <= KINDA_SMALL_NUMBER)
+	{
+		return true;
+	}
+
+	float YawSpeed = GetCurveValue(TurnInPlaceResolvedCurveName);
+	if (FMath::Abs(YawSpeed) <= UE_KINDA_SMALL_NUMBER)
+	{
+		const UAnimSequence* const TurnSeq = Cast<UAnimSequence>(GetLocomotionTurnAnim());
+		DFTurnRotationCurve::SampleYawSpeedDegreesPerSecond(
+			TurnSeq, TurnInPlaceResolvedCurveName, TurnInPlaceExplicitTime, YawSpeed);
+	}
+	if (FMath::Abs(YawSpeed) > UE_KINDA_SMALL_NUMBER)
+	{
+		float DeltaYaw = YawSpeed * DeltaSeconds;
+		const float AbsOff = FMath::Abs(RootYawOffset);
+		if (AbsOff > KINDA_SMALL_NUMBER)
+		{
+			if (FMath::Sign(DeltaYaw) != FMath::Sign(RootYawOffset))
+			{
+				DeltaYaw = 0.f;
+			}
+			else if (FMath::Abs(DeltaYaw) > AbsOff)
+			{
+				DeltaYaw = RootYawOffset;
+			}
+		}
+
+		if (!FMath::IsNearlyZero(DeltaYaw))
+		{
+			FRotator R = Owner->GetActorRotation();
+			R.Yaw = FMath::UnwindDegrees(R.Yaw + DeltaYaw);
+			Owner->SetActorRotation(R);
+			ConsumeRootYawOffset(DeltaYaw);
+			TurnInPlaceYawAppliedTotal += DeltaYaw;
+		}
+	}
+
+	return true;
 }
 
 void UUDFAnimInstance::ConsumeRootYawOffset(const float ConsumedYaw)
@@ -1720,6 +1975,30 @@ UAnimSequenceBase* UUDFAnimInstance::GetLocomotionTurnAnim() const
 		bTurnRight = (FMath::Sign(RootYawOffset) * DirSign) > 0.f;
 	}
 	return ActiveAnimSet.ResolveLocomotionTurn(bUse180, bTurnRight);
+}
+
+bool UUDFAnimInstance::HasMovementInputForTurnInPlace() const
+{
+	return DFCharacterMovement
+		&& DFCharacterMovement->GetLastInputVector().SizeSquared2D() > 0.01f;
+}
+
+bool UUDFAnimInstance::IsIdleForTurnInPlaceInternal() const
+{
+	const bool bStopBlocksOnlyWhenMoving = bInLocomotionStopPhase && Speed > IdleSpeedDeadband;
+	return !bIsInAir && !bStopBlocksOnlyWhenMoving
+		&& Speed <= IdleSpeedDeadband && !HasMovementInputForTurnInPlace();
+}
+
+bool UUDFAnimInstance::IsIdleForTurnInPlace() const
+{
+	return IsIdleForTurnInPlaceInternal();
+}
+
+bool UUDFAnimInstance::ShouldPlayTurnInPlaceTransition() const
+{
+	return IsIdleForTurnInPlaceInternal() && bTurnInPlaceRetriggerArmed
+		&& FMath::Abs(RootYawOffset) > TurnInPlaceTriggerYaw;
 }
 
 void UUDFAnimInstance::DetermineMovementDirection(const bool bUseEightWay)
@@ -2593,10 +2872,12 @@ FString UUDFAnimInstance::BuildTurnInPlaceDebugString() const
 			CtrlYaw = C->GetControlRotation().Yaw;
 		}
 	}
-	const bool bGrounded = !bIsInAir && !bInLocomotionStopPhase;
-	const bool bIdleEnoughToStartTurn = bGrounded && Speed <= IdleSpeedDeadband && !bIsAccelerating;
+	const bool bIdleEnoughToStartTurn = IsIdleForTurnInPlaceInternal();
 	const bool bReady = bIdleEnoughToStartTurn && bTurnInPlaceRetriggerArmed
 		&& AbsOff > TurnInPlaceTriggerYaw;
+	FName DebugCurveName = TurnInPlaceResolvedCurveName;
+	const bool bDebugClipHasCurve = DFTurnRotationCurve::QueryClipHasTurnRotationCurve(
+		TurnSeq, TurnInPlaceRotationCurveName, DebugCurveName);
 
 	FString Out;
 	Out += FString::Printf(TEXT("== TurnInPlace %s =="), *GetClass()->GetName());
@@ -2605,13 +2886,17 @@ FString UUDFAnimInstance::BuildTurnInPlaceDebugString() const
 	Out += FString::Printf(TEXT("\nTrans=%d Phase=%d armed=%d ready=%d idleOk=%d"),
 		bTransition_TurnInPlace ? 1 : 0, bInTurnInPlacePhase ? 1 : 0,
 		bTurnInPlaceRetriggerArmed ? 1 : 0, bReady ? 1 : 0, bIdleEnoughToStartTurn ? 1 : 0);
-	Out += FString::Printf(TEXT("\nspd=%.0f accel=%d abortSpd=%.0f"),
-		Speed, bIsAccelerating ? 1 : 0, TurnInPlaceAbortSpeed);
-	Out += FString::Printf(TEXT("\nlatched dir=%+.0f deg=%.0f time=%.2f/%.2fs codeYaw=%d end=%s"),
+	Out += FString::Printf(TEXT("\nspd=%.0f accel=%d air=%d stop=%d"),
+		Speed, bIsAccelerating ? 1 : 0, bIsInAir ? 1 : 0, bInLocomotionStopPhase ? 1 : 0);
+	Out += FString::Printf(TEXT("\nlatched dir=%+.0f deg=%.0f time=%.2f/%.2fs curve=%d(%s) clipCurve=%d codeYaw=%d startOff=%.0f end=%s"),
 		TurnInPlaceDirection, TurnInPlaceAnimDegrees, TurnInPlaceExplicitTime, CachedTurnAnimPlayLength,
-		bTurnInPlaceApplyActorYawFromCode ? 1 : 0, *TurnInPlaceLastEndReason);
-	Out += FString::Printf(TEXT("\nactorYaw=%.0f ctrlYaw=%.0f yawDeltaFrame=%.1f"),
-		ActorYaw, CtrlYaw, YawDeltaThisFrame);
+		bInTurnInPlacePhase && bTurnInPlaceHasRotationCurve ? 1 : 0,
+		bInTurnInPlacePhase ? *TurnInPlaceResolvedCurveName.ToString() : *DebugCurveName.ToString(),
+		bDebugClipHasCurve ? 1 : 0,
+		bTurnInPlaceApplyActorYawFromCode ? 1 : 0, TurnInPlaceStartAbsOffset, *TurnInPlaceLastEndReason);
+	Out += FString::Printf(TEXT("\nactorYaw=%.0f ctrlYaw=%.0f yawDeltaFrame=%.1f lockYaw=%.0f lock=%d strafe=%d"),
+		ActorYaw, CtrlYaw, YawDeltaThisFrame, ExplorationLockedBodyYaw,
+		ShouldLockExplorationBodyYaw() ? 1 : 0, bShouldStrafe ? 1 : 0);
 	Out += FString::Printf(TEXT("\nclip=%s RM=%d turnSet=%d idle=%s"),
 		*GetNameSafe(GetLocomotionTurnAnim()), bRm ? 1 : 0, ActiveAnimSet.TurnSet.IsValid() ? 1 : 0,
 		*GetNameSafe(GetLocomotionIdleAnim()));
@@ -2638,13 +2923,15 @@ FString UUDFAnimInstance::BuildTurnInPlaceDebugString() const
 
 FString UUDFAnimInstance::BuildTurnInPlaceDebugOneLiner() const
 {
+	const UAnimSequence* const TurnSeq = Cast<UAnimSequence>(GetLocomotionTurnAnim());
 	const float AbsOff = FMath::Abs(RootYawOffset);
-	const bool bIdleEnoughToStartTurn = !bIsInAir && !bInLocomotionStopPhase
-		&& Speed <= IdleSpeedDeadband && !bIsAccelerating;
-	const bool bReady = bIdleEnoughToStartTurn && bTurnInPlaceRetriggerArmed
-		&& AbsOff > TurnInPlaceTriggerYaw;
+	const bool bIdleEnoughToStartTurn = IsIdleForTurnInPlaceInternal();
+	const bool bReady = ShouldPlayTurnInPlaceTransition();
+	FName DebugCurveName = TurnInPlaceResolvedCurveName;
+	const bool bClipHasCurve = DFTurnRotationCurve::QueryClipHasTurnRotationCurve(
+		TurnSeq, TurnInPlaceRotationCurveName, DebugCurveName);
 	return FString::Printf(
-		TEXT("[TIP|1] %s off=%.1f aim=%.1f |off|=%.0f trans=%d phase=%d armed=%d ready=%d idle=%d spd=%.0f accel=%d dir=%+.0f deg=%.0f t=%.2f/%.2f clip=%s end=%s codeYaw=%d"),
+		TEXT("[TIP|1] %s off=%.1f aim=%.1f |off|=%.0f trans=%d phase=%d armed=%d ready=%d idle=%d spd=%.0f accel=%d dir=%+.0f deg=%.0f t=%.2f/%.2f clip=%s curve=%d clipCurve=%d codeYaw=%d end=%s"),
 		*GetClass()->GetName(),
 		RootYawOffset, AimYaw, AbsOff,
 		bTransition_TurnInPlace ? 1 : 0, bInTurnInPlacePhase ? 1 : 0,
@@ -2652,8 +2939,10 @@ FString UUDFAnimInstance::BuildTurnInPlaceDebugOneLiner() const
 		Speed, bIsAccelerating ? 1 : 0,
 		TurnInPlaceDirection, TurnInPlaceAnimDegrees,
 		TurnInPlaceExplicitTime, CachedTurnAnimPlayLength,
-		*GetNameSafe(GetLocomotionTurnAnim()), *TurnInPlaceLastEndReason,
-		bTurnInPlaceApplyActorYawFromCode ? 1 : 0);
+		*GetNameSafe(GetLocomotionTurnAnim()),
+		bInTurnInPlacePhase && bTurnInPlaceHasRotationCurve ? 1 : 0,
+		bClipHasCurve ? 1 : 0,
+		bTurnInPlaceApplyActorYawFromCode ? 1 : 0, *TurnInPlaceLastEndReason);
 }
 
 FString UUDFAnimInstance::BuildDirectionalLocomotionDebugString() const
