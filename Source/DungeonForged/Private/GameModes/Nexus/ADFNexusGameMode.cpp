@@ -16,7 +16,9 @@
 #include "GameModes/Nexus/ADFNexusPlayerController.h"
 #include "Run/DFSaveGame.h"
 #include "Run/DFRunManager.h"
+#include "Run/UDFSaveLibrary.h"
 #include "Run/UDFSaveSlotManagerSubsystem.h"
+#include "Merchant/ADFMerchantActor.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 #include "GameModes/Nexus/DFNexusTypes.h"
@@ -197,15 +199,7 @@ void ADFNexusGameMode::PostLogin(APlayerController* const NewPlayer)
 		const ERunNexusTravelReason Arrival = RM ? RM->GetNexusArrivalReason() : ERunNexusTravelReason::FirstLaunch;
 		ActivePlayerStartTag = SelectSpawnTagForArrival(Arrival);
 
-		UDFSaveGame* S = nullptr;
-		if (UDFSaveSlotManagerSubsystem* const Slots = GI->GetSubsystem<UDFSaveSlotManagerSubsystem>())
-		{
-			S = Slots->GetActiveOrLegacyMetaSave();
-		}
-		if (!S)
-		{
-			S = UDFSaveGame::Load();
-		}
+		UDFSaveGame* S = UDFSaveLibrary::ResolveMutableMetaSave(this);
 		if (S)
 		{
 			if (ADFNexusGameState* const GS = GetGameState<ADFNexusGameState>())
@@ -217,14 +211,18 @@ void ADFNexusGameMode::PostLogin(APlayerController* const NewPlayer)
 				RM->SetSessionSelectedClass(S->LastRunClass);
 			}
 			ProcessPendingUnlocks(S, NewPlayer);
-			if (UDFSaveSlotManagerSubsystem* const Slots = GI->GetSubsystem<UDFSaveSlotManagerSubsystem>())
+			if (S->MerchantRestockRunCounter >= 3)
 			{
-				(void)Slots->SaveActiveSlot();
+				if (UWorld* const W = GetWorld())
+				{
+					for (TActorIterator<ADFMerchantActor> MIt(W); MIt; ++MIt)
+					{
+						MIt->GenerateStock();
+					}
+				}
+				S->MerchantRestockRunCounter = 0;
 			}
-			else
-			{
-				UDFSaveGame::Save(S);
-			}
+			(void)UDFSaveLibrary::SaveMetaSave(this, S);
 		}
 	}
 
@@ -320,7 +318,7 @@ void ADFNexusGameMode::ProcessPendingUnlocksFromSave(UDFSaveGame* const Save, AP
 		}
 	}
 	Save->PendingUnlocks.Reset();
-	UDFSaveGame::Save(Save);
+	(void)UDFSaveLibrary::SaveMetaSave(this, Save);
 	if (ADFNexusGameState* const GS = GetGameState<ADFNexusGameState>())
 	{
 		GS->ApplyFromSave(Save);
@@ -335,6 +333,33 @@ void ADFNexusGameMode::ProcessPendingUnlocksFromSave(UDFSaveGame* const Save, AP
 }
 
 void ADFNexusGameMode::PlayNexusArrivalPresentation_Implementation(
-	ERunNexusTravelReason const /*Reason*/, APlayerController* const /*LocalPC*/)
+	ERunNexusTravelReason const Reason, APlayerController* const LocalPC)
 {
+	FText Title = NSLOCTEXT("Nexus", "ArrivalDefault", "Bem-vindo ao Nexus");
+	FText Body = FText::GetEmpty();
+	switch (Reason)
+	{
+	case ERunNexusTravelReason::Victory:
+		Title = NSLOCTEXT("Nexus", "ArrivalVictory", "Run vitoriosa");
+		Body = NSLOCTEXT("Nexus", "ArrivalVictoryBody", "O Chronister registrou seu progresso. Meta XP aplicado.");
+		break;
+	case ERunNexusTravelReason::Defeat:
+		Title = NSLOCTEXT("Nexus", "ArrivalDefeat", "Retorno da masmorra");
+		Body = NSLOCTEXT("Nexus", "ArrivalDefeatBody", "Voce sobreviveu para treinar outra vez.");
+		break;
+	case ERunNexusTravelReason::Abandon:
+		Title = NSLOCTEXT("Nexus", "ArrivalAbandon", "Run encerrada");
+		Body = NSLOCTEXT("Nexus", "ArrivalAbandonBody", "Seu progresso meta foi salvo.");
+		break;
+	case ERunNexusTravelReason::FirstLaunch:
+		Title = NSLOCTEXT("Nexus", "ArrivalFirst", "Primeira visita");
+		Body = NSLOCTEXT("Nexus", "ArrivalFirstBody", "Fale com o Ferreiro e o Cronista para comecar.");
+		break;
+	default:
+		break;
+	}
+	if (ADFNexusHUD* const H = LocalPC ? LocalPC->GetHUD<ADFNexusHUD>() : nullptr)
+	{
+		H->ShowArrivalBanner(Title, Body, 4.f);
+	}
 }

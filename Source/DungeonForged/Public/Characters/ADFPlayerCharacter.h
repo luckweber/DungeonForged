@@ -13,6 +13,7 @@
 #include "Audio/UDFAudioComponent.h"
 #include "Equipment/DFEquipmentTypes.h"
 #include "FX/UDFCombatFeedbackTypes.h"
+#include "Combat/UDFComboComponent.h"
 #include "ADFPlayerCharacter.generated.h"
 
 class UCameraComponent;
@@ -31,6 +32,7 @@ class UDFMeleeAimComponent;
 class USoundBase;
 class UNiagaraSystem;
 class UMotionWarpingComponent;
+class UCharacterTrajectoryComponent;
 class UInputAction;
 class UInputMappingContext;
 class UAbilitySystemComponent;
@@ -92,6 +94,14 @@ public:
 	/** Motion Warping: AnimGraph Motion Warping node consumes warp targets set by `UANS_DFMeleeWarp`. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	TObjectPtr<UMotionWarpingComponent> MotionWarping;
+
+	/**
+	 * Motion Trajectory: provides trajectory samples consumed by AnimGraph Distance Matching nodes
+	 * (Start anim phase sync) and any future Motion Matching workflows.
+	 * @see docs/animation/18_8Way_StartLoopStop_Setup.md §5.1
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Animation|Locomotion")
+	TObjectPtr<UCharacterTrajectoryComponent> CharacterTrajectory;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
 	TObjectPtr<UDFComboComponent> Combo;
@@ -222,6 +232,15 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
 	TObjectPtr<USkeletalMeshComponent> Mesh_OffHand = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
+	TObjectPtr<USkeletalMeshComponent> Mesh_Ring1 = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
+	TObjectPtr<USkeletalMeshComponent> Mesh_Ring2 = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|Mesh|Modular")
+	TObjectPtr<USkeletalMeshComponent> Mesh_Amulet = nullptr;
 
 	/** Set when ClientOpenMerchantShop creates the shop; cleared in UDFShopWidget::CloseShop. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "DF|UI|Shop")
@@ -440,8 +459,8 @@ private:
 	FTimerHandle DeathPoseLockTimerHandle;
 
 	bool bMeleeComboMontagesBaselineCaptured = false;
-	UPROPERTY(Transient)
-	TArray<TObjectPtr<UAnimMontage>> CachedMeleeComboMontagesBaselineSnapshot;
+	/** Snapshot of all soft-ref BP defaults from the Combo component (no copy of UAnimMontage hard refs). */
+	UDFComboComponent::FComboMontageBaselineSnapshot CachedMeleeComboMontagesBaselineSnapshot;
 	bool bMeleeTraceDamageBaselineCaptured = false;
 	float CachedDefaultMeleeTraceBaseDamage = 0.f;
 	TSubclassOf<UGameplayEffect> CachedDefaultMeleeTraceDamageGameplayEffect;

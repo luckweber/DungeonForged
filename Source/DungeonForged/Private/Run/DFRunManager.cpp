@@ -1,6 +1,10 @@
 // Source/DungeonForged/Private/Run/DFRunManager.cpp
 
 #include "Run/DFRunManager.h"
+#include "Run/DFMetaRewardData.h"
+#include "Run/UDFMetaXPLibrary.h"
+#include "Run/UDFSaveLibrary.h"
+#include "UI/UDFAbilitySelectionSubsystem.h"
 #include "Run/UDFSaveSlotManagerSubsystem.h"
 #include "DungeonForgedModule.h"
 #include "Run/DFSaveGame.h"
@@ -17,6 +21,8 @@
 #include "Characters/ADFPlayerState.h"
 #include "DFInventoryComponent.h"
 #include "Equipment/DFEquipmentTypes.h"
+#include "Progression/UDFLevelingComponent.h"
+#include "Combat/UDFComboPointsComponent.h"
 #include "Equipment/UDFEquipmentComponent.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Engine/World.h"
@@ -30,6 +36,8 @@
 #include "AbilitySystemComponent.h"
 #include "GAS/Abilities/Warrior/UDFAbility_Warrior_HeavyAttack.h"
 #include "GAS/DFGameplayTags.h"
+#include "GAS/UDFGameplayAbility.h"
+#include "GAS/Universal/UDFUniversalAbilityRegistry.h"
 #include "HAL/PlatformTime.h"
 DEFINE_LOG_CATEGORY_STATIC(LogDFRun, Log, All);
 
@@ -53,6 +61,10 @@ void UDFRunManager::Initialize(FSubsystemCollectionBase& Collection)
 		if (!NexusMetaLevelsTable && !Dev->NexusMetaLevelsTable.IsNull())
 		{
 			NexusMetaLevelsTable = Dev->NexusMetaLevelsTable.LoadSynchronous();
+		}
+		if (!MetaXPRewardsTable && !Dev->MetaXPRewardsTable.IsNull())
+		{
+			MetaXPRewardsTable = Dev->MetaXPRewardsTable.LoadSynchronous();
 		}
 		DeathScreenDelaySeconds = Dev->DeathScreenDelaySeconds;
 	}
@@ -98,6 +110,7 @@ void UDFRunManager::SetPendingRunArrival(const EDFRunTravelReason InReason, cons
 	{
 	case EDFRunTravelReason::NewRun: LastTravelReason = ETravelReason::NewRun; break;
 	case EDFRunTravelReason::NextFloor: LastTravelReason = ETravelReason::NextFloor; break;
+	case EDFRunTravelReason::ResumeCheckpoint: LastTravelReason = ETravelReason::NextFloor; break;
 	default: LastTravelReason = ETravelReason::None; break;
 	}
 }
@@ -156,8 +169,24 @@ void UDFRunManager::CaptureRunState()
 					const float Mm = ASC->GetNumericAttribute(UDFAttributeSet::GetMaxManaAttribute());
 					const float Cm = ASC->GetNumericAttribute(UDFAttributeSet::GetManaAttribute());
 					RunState.ManaPercent = (Mm > KINDA_SMALL_NUMBER) ? (Cm / Mm) : -1.f;
-					RunState.RunCharacterLevel = FMath::Max(
-						1, FMath::RoundToInt(ASC->GetNumericAttribute(UDFAttributeSet::GetCharacterLevelAttribute())));
+				}
+				if (const UDFLevelingComponent* const Lc = PS->GetLevelingComponent())
+				{
+					RunState.RunCharacterLevel = FMath::Max(1, Lc->CurrentLevel);
+					RunState.RunXP = FMath::Max(0, Lc->CurrentXP);
+					RunState.RunUnspentAttributePoints = FMath::Max(0, Lc->UnspentAttributePoints);
+				}
+			}
+			if (const UDFComboPointsComponent* const Combo = P->ComboPoints)
+			{
+				RunState.ComboPoints = Combo->GetComboPoints();
+			}
+			RunState.EquippedItems.Reset();
+			if (const UDFEquipmentComponent* const Eq = P->FindComponentByClass<UDFEquipmentComponent>())
+			{
+				for (const TPair<EEquipmentSlot, FName>& Pair : Eq->EquippedItems)
+				{
+					AddUniqueName(RunState.EquippedItems, Pair.Value);
 				}
 			}
 		}
@@ -171,6 +200,35 @@ void UDFRunManager::RestoreRunState(ADFPlayerCharacter* const Player)
 		return;
 	}
 	ApplyRunStateToPlayer(Player);
+}
+
+bool UDFRunManager::LoadRunFromCheckpoint(FDFRunState const& Checkpoint)
+{
+	if (Checkpoint.SelectedClass.IsNone())
+	{
+		return false;
+	}
+	bEndRunPersistenceApplied = false;
+	RunState = Checkpoint;
+	RestoredRunState = Checkpoint;
+	bRunInProgress = true;
+	SyncReplicatedRunGoldToPlayerStates();
+	OnGoldChanged.Broadcast(RunState.Gold);
+	OnRunFloorChanged.Broadcast(RunState.CurrentFloor);
+	return true;
+}
+
+bool UDFRunManager::CanResumeFromSave(UDFSaveGame const* const Save)
+{
+	if (!Save || !Save->bHasActiveRun)
+	{
+		return false;
+	}
+	if (Save->LastCheckpointType == ECheckpointType::RunEnd)
+	{
+		return false;
+	}
+	return !Save->LastCheckpoint.SelectedClass.IsNone();
 }
 
 const FDFClassTableRow* UDFRunManager::FindClassTableRow(const FName ClassRowName) const
@@ -190,14 +248,11 @@ FName UDFRunManager::ResolveActiveClassRowName() const
 	}
 	if (UGameInstance* const GI = GetGameInstance())
 	{
-		if (UDFSaveSlotManagerSubsystem* const Slots = GI->GetSubsystem<UDFSaveSlotManagerSubsystem>())
+		if (UDFSaveGame const* const Save = UDFSaveLibrary::GetMetaSave(GI))
 		{
-			if (UDFSaveGame const* const Save = Slots->GetActiveOrLegacyMetaSave())
+			if (!Save->LastRunClass.IsNone())
 			{
-				if (!Save->LastRunClass.IsNone())
-				{
-					return Save->LastRunClass;
-				}
+				return Save->LastRunClass;
 			}
 		}
 	}
@@ -273,13 +328,13 @@ void UDFRunManager::OnPlayerDied(bool const bQueueDefaultDeathScreen)
 
 	bRunInProgress = false;
 
-	if (UDFSaveGame* const Meta = UDFSaveGame::Load())
+	if (UDFSaveGame* const Meta = UDFSaveLibrary::ResolveMutableMetaSave(this))
 	{
 		if (RunState.Score > Meta->HighScore)
 		{
 			Meta->HighScore = RunState.Score;
 		}
-		UDFSaveGame::Save(Meta);
+		UDFSaveLibrary::SaveMetaSave(this, Meta);
 	}
 
 	OnRunFailed.Broadcast();
@@ -346,24 +401,9 @@ void UDFRunManager::ApplyEndOfRunPersistence(const ETravelReason Why, FDFRunSumm
 	}
 	bEndRunPersistenceApplied = true;
 	bRunInProgress = false;
-	int32 XpGain = 0;
-	switch (Why)
-	{
-	case ETravelReason::Victory:
-		XpGain = 500 + S.FloorReached * 50 + S.Kills * 2;
-		break;
-	case ETravelReason::Defeat:
-		XpGain = 100 + S.FloorReached * 20 + S.Kills * 1;
-		break;
-	case ETravelReason::AbandonRun:
-		XpGain = 25 + S.FloorReached * 5;
-		break;
-	default:
-		return;
-	}
+	const int32 XpGain = CalculateMetaXPGain(Why, S);
 	UGameInstance* const GI = GetGameInstance();
-	UDFSaveSlotManagerSubsystem* const SlotSub = GI ? GI->GetSubsystem<UDFSaveSlotManagerSubsystem>() : nullptr;
-	UDFSaveGame* const Meta = SlotSub ? SlotSub->GetActiveOrLegacyMetaSave() : UDFSaveGame::Load();
+	UDFSaveGame* const Meta = UDFSaveLibrary::ResolveMutableMetaSave(GI);
 	if (!Meta)
 	{
 		return;
@@ -374,6 +414,8 @@ void UDFRunManager::ApplyEndOfRunPersistence(const ETravelReason Why, FDFRunSumm
 	Meta->LifetimeKills += S.Kills;
 	Meta->bLastRunWasVictory = (Why == ETravelReason::Victory);
 	Meta->bHasActiveRun = false;
+	Meta->LastCheckpointType = ECheckpointType::RunEnd;
+	Meta->LastCheckpoint = FDFRunState();
 	Meta->LastRunFloor = S.FloorReached;
 	if (S.FloorReached > Meta->BestFloorReached)
 	{
@@ -396,7 +438,6 @@ void UDFRunManager::ApplyEndOfRunPersistence(const ETravelReason Why, FDFRunSumm
 		{
 			Meta->HighScore = FinalScore;
 		}
-		// Data-driven gating: example unlock when the run was deep enough (designer can replace).
 		if (S.FloorReached >= 3)
 		{
 			FDFPendingUnlockEntry E;
@@ -406,14 +447,34 @@ void UDFRunManager::ApplyEndOfRunPersistence(const ETravelReason Why, FDFRunSumm
 		}
 		OnRunEndedSuccessfully.Broadcast(FinalScore);
 	}
-	if (SlotSub && SlotSub->GetActiveSlotIndex() >= 0)
+	else if (Why == ETravelReason::Defeat)
 	{
-		(void)SlotSub->SaveActiveSlot();
+		++Meta->LifetimeDeaths;
 	}
-	else
+	Meta->TotalGoldEarnedMeta += FMath::Max(0, S.Gold);
+	++Meta->MerchantRestockRunCounter;
+	FDFRunHistoryEntry History;
+	History.RunIndex = Meta->TotalRuns;
+	History.ClassName = S.ClassName;
+	History.FloorReached = S.FloorReached;
+	History.Gold = S.Gold;
+	History.Score = (Why == ETravelReason::Victory) ? CalculateFinalScore() : RunState.Score;
+	History.TimeSeconds = S.TimeSeconds;
+	switch (Why)
 	{
-		UDFSaveGame::Save(Meta);
+	case ETravelReason::Victory: History.Outcome = EDFRunRecordOutcome::Victory; break;
+	case ETravelReason::Defeat: History.Outcome = EDFRunRecordOutcome::Defeat; break;
+	case ETravelReason::AbandonRun: History.Outcome = EDFRunRecordOutcome::Abandoned; break;
+	default: History.Outcome = EDFRunRecordOutcome::None; break;
 	}
+	Meta->RunHistory.Add(History);
+	constexpr int32 MaxHistory = 50;
+	if (Meta->RunHistory.Num() > MaxHistory)
+	{
+		Meta->RunHistory.RemoveAt(0, Meta->RunHistory.Num() - MaxHistory);
+	}
+	UDFSaveGame::ProcessMetaLevelUps(Meta, NexusMetaLevelsTable);
+	(void)UDFSaveLibrary::SaveMetaSave(GetGameInstance(), Meta);
 }
 
 int32 UDFRunManager::CalculateFinalScore() const
@@ -436,10 +497,50 @@ void UDFRunManager::AddAbilityReward(const FName AbilityRow)
 	AddUniqueName(RunState.GrantedAbilities, AbilityRow);
 }
 
+int32 UDFRunManager::CalculateMetaXPGain(const ETravelReason Why, FDFRunSummary const& S) const
+{
+	if (MetaXPRewardsTable)
+	{
+		for (TPair<FName, uint8*> const& Pair : MetaXPRewardsTable->GetRowMap())
+		{
+			if (FDFMetaXPRewardRow const* const Row =
+					MetaXPRewardsTable->FindRow<FDFMetaXPRewardRow>(Pair.Key, TEXT("CalculateMetaXPGain"), false))
+			{
+				if (Row->Outcome == Why)
+				{
+					return FMath::Max(
+						0,
+						Row->BaseXP + S.FloorReached * Row->XPPerFloor + S.Kills * Row->XPPerKill);
+				}
+			}
+		}
+	}
+	return UDFMetaXPLibrary::CalculateMetaXPGain(Why, S);
+}
+
 void UDFRunManager::GetRandomAbilityOfferCandidates(const int32 InCount, TArray<FName>& OutRowNames) const
 {
 	OutRowNames.Reset();
-	if (!AbilityDataTable || InCount <= 0)
+	if (InCount <= 0)
+	{
+		return;
+	}
+	if (UGameInstance* const GI = GetGameInstance())
+	{
+		if (UWorld* const W = GI->GetWorld())
+		{
+			if (UDFAbilitySelectionSubsystem* const Sub = W->GetSubsystem<UDFAbilitySelectionSubsystem>())
+			{
+				const TArray<FDFAbilityRolledChoice> Choices = Sub->RollAbilityChoices(InCount);
+				for (const FDFAbilityRolledChoice& C : Choices)
+				{
+					OutRowNames.Add(C.RowName);
+				}
+				return;
+			}
+		}
+	}
+	if (!AbilityDataTable)
 	{
 		return;
 	}
@@ -612,9 +713,20 @@ void UDFRunManager::GrantAbilitiesForCurrentRun(ADFPlayerState* PlayerState)
 			continue;
 		}
 		const FDFAbilityTableRow* const Row = AbilityDataTable->FindRow<FDFAbilityTableRow>(AbilityName, TEXT("UDFRunManager::GrantAbilitiesForCurrentRun"), false);
-		if (!Row || !Row->AbilityClass)
+		if (!Row)
 		{
 			UE_LOG(LogDFRun, Warning, TEXT("GrantAbilitiesForCurrentRun: missing or invalid row %s"), *AbilityName.ToString());
+			continue;
+		}
+		TSubclassOf<UDFGameplayAbility> AbilityClass = Row->AbilityClass;
+		if (!AbilityClass && Row->AbilityTag.IsValid())
+		{
+			AbilityClass = UDFUniversalAbilityRegistry::ResolveAbilityClassFromTag(Row->AbilityTag);
+		}
+		if (!AbilityClass)
+		{
+			UE_LOG(LogDFRun, Warning, TEXT("GrantAbilitiesForCurrentRun: no AbilityClass for row %s (tag=%s)"),
+				*AbilityName.ToString(), *Row->AbilityTag.ToString());
 			continue;
 		}
 		int32 InId = FMath::Min(Idx, DFAbilityBarSlotCount - 1);
@@ -622,7 +734,7 @@ void UDFRunManager::GrantAbilitiesForCurrentRun(ADFPlayerState* PlayerState)
 		{
 			InId = FMath::Clamp(Row->GameplayAbilityInputID, 0, 63);
 		}
-		const FGameplayAbilitySpec Spec(Row->AbilityClass, Row->AbilityLevel, InId, PlayerState);
+		const FGameplayAbilitySpec Spec(AbilityClass, Row->AbilityLevel, InId, PlayerState);
 		ASC->GiveAbility(Spec);
 		const int32 UiSlotIndex = Row->GameplayAbilityInputID > 0
 			? FMath::Clamp(Row->GameplayAbilityInputID - 1, 0, DFAbilityBarSlotCount - 1)
@@ -832,6 +944,18 @@ void UDFRunManager::ApplyRunStateToPlayer(ADFPlayerCharacter* Player)
 			const float Mm2 = ASC2->GetNumericAttribute(UDFAttributeSet::GetMaxManaAttribute());
 			ASC2->SetNumericAttributeBase(UDFAttributeSet::GetManaAttribute(), Mm2 * RunState.ManaPercent);
 		}
+	}
+	if (UDFLevelingComponent* const Lc = PlayerState->GetLevelingComponent())
+	{
+		Lc->AuthorityRestoreProgress(
+			FMath::Max(1, RunState.RunCharacterLevel),
+			FMath::Max(0, RunState.RunXP),
+			FMath::Max(0, RunState.RunUnspentAttributePoints));
+	}
+	if (Player->ComboPoints && RunState.ComboPoints > 0)
+	{
+		Player->ComboPoints->ResetComboPoints();
+		Player->ComboPoints->AddComboPoints(RunState.ComboPoints);
 	}
 
 	UDFInventoryComponent* const Inv = [&]() -> UDFInventoryComponent*

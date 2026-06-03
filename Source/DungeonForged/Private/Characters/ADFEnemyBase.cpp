@@ -1,6 +1,8 @@
 // Source/DungeonForged/Private/Characters/ADFEnemyBase.cpp
 
 #include "Characters/ADFEnemyBase.h"
+#include "Boss/UDFBossMinionComponent.h"
+#include "AI/UDFEnemyArchetypeLibrary.h"
 #include "Boss/ADFBossBase.h"
 #include "UI/UDFEnemyHealthBarWidget.h"
 #include "Combat/UDFCombatDirectorSubsystem.h"
@@ -8,6 +10,7 @@
 #include "DungeonForgedModule.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/Abilities/UDFAbility_Enemy_Death.h"
+#include "GAS/Abilities/UDFAbility_Enemy_Melee.h"
 #include "GAS/Effects/UGE_EnemyDeath.h"
 #include "Abilities/GameplayAbility.h"
 #include "AI/DFAIKeys.h"
@@ -24,8 +27,12 @@
 #include "Progression/UDFLevelingComponent.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Combat/UDFHitReactionComponent.h"
+#include "FX/UDFImpactFramingComponent.h"
 #include "Combat/UDFMeleeAimComponent.h"
 #include "Combat/UDFStaggerComponent.h"
+#include "Combat/UDFCombatCrowdControlComponent.h"
+#include "AI/UDFAIThreatComponent.h"
+#include "Performance/UDFEnemySignificanceComponent.h"
 #include "GAS/Elemental/UDFElementalComponent.h"
 #include "MotionWarpingComponent.h"
 #include "Abilities/GameplayAbility.h"
@@ -56,6 +63,7 @@
 #include "Perception/AIPerceptionComponent.h"
 #include "Sound/SoundBase.h"
 #include "TimerManager.h"
+#include "Network/UDFNetworkLibrary.h"
 #include "UI/Status/UDFEnemyDebuffStatusBarWidget.h"
 #include "GameFramework/PlayerController.h"
 #include "Net/UnrealNetwork.h"
@@ -102,9 +110,13 @@ ADFEnemyBase::ADFEnemyBase()
 	AttributeSet = CreateDefaultSubobject<UDFAttributeSet>(TEXT("AttributeSet"));
 
 	HitReaction = CreateDefaultSubobject<UDFHitReactionComponent>(TEXT("HitReaction"));
+	ImpactFraming = CreateDefaultSubobject<UDFImpactFramingComponent>(TEXT("ImpactFraming"));
 	MeleeAim = CreateDefaultSubobject<UDFMeleeAimComponent>(TEXT("MeleeAim"));
 	MotionWarping = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarping"));
 	Stagger = CreateDefaultSubobject<UDFStaggerComponent>(TEXT("Stagger"));
+	CrowdControl = CreateDefaultSubobject<UDFCombatCrowdControlComponent>(TEXT("CrowdControl"));
+	Threat = CreateDefaultSubobject<UDFAIThreatComponent>(TEXT("Threat"));
+	Significance = CreateDefaultSubobject<UDFEnemySignificanceComponent>(TEXT("Significance"));
 
 	ElementalComponent = CreateDefaultSubobject<UDFElementalComponent>(TEXT("ElementalComponent"));
 
@@ -132,6 +144,26 @@ ADFEnemyBase::ADFEnemyBase()
 	DeathAbilityClass = UUDFAbility_Enemy_Death::StaticClass();
 
 	DeathDissolveTimeline = CreateDefaultSubobject<UTimelineComponent>(TEXT("DeathDissolveTimeline"));
+}
+
+void ADFEnemyBase::PostInitProperties()
+{
+	Super::PostInitProperties();
+	if (HasAnyFlags(RF_ClassDefaultObject) && GrantedAbilitiesByTag.Num() == 0)
+	{
+		GrantedAbilitiesByTag.Add(FDFGameplayTags::Ability_Attack_Melee, UDFAbility_Enemy_Melee::StaticClass());
+		GrantedAbilitiesByTag.Add(FDFGameplayTags::Ability_Attack_Ranged, UDFAbility_Enemy_Melee::StaticClass());
+	}
+}
+
+void ADFEnemyBase::SyncAIBlackboardFromArchetype()
+{
+	if (UBlackboardComponent* const BB = GetBehaviorTreeBlackboard())
+	{
+		BB->SetValueAsBool(
+			DFAIKeys::bPrefersRangedCombat,
+			UDFEnemyArchetypeLibrary::PrefersRangedCombat(CachedEnemyArchetype));
+	}
 }
 
 void ADFEnemyBase::PostInitializeComponents()
@@ -375,14 +407,11 @@ void ADFEnemyBase::BeginPlay()
 		if (UDFEnemyDebuffStatusBarWidget* const DBar = Cast<UDFEnemyDebuffStatusBarWidget>(DebuffStatusBar->GetUserWidgetObject()))
 		{
 			UAbilitySystemComponent* LocalAsc = nullptr;
-			if (UWorld* const W = GetWorld())
+			if (APlayerController* const PC = UDFNetworkLibrary::GetLocalPlayerController(this))
 			{
-				if (APlayerController* const PC = W->GetFirstPlayerController())
+				if (ADFPlayerState* const PS = PC->GetPlayerState<ADFPlayerState>())
 				{
-					if (ADFPlayerState* const PS = PC->GetPlayerState<ADFPlayerState>())
-					{
-						LocalAsc = PS->GetAbilitySystemComponent();
-					}
+					LocalAsc = PS->GetAbilitySystemComponent();
 				}
 			}
 			DBar->SetupObservedEnemy(this, EnemyDebuffStatusLibrary, LocalAsc);
@@ -504,7 +533,7 @@ void ADFEnemyBase::InitializeFromDataTable(UDataTable* EnemyTable, FName RowName
 	}
 	bDeferAIForSpawnBirth = false;
 
-	const bool bPlaySpawnBirth = Row->SpawnBirthMontage != nullptr;
+	const bool bPlaySpawnBirth = !Row->SpawnBirthMontage.IsNull();
 	const bool bDeferBT = bPlaySpawnBirth && Row->bDelayAIUntilSpawnBirthMontageFinishes;
 
 	bDeathDetectionArmed = false;
@@ -568,15 +597,16 @@ void ADFEnemyBase::InitializeFromDataTable(UDataTable* EnemyTable, FName RowName
 	// Base stats applied — safe to react to Health <= 0.
 	bDeathDetectionArmed = true;
 
-	if (bPlaySpawnBirth)
+	UAnimMontage* const SpawnBirthLoaded = bPlaySpawnBirth ? Row->SpawnBirthMontage.LoadSynchronous() : nullptr;
+	if (bPlaySpawnBirth && SpawnBirthLoaded)
 	{
-		Multicast_PlaySpawnBirthMontage(Row->SpawnBirthMontage.Get());
+		Multicast_PlaySpawnBirthMontage(SpawnBirthLoaded);
 	}
 
-	if (bDeferBT)
+	if (bDeferBT && SpawnBirthLoaded)
 	{
 		bDeferAIForSpawnBirth = true;
-		const float Dur = FMath::Max(0.05f, Row->SpawnBirthMontage->GetPlayLength());
+		const float Dur = FMath::Max(0.05f, SpawnBirthLoaded->GetPlayLength());
 		if (UWorld* const W = GetWorld())
 		{
 			W->GetTimerManager().SetTimer(SpawnBirthBTDelayTimer, this, &ADFEnemyBase::OnSpawnBirthMontageDelayElapsed, Dur, false);
@@ -602,6 +632,7 @@ void ADFEnemyBase::TryStartBehaviorTreeFromCache()
 	if (AAIController* const AIC = Cast<AAIController>(GetController()))
 	{
 		AIC->RunBehaviorTree(CachedAIBehaviorTree);
+		SyncAIBlackboardFromArchetype();
 	}
 }
 
@@ -622,6 +653,19 @@ void ADFEnemyBase::Multicast_PlaySpawnBirthMontage_Implementation(UAnimMontage* 
 		return;
 	}
 	AnimInst->Montage_Play(Montage, 1.f);
+}
+
+void ADFEnemyBase::Multicast_PlayVictimHitFraming_Implementation(
+	const EDFHitFeedbackBand Band, const float MagnitudeFactor)
+{
+	if (GetNetMode() == NM_DedicatedServer)
+	{
+		return;
+	}
+	if (ImpactFraming)
+	{
+		ImpactFraming->PlayBand(Band, MagnitudeFactor);
+	}
 }
 
 void ADFEnemyBase::OnSpawnBirthMontageDelayElapsed()
@@ -645,18 +689,22 @@ void ADFEnemyBase::ApplyMovementConfigFromRow(const FDFEnemyTableRow& Row)
 	{
 		return;
 	}
-	Move->MaxWalkSpeed = Row.MaxWalkSpeed;
+	Move->MaxWalkSpeed = Row.MaxWalkSpeed * UDFEnemyArchetypeLibrary::GetMovementSpeedScale(CachedEnemyArchetype);
 	if (HasAuthority())
 	{
-		ReplicatedDataTableMaxWalkSpeed = Row.MaxWalkSpeed;
+		ReplicatedDataTableMaxWalkSpeed = Move->MaxWalkSpeed;
 	}
 }
 
 void ADFEnemyBase::ApplyAIConfigFromRow(const FDFEnemyTableRow& Row)
 {
-	MeleeRange = FMath::Max(0.f, Row.MeleeRange);
-	RangedRange = FMath::Max(0.f, Row.RangedRange);
-	AttackRange = FMath::Max(0.f, Row.AttackRange);
+	float Melee = Row.MeleeRange;
+	float Ranged = Row.RangedRange;
+	float Attack = Row.AttackRange;
+	UDFEnemyArchetypeLibrary::ApplyArchetypeRangeDefaults(Row.Archetype, Melee, Ranged, Attack);
+	MeleeRange = FMath::Max(0.f, Melee);
+	RangedRange = FMath::Max(0.f, Ranged);
+	AttackRange = FMath::Max(0.f, Attack);
 	if (Row.PatrolPathPoints.Num() > 0)
 	{
 		PatrolPoints = Row.PatrolPathPoints;
@@ -664,6 +712,42 @@ void ADFEnemyBase::ApplyAIConfigFromRow(const FDFEnemyTableRow& Row)
 	if (Row.TauntMontages.Num() > 0)
 	{
 		TauntMontages = Row.TauntMontages;
+	}
+	SyncAIBlackboardFromArchetype();
+}
+
+void ADFEnemyBase::GrantAbilitiesForRow(const FDFEnemyTableRow& Row)
+{
+	if (!AbilitySystemComponent)
+	{
+		return;
+	}
+	FGameplayTagContainer TagsToGrant;
+	for (const FGameplayTag& Tag : Row.GrantedAbilities)
+	{
+		if (Tag.IsValid())
+		{
+			TagsToGrant.AddTag(Tag);
+		}
+	}
+	if (TagsToGrant.IsEmpty())
+	{
+		TagsToGrant = UDFEnemyArchetypeLibrary::GetDefaultGrantedAbilityTags(Row.Archetype);
+	}
+	for (const FGameplayTag& Tag : TagsToGrant)
+	{
+		if (!Tag.IsValid())
+		{
+			continue;
+		}
+		const TSubclassOf<UGameplayAbility>* AbClass = GrantedAbilitiesByTag.Find(Tag);
+		if (!AbClass || !(*AbClass))
+		{
+			continue;
+		}
+		FGameplayAbilitySpec Spec(*AbClass, 1, INDEX_NONE, this);
+		Spec.DynamicAbilityTags.AddTag(Tag);
+		AbilitySystemComponent->GiveAbility(Spec);
 	}
 }
 
@@ -706,34 +790,17 @@ void ADFEnemyBase::ApplyBaseStatsFromRow(const FDFEnemyTableRow& Row)
 		Hp *= 2.5f;
 		Damage *= 1.5f;
 	}
+	else if (Row.Tier == EEnemyTier::Boss)
+	{
+		Hp *= 4.f;
+		Damage *= 1.5f;
+		Armor *= 1.15f;
+	}
 
 	S->SetMaxHealth(Hp);
 	S->SetHealth(Hp);
 	S->SetArmor(Armor);
 	S->SetStrength(Damage);
-}
-
-void ADFEnemyBase::GrantAbilitiesForRow(const FDFEnemyTableRow& Row)
-{
-	if (!AbilitySystemComponent)
-	{
-		return;
-	}
-	for (const FGameplayTag& Tag : Row.GrantedAbilities)
-	{
-		if (!Tag.IsValid())
-		{
-			continue;
-		}
-		if (const TSubclassOf<UGameplayAbility>* AbClass = GrantedAbilitiesByTag.Find(Tag))
-		{
-			if (*AbClass)
-			{
-				const FGameplayAbilitySpec Spec(*AbClass, 1, INDEX_NONE, this);
-				AbilitySystemComponent->GiveAbility(Spec);
-			}
-		}
-	}
 }
 
 UBlackboardComponent* ADFEnemyBase::GetBehaviorTreeBlackboard() const
@@ -1230,6 +1297,11 @@ void ADFEnemyBase::HandleServerDeath(AActor* Killer)
 		return;
 	}
 	bDeathFlowActive = true;
+
+	if (UDFBossMinionComponent* const MinionComp = FindComponentByClass<UDFBossMinionComponent>())
+	{
+		MinionComp->HandleOwnerDeath(Killer);
+	}
 
 	AActor* EffectiveKiller = Killer;
 	if (EffectiveKiller == this)

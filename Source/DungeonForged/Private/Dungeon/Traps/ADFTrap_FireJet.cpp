@@ -5,6 +5,7 @@
 #include "Components/CapsuleComponent.h"
 #include "NiagaraComponent.h"
 #include "Engine/World.h"
+#include "Network/UDFNetworkLibrary.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/Pawn.h"
@@ -185,7 +186,7 @@ void ADFTrap_FireJet::ApplyFireDamageTick()
 void ADFTrap_FireJet::UpdateVignetteForLocalPawn() const
 {
 	float Str = 0.f;
-	if (APlayerController* const PC = UGameplayStatics::GetPlayerController(this, 0))
+	if (APlayerController* const PC = UDFNetworkLibrary::GetLocalPlayerController(GetWorld()))
 	{
 		if (APawn* P = PC->GetPawn())
 		{

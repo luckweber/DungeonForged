@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/UI/Combat/UDFCombatTextSubsystem.cpp
 #include "UI/Combat/UDFCombatTextSubsystem.h"
+#include "Network/UDFNetworkLibrary.h"
 #include "UI/Combat/UDFCombatTextWidget.h"
 #include "Localization/UDFAccessibilitySubsystem.h"
 #include "Engine/GameInstance.h"
@@ -50,7 +51,7 @@ void UDFCombatTextSubsystem::EnsurePooledWidgets()
 	{
 		return;
 	}
-	APlayerController* const PC = UGameplayStatics::GetPlayerController(GetWorld(), 0);
+	APlayerController* const PC = UDFNetworkLibrary::GetLocalPlayerController(GetWorld());
 	if (!PC)
 	{
 		return;
@@ -187,7 +188,7 @@ void UDFCombatTextSubsystem::SpawnTextString(
 	}
 	else
 	{
-		APlayerController* const PC = UGameplayStatics::GetPlayerController(GetWorld(), 0);
+		APlayerController* const PC = UDFNetworkLibrary::GetLocalPlayerController(GetWorld());
 		if (PC)
 		{
 			Wd = CreateWidget<UDFCombatTextWidget>(PC, WidgetClass);

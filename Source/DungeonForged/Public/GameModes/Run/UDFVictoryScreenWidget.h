@@ -64,4 +64,16 @@ public:
 	void HandleReturnNexus();
 	UFUNCTION()
 	void HandlePlayAgain();
+
+	/** Skip the auto-return timer (any key / button). */
+	UFUNCTION(BlueprintCallable, Category = "Run|UI")
+	void RequestSkipToNexus();
+
+	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Run|UI", meta = (ClampMin = "0.0"))
+	float MinSecondsBeforeSkip = 0.5f;
+
+	UPROPERTY(Transient)
+	float ShownAtSeconds = 0.f;
 };

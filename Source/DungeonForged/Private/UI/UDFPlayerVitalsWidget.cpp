@@ -8,6 +8,10 @@
 void UDFPlayerVitalsWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+	if (HealthBar)
+	{
+		DefaultHealthFillColor = HealthBar->GetFillColorAndOpacity();
+	}
 	TryBindVitals();
 	RefreshVitals();
 }
@@ -22,18 +26,28 @@ void UDFPlayerVitalsWidget::NativeTick(const FGeometry& MyGeometry, const float 
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
-	if (bVitalsBound)
+	if (!bVitalsBound)
 	{
+		RebindAccumulator += InDeltaTime;
+		if (RebindAccumulator >= 0.25f)
+		{
+			RebindAccumulator = 0.f;
+			TryBindVitals();
+			RefreshVitals();
+		}
 		return;
 	}
 
-	RebindAccumulator += InDeltaTime;
-	if (RebindAccumulator >= 0.25f)
+	if (HealthLagBar && DisplayedLagHealthPercent > TargetHealthPercent)
 	{
-		RebindAccumulator = 0.f;
-		TryBindVitals();
-		RefreshVitals();
+		DisplayedLagHealthPercent = FMath::FInterpTo(
+			DisplayedLagHealthPercent,
+			TargetHealthPercent,
+			InDeltaTime,
+			HealthLagDecaySpeed);
+		HealthLagBar->SetPercent(DisplayedLagHealthPercent);
 	}
+	UpdateLowHealthBarPulse(TargetHealthPercent, InDeltaTime);
 }
 
 void UDFPlayerVitalsWidget::TryBindVitals()
@@ -78,6 +92,8 @@ void UDFPlayerVitalsWidget::RefreshVitals()
 		SetResourceWidgets(ManaBar, ManaText, 0.f, 1.f, NSLOCTEXT("DFHUD", "ManaLabel", "Mana"));
 		SetResourceWidgets(ManaOrb, nullptr, 0.f, 1.f, NSLOCTEXT("DFHUD", "ManaLabelOrb", "Mana"));
 		SetResourceWidgets(StaminaBar, StaminaText, 0.f, 1.f, NSLOCTEXT("DFHUD", "StaminaLabel", "Stamina"));
+		TargetHealthPercent = 0.f;
+		UpdateHealthLagBar(0.f);
 		return;
 	}
 
@@ -94,10 +110,13 @@ void UDFPlayerVitalsWidget::RefreshVitals()
 	SetResourceWidgets(ManaOrb, nullptr, Mana, MaxMana, NSLOCTEXT("DFHUD", "ManaLabelRefreshOrb", "Mana"));
 	SetResourceWidgets(StaminaBar, StaminaText, Stamina, MaxStamina, NSLOCTEXT("DFHUD", "StaminaLabelRefresh", "Stamina"));
 
+	const float ActualPercent = MaxHealth > KINDA_SMALL_NUMBER ? FMath::Clamp(Health / MaxHealth, 0.f, 1.f) : 0.f;
+	TargetHealthPercent = ActualPercent;
+	UpdateHealthLagBar(ActualPercent);
+
 	if (HealthPercentText)
 	{
-		const float Percent = MaxHealth > KINDA_SMALL_NUMBER ? Health / MaxHealth : 0.f;
-		HealthPercentText->SetText(FText::AsPercent(FMath::Clamp(Percent, 0.f, 1.f)));
+		HealthPercentText->SetText(FText::AsPercent(FMath::Clamp(ActualPercent, 0.f, 1.f)));
 	}
 	if (ManaPercentText)
 	{
@@ -109,6 +128,44 @@ void UDFPlayerVitalsWidget::RefreshVitals()
 		const float Percent = MaxStamina > KINDA_SMALL_NUMBER ? Stamina / MaxStamina : 0.f;
 		StaminaPercentText->SetText(FText::AsPercent(FMath::Clamp(Percent, 0.f, 1.f)));
 	}
+}
+
+void UDFPlayerVitalsWidget::UpdateHealthLagBar(const float ActualPercent)
+{
+	if (!HealthLagBar)
+	{
+		DisplayedLagHealthPercent = ActualPercent;
+		return;
+	}
+	if (ActualPercent >= DisplayedLagHealthPercent)
+	{
+		DisplayedLagHealthPercent = ActualPercent;
+	}
+	HealthLagBar->SetPercent(DisplayedLagHealthPercent);
+	HealthLagBar->SetVisibility(
+		DisplayedLagHealthPercent > ActualPercent + 0.001f
+			? ESlateVisibility::HitTestInvisible
+			: ESlateVisibility::Collapsed);
+}
+
+void UDFPlayerVitalsWidget::UpdateLowHealthBarPulse(const float ActualPercent, const float DeltaTime)
+{
+	if (!HealthBar)
+	{
+		return;
+	}
+	if (ActualPercent >= LowHealthThreshold)
+	{
+		HealthBar->SetFillColorAndOpacity(DefaultHealthFillColor);
+		return;
+	}
+	LowHealthPulsePhase += DeltaTime * (2.f * PI / 1.5f);
+	const float Pulse = 0.5f + 0.5f * FMath::Sin(LowHealthPulsePhase);
+	HealthBar->SetFillColorAndOpacity(FLinearColor(
+		DefaultHealthFillColor.R,
+		DefaultHealthFillColor.G * (0.35f + 0.65f * Pulse),
+		DefaultHealthFillColor.B * 0.5f,
+		1.f));
 }
 
 void UDFPlayerVitalsWidget::SetResourceWidgets(

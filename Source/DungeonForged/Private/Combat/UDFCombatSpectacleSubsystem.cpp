@@ -5,6 +5,7 @@
 #include "FX/UDFCameraShakeFunctionLibrary.h"
 #include "FX/UDFHitStopSubsystem.h"
 #include "FX/UDFScreenEffectsComponent.h"
+#include "Network/UDFNetworkLibrary.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 
@@ -16,7 +17,7 @@ ADFPlayerCharacter* GetLocalPlayerCharacter(UWorld* const World)
 	{
 		return nullptr;
 	}
-	if (APlayerController* const PC = UGameplayStatics::GetPlayerController(World, 0))
+	if (APlayerController* const PC = UDFNetworkLibrary::GetLocalPlayerController(World))
 	{
 		return Cast<ADFPlayerCharacter>(PC->GetPawn());
 	}

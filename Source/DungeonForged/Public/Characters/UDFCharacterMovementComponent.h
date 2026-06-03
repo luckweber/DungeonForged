@@ -42,6 +42,22 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement")
 	float CrouchSpeed = 200.f;
 
+	/**
+	 * Walking braking deceleration when releasing movement input (cm/s²). LOW on purpose: the Stop
+	 * animations carry root motion and are authored to glide a fixed distance (Run_Stop ≈ 202 cm).
+	 * With UE's default friction-based braking the capsule stops in ~6 cm, so distance-matching has
+	 * no distance to consume and the Stop clip never plays (hard "brusco" stop). Letting the capsule
+	 * glide lets the Stop clip play out and the feet stay planted (no sliding).
+	 *   Lower  = glides further → fuller Stop animation, less responsive.
+	 *   Higher = stops sooner   → shorter/cut Stop animation, snappier.
+	 * Reference (gliding from Run ≈ 429 cm/s vs the 202 cm Run_Stop clip): 450 ≈ full clip (~2 m
+	 * slide), 500 ≈ 91%, 600 ≈ 76%, 700 ≈ 65%, 2048 (UE default) ≈ a few cm (no Stop anim at all).
+	 * Applied in the constructor + BeginPlay; the landing brake (LandingBrakingDeceleration) still
+	 * overrides it for its short window and restores back to this value.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement", meta = (ClampMin = "0.0"))
+	float WalkStopBrakingDeceleration = 600.f;
+
 	/** Stamina / second when sprinting (numeric drain). Ignored if bSprintStaminaFromGameplayEffect is true. */
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Movement|Sprint", meta = (ClampMin = "0.0"))
 	float SprintStaminaDrain = 15.f;
@@ -238,6 +254,7 @@ private:
 
 	virtual FNetworkPredictionData_Client* GetPredictionData_Client() const override;
 	virtual void UpdateFromCompressedFlags(uint8 Flags) override;
+	virtual void PhysicsRotation(float DeltaTime) override;
 	virtual void OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode) override;
 	virtual void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual bool DoJump(bool bReplayingMoves) override;
@@ -301,6 +318,8 @@ struct FSavedMove_DF : public FSavedMove_Character
 {
 public:
 	bool bWantsSprint = false;
+	bool bIsDodging = false;
+	bool bAirDashActive = false;
 
 	virtual void Clear() override;
 	virtual uint8 GetCompressedFlags() const override;

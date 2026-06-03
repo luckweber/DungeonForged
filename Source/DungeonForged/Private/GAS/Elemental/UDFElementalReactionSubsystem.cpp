@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/GAS/Elemental/UDFElementalReactionSubsystem.cpp
 #include "GAS/Elemental/UDFElementalReactionSubsystem.h"
+#include "GAS/UDFGameplayCueRegistry.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/Elemental/UDFElementalComponent.h"
 #include "GAS/Elemental/UDFElementalLibrary.h"
@@ -15,6 +16,52 @@
 
 namespace
 {
+	void ShowElementalCombatText(
+		const UDFElementalReactionSubsystem* Sub,
+		AActor* const Target,
+		const float Mult,
+		const EDFElementalRuntimeReaction Reaction)
+	{
+		if (!Sub || !Target || IsRunningDedicatedServer())
+		{
+			return;
+		}
+		if (FMath::Abs(Mult - 1.f) <= KINDA_SMALL_NUMBER && Reaction == EDFElementalRuntimeReaction::None)
+		{
+			return;
+		}
+		if (UWorld* const W = Sub->GetWorld())
+		{
+			if (UDFCombatTextSubsystem* const Ctx = W->GetSubsystem<UDFCombatTextSubsystem>())
+			{
+				const FVector Base = Target->GetActorLocation() + FVector(0.f, 0.f, 90.f);
+				if (Mult > 1.f + KINDA_SMALL_NUMBER)
+				{
+					Ctx->SpawnTextString(Base + FVector(0.f, 0.f, 30.f), TEXT("WEAK!"), ECombatTextType::Elemental_Weak);
+				}
+				else if (Mult < 1.f - KINDA_SMALL_NUMBER)
+				{
+					Ctx->SpawnTextString(Base + FVector(0.f, 0.f, 30.f), TEXT("RESIST"), ECombatTextType::Elemental_Resist);
+				}
+				if (Reaction == EDFElementalRuntimeReaction::Melt)
+				{
+					Ctx->SpawnTextString(
+						Base + FVector(0.f, 0.f, 55.f), TEXT("MELT!"), ECombatTextType::Elemental_Reaction, 1.4f);
+				}
+				else if (Reaction == EDFElementalRuntimeReaction::Electrocute)
+				{
+					Ctx->SpawnTextString(
+						Base + FVector(0.f, 0.f, 55.f), TEXT("ELECTROCUTED!"), ECombatTextType::Elemental_Reaction, 1.4f);
+				}
+				else if (Reaction == EDFElementalRuntimeReaction::Steam)
+				{
+					Ctx->SpawnTextString(
+						Base + FVector(0.f, 0.f, 55.f), TEXT("STEAM!"), ECombatTextType::Elemental_Reaction, 1.4f);
+				}
+			}
+		}
+	}
+
 	void TryApplyGe(UAbilitySystemComponent* const TargetAsc, const TSubclassOf<UGameplayEffect> Class, AActor* const Instigator)
 	{
 		if (!TargetAsc || !Class || !TargetAsc->GetOwner() || !TargetAsc->GetOwner()->HasAuthority())
@@ -68,7 +115,7 @@ namespace
 		}
 		if (BuiltIn == EDFElementalRuntimeReaction::None && Sub)
 		{
-			Sub->TrySpawnReactionVFX(EDFElementalRuntimeReaction::TableDriven, Target);
+			UDFGameplayCueRegistry::ExecuteReactionCue(Target, nullptr, EDFElementalRuntimeReaction::TableDriven);
 		}
 	}
 }
@@ -125,7 +172,7 @@ EDFElementalRuntimeReaction UDFElementalReactionSubsystem::CheckElementalReactio
 		{
 			Elem->SetCurrentReactionTag(FDFGameplayTags::Effect_Reaction_Melt);
 		}
-		TrySpawnReactionVFX(EDFElementalRuntimeReaction::Melt, Target);
+		UDFGameplayCueRegistry::ExecuteReactionCue(Target, Instigator, EDFElementalRuntimeReaction::Melt);
 		TryDataTableRow(Target, ASC, Elem, IncomingElement, EDFElementalRuntimeReaction::Melt, this);
 		return EDFElementalRuntimeReaction::Melt;
 	}
@@ -139,7 +186,7 @@ EDFElementalRuntimeReaction UDFElementalReactionSubsystem::CheckElementalReactio
 		{
 			Elem->SetCurrentReactionTag(FDFGameplayTags::Effect_Reaction_Electrocute);
 		}
-		TrySpawnReactionVFX(EDFElementalRuntimeReaction::Electrocute, Target);
+		UDFGameplayCueRegistry::ExecuteReactionCue(Target, Instigator, EDFElementalRuntimeReaction::Electrocute);
 		TryDataTableRow(Target, ASC, Elem, IncomingElement, EDFElementalRuntimeReaction::Electrocute, this);
 		return EDFElementalRuntimeReaction::Electrocute;
 	}
@@ -152,7 +199,7 @@ EDFElementalRuntimeReaction UDFElementalReactionSubsystem::CheckElementalReactio
 		{
 			Elem->SetCurrentReactionTag(FDFGameplayTags::Effect_Reaction_Steam);
 		}
-		TrySpawnReactionVFX(EDFElementalRuntimeReaction::Steam, Target);
+		UDFGameplayCueRegistry::ExecuteReactionCue(Target, Instigator, EDFElementalRuntimeReaction::Steam);
 		TryDataTableRow(Target, ASC, Elem, IncomingElement, EDFElementalRuntimeReaction::Steam, this);
 		return EDFElementalRuntimeReaction::Steam;
 	}
@@ -185,23 +232,19 @@ void UDFElementalReactionSubsystem::TrySpawnReactionVFX(const EDFElementalRuntim
 	}
 }
 
-void UDFElementalReactionSubsystem::ApplyElementalDamage(
-	FGameplayEffectSpecHandle& Spec,
+float UDFElementalReactionSubsystem::ScaleBaseDamageWithElement(
+	const float BaseDamage,
 	const EDFElementType Element,
-	AActor* const Instigator,
 	AActor* const Target,
-	const FDFElementalAffinityRow* const OptionalTargetRow)
+	AActor* const Instigator)
 {
-	if (!Target || !Spec.IsValid() || !Spec.Data.IsValid())
+	if (!Target || Element == EDFElementType::None || BaseDamage <= KINDA_SMALL_NUMBER)
 	{
-		return;
+		return BaseDamage;
 	}
-	const FDFElementalAffinityRow* Row = OptionalTargetRow;
+
 	const UDFElementalComponent* ElemComp = Target->FindComponentByClass<UDFElementalComponent>();
-	if (Row == nullptr && ElemComp)
-	{
-		Row = &ElemComp->GetAffinityData();
-	}
+	const FDFElementalAffinityRow* Row = ElemComp ? &ElemComp->GetAffinityData() : nullptr;
 	EDFElementType DefPrimary = EDFElementType::None;
 	if (Row)
 	{
@@ -214,49 +257,32 @@ void UDFElementalReactionSubsystem::ApplyElementalDamage(
 	const FDFElementalAffinityRow WorkRow = Row ? *Row : FDFElementalAffinityRow();
 	const float Mult = GetDamageMultiplier(Element, DefPrimary, WorkRow);
 
-	if (FDFGameplayTags::Data_Damage.IsValid())
+	EDFElementalRuntimeReaction Reaction = EDFElementalRuntimeReaction::None;
+	if (Target->HasAuthority())
 	{
-		const float Dmg = Spec.Data->GetSetByCallerMagnitude(FDFGameplayTags::Data_Damage, false, 0.f);
-		Spec.Data->SetSetByCallerMagnitude(FDFGameplayTags::Data_Damage, Dmg * Mult);
+		Reaction = CheckElementalReaction(Target, Element, Instigator);
 	}
+	ShowElementalCombatText(this, Target, Mult, Reaction);
+	return BaseDamage * Mult;
+}
+
+void UDFElementalReactionSubsystem::ApplyElementalDamage(
+	FGameplayEffectSpecHandle& Spec,
+	const EDFElementType Element,
+	AActor* const Instigator,
+	AActor* const Target,
+	const FDFElementalAffinityRow* const OptionalTargetRow)
+{
+	(void)Instigator;
+	(void)OptionalTargetRow;
+	if (!Target || !Spec.IsValid() || !Spec.Data.IsValid())
+	{
+		return;
+	}
+	// Tag only: scaling, reactions, and combat text run in UDFDamageCalculation via ScaleBaseDamageWithElement.
 	const FGameplayTag ElTag = UDFElementalLibrary::GetElementEffectTag(Element);
 	if (ElTag.IsValid())
 	{
-		Spec.Data->DynamicGrantedTags.AddTag(ElTag);
-	}
-	const EDFElementalRuntimeReaction R = CheckElementalReaction(Target, Element, Instigator);
-
-	if (!IsRunningDedicatedServer() && (FMath::Abs(Mult - 1.f) > KINDA_SMALL_NUMBER || R != EDFElementalRuntimeReaction::None))
-	{
-		if (UWorld* const W = GetWorld())
-		{
-			if (UDFCombatTextSubsystem* const Ctx = W->GetSubsystem<UDFCombatTextSubsystem>())
-			{
-				const FVector Base = Target->GetActorLocation() + FVector(0.f, 0.f, 90.f);
-				if (Mult > 1.f + KINDA_SMALL_NUMBER)
-				{
-					Ctx->SpawnTextString(Base + FVector(0.f, 0.f, 30.f), TEXT("WEAK!"), ECombatTextType::Elemental_Weak);
-				}
-				else if (Mult < 1.f - KINDA_SMALL_NUMBER)
-				{
-					Ctx->SpawnTextString(Base + FVector(0.f, 0.f, 30.f), TEXT("RESIST"), ECombatTextType::Elemental_Resist);
-				}
-				if (R == EDFElementalRuntimeReaction::Melt)
-				{
-					Ctx->SpawnTextString(
-						Base + FVector(0.f, 0.f, 55.f), TEXT("MELT!"), ECombatTextType::Elemental_Reaction, 1.4f);
-				}
-				else if (R == EDFElementalRuntimeReaction::Electrocute)
-				{
-					Ctx->SpawnTextString(
-						Base + FVector(0.f, 0.f, 55.f), TEXT("ELECTROCUTED!"), ECombatTextType::Elemental_Reaction, 1.4f);
-				}
-				else if (R == EDFElementalRuntimeReaction::Steam)
-				{
-					Ctx->SpawnTextString(
-						Base + FVector(0.f, 0.f, 55.f), TEXT("STEAM!"), ECombatTextType::Elemental_Reaction, 1.4f);
-				}
-			}
-		}
+		Spec.Data->AddDynamicAssetTag(ElTag);
 	}
 }

@@ -103,13 +103,6 @@ void UDFAbility_Mage_Teleport::ActivateAbility(
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
-	if (UAbilitySystemComponent* const asc = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (asc->GetOwner() && asc->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(asc);
-		}
-	}
 	ACharacter* const C = Cast<ACharacter>(GetAvatarActorFromActorInfo());
 	UAbilitySystemComponent* const ASC = GetAbilitySystemComponentFromActorInfo();
 	if (!C || !ASC || !C->HasAuthority())

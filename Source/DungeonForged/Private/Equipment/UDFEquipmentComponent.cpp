@@ -17,6 +17,32 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
 #include "Animation/UDFAnimInstance.h"
+#include "DFLootDrop.h"
+#include "Engine/World.h"
+
+namespace
+{
+void SpawnDroppedItemAtFeet(AActor* Owner, UDataTable* ItemTable, FName ItemRow)
+{
+	if (!Owner || !Owner->HasAuthority() || ItemRow.IsNone())
+	{
+		return;
+	}
+	UWorld* const World = Owner->GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	FVector Loc = Owner->GetActorLocation();
+	Loc.Z += 20.f;
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+	if (ADFLootDrop* const Drop = World->SpawnActor<ADFLootDrop>(ADFLootDrop::StaticClass(), Loc, FRotator::ZeroRotator, Params))
+	{
+		Drop->InitLoot(ItemTable, ItemRow, FVector::UpVector * 120.f, false);
+	}
+}
+} // namespace
 
 static FString DF_DebugEqSlotName(const EEquipmentSlot Slot)
 {
@@ -713,13 +739,14 @@ void UDFEquipmentComponent::UnequipSlotInternal(
 			if (!Inv->AddItem(RowN, 1))
 			{
 				DF_LOG(Warning,
-					"[DF|Eq|Unequip] INV FULL owner=%s item=%s lost (EquipSlot=%s BagTarget=%s)",
+					"[DF|Eq|Unequip] INV FULL owner=%s item=%s dropping at feet (EquipSlot=%s BagTarget=%s)",
 					*OwnerName,
 					*RowN.ToString(),
 					*DF_DebugEqSlotName(Slot),
 					TargetBagSlotIndex != INDEX_NONE
 						? *FString::FromInt(TargetBagSlotIndex)
 						: TEXT("AUTO"));
+				SpawnDroppedItemAtFeet(O, ItemDataTable, RowN);
 			}
 			else
 			{

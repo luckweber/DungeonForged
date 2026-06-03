@@ -52,6 +52,12 @@ public class DungeonForged : ModuleRules
 			// Motion Warping (melee aim + windup root-motion steering)
 			"MotionWarping",
 
+			// Animation Warping (Stride Warping + Orientation Warping nodes in AnimGraph)
+			"AnimationWarpingRuntime",
+
+			// Motion Trajectory (Distance Matching trajectory samples)
+			"MotionTrajectory",
+
 			// FX
 			"Niagara",
 

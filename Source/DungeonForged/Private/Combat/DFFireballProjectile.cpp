@@ -1,6 +1,8 @@
 // Source/DungeonForged/Private/Combat/DFFireballProjectile.cpp
 #include "Combat/DFFireballProjectile.h"
 #include "Combat/UDFProjectileHitTrackerComponent.h"
+#include "Combat/UDFProjectilePoolLibrary.h"
+#include "Combat/UDFProjectileSweepComponent.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
@@ -40,6 +42,47 @@ ADFFireballProjectile::ADFFireballProjectile()
 	TrailVFX = CreateDefaultSubobject<UNiagaraComponent>(TEXT("TrailVFX"));
 	TrailVFX->SetupAttachment(RootComponent);
 	TrailVFX->bAutoActivate = false;
+	ProjectileSweep = CreateDefaultSubobject<UDFProjectileSweepComponent>(TEXT("ProjectileSweep"));
+}
+
+FName ADFFireballProjectile::GetPoolName() const
+{
+	return FName(TEXT("FireballProjectile"));
+}
+
+void ADFFireballProjectile::OnAcquiredFromPool()
+{
+	if (HitTracker)
+	{
+		HitTracker->ClearHitHistory();
+	}
+	if (ProjectileMove)
+	{
+		ProjectileMove->Velocity = GetActorForwardVector() * ProjectileMove->InitialSpeed;
+		ProjectileMove->UpdateComponentVelocity();
+	}
+	if (ProjectileSweep)
+	{
+		ProjectileSweep->ResetTraceSegment();
+	}
+	SetLifeSpan(0.f);
+}
+
+void ADFFireballProjectile::OnReleasedToPool()
+{
+	if (TrailVFX)
+	{
+		TrailVFX->Deactivate();
+	}
+	if (ProjectileMove)
+	{
+		ProjectileMove->StopMovementImmediately();
+	}
+}
+
+void ADFFireballProjectile::FinishProjectile()
+{
+	UDFProjectilePoolLibrary::FinishProjectile(this, this);
 }
 
 void ADFFireballProjectile::OnHit(UPrimitiveComponent* HitComponent, AActor* Other, UPrimitiveComponent* OtherComp,
@@ -52,17 +95,22 @@ void ADFFireballProjectile::OnHit(UPrimitiveComponent* HitComponent, AActor* Oth
 	{
 		if (HasAuthority())
 		{
-			Destroy();
+			FinishProjectile();
 		}
 		return;
 	}
 	if (HitTracker && !HitTracker->TryRegisterHit(Other))
 	{
-		Destroy();
+		FinishProjectile();
 		return;
 	}
 	ApplyFireDamageTo(Other, Hit);
-	Destroy();
+	FinishProjectile();
+}
+
+void ADFFireballProjectile::OnSweepHit(const FHitResult& Hit, UPrimitiveComponent* const SweptComponent)
+{
+	OnHit(SweptComponent, Hit.GetActor(), Hit.GetComponent(), FVector::ZeroVector, Hit);
 }
 
 void ADFFireballProjectile::ApplyFireDamageTo(AActor* Target, const FHitResult& Hit)
@@ -129,5 +177,10 @@ void ADFFireballProjectile::BeginPlay()
 	{
 		TrailVFX->SetAsset(TrailNiagara);
 		TrailVFX->Activate(true);
+	}
+	if (ProjectileSweep)
+	{
+		ProjectileSweep->OnSweepHit.AddDynamic(this, &ADFFireballProjectile::OnSweepHit);
+		ProjectileSweep->ResetTraceSegment();
 	}
 }

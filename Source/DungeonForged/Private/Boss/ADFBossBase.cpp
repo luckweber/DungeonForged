@@ -1,7 +1,11 @@
 // Source/DungeonForged/Private/Boss/ADFBossBase.cpp
 #include "Boss/ADFBossBase.h"
+#include "Boss/ADFMeteorWarningDecal.h"
+#include "Boss/UDFBossMinionComponent.h"
+#include "Combat/UDFCombatDirectorSubsystem.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/Effects/UDFGameplayEffectLibrary.h"
+#include "GAS/UDFAttributeSet.h"
 #include "GAS/Effects/UGE_BossEnrage.h"
 #include "GAS/Effects/UGE_BossPhaseStats.h"
 #include "GAS/Effects/UGE_Debuff_Stun.h"
@@ -40,8 +44,10 @@ void ADFBossBase::BeginPlay()
 	bLocalEnragedCache = bIsEnraged;
 	if (HasAuthority() && EnrageTimer > 0.f && !bIsEnraged)
 	{
+		EnrageCountdownEndWorldTime = GetWorld()->GetTimeSeconds() + EnrageTimer;
 		GetWorldTimerManager().SetTimer(EnrageTimerHandle, this, &ADFBossBase::OnEnrageTimerExpired, EnrageTimer, false);
 		bEnrageTimerSet = true;
+		ForceNetUpdate();
 	}
 	if (HasAuthority() && PhaseSlamAbility && AbilitySystemComponent)
 	{
@@ -65,16 +71,13 @@ void ADFBossBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifet
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(ADFBossBase, CurrentPhase);
 	DOREPLIFETIME(ADFBossBase, bIsEnraged);
+	DOREPLIFETIME(ADFBossBase, EnrageCountdownEndWorldTime);
 	DOREPLIFETIME(ADFBossBase, BossDisplayName);
 }
 
 void ADFBossBase::NotifyHealthChangedFromAttributes(const float Current, const float Max)
 {
 	if (!HasAuthority() || bHasDied || Max <= 0.f)
-	{
-		return;
-	}
-	if (bIsEnraged)
 	{
 		return;
 	}
@@ -138,6 +141,12 @@ void ADFBossBase::TriggerPhaseTransition(const int32 NewPhase)
 	{
 		UDFGameplayEffectLibrary::ApplyEffectToSelf(this, PhaseStatEffect, 1.f);
 	}
+	ApplyPhaseCooldownProfile(NewPhase);
+
+	if (bClearMinionsOnPhaseChange)
+	{
+		ClearSpawnedMinions();
+	}
 
 	const int32 AbIdx = NewPhase - 2;
 	if (PhaseAbilities.IsValidIndex(AbIdx) && PhaseAbilities[AbIdx] && AbilitySystemComponent)
@@ -175,6 +184,24 @@ void ADFBossBase::EndBossVulnerabilityWindow()
 	}
 }
 
+void ADFBossBase::ApplyPhaseCooldownProfile(const int32 NewPhase)
+{
+	if (!AbilitySystemComponent)
+	{
+		return;
+	}
+	const int32 Idx = NewPhase - 1;
+	if (!PhaseCooldownReduction.IsValidIndex(Idx))
+	{
+		return;
+	}
+	const float TargetCdr = FMath::Clamp(PhaseCooldownReduction[Idx], 0.f, 0.5f);
+	if (UDFAttributeSet* const Stats = const_cast<UDFAttributeSet*>(AbilitySystemComponent->GetSet<UDFAttributeSet>()))
+	{
+		Stats->SetCooldownReduction(TargetCdr);
+	}
+}
+
 
 void ADFBossBase::OnEnrageTimerExpired()
 {
@@ -182,6 +209,7 @@ void ADFBossBase::OnEnrageTimerExpired()
 	{
 		return;
 	}
+	EnrageCountdownEndWorldTime = 0.f;
 	if (EnrageEffect)
 	{
 		UDFGameplayEffectLibrary::ApplyEffectToSelf(this, EnrageEffect, 1.f);
@@ -210,6 +238,29 @@ void ADFBossBase::OnRep_BossEnraged()
 		bLocalEnragedCache = bIsEnraged;
 		OnBossEnraged.Broadcast(this, bIsEnraged);
 	}
+	if (bIsEnraged)
+	{
+		EnrageCountdownEndWorldTime = 0.f;
+	}
+}
+
+float ADFBossBase::GetEnrageSecondsRemaining() const
+{
+	if (bIsEnraged || EnrageCountdownEndWorldTime <= 0.f)
+	{
+		return 0.f;
+	}
+	const UWorld* const World = GetWorld();
+	if (!World)
+	{
+		return 0.f;
+	}
+	return FMath::Max(0.f, EnrageCountdownEndWorldTime - World->GetTimeSeconds());
+}
+
+void ADFBossBase::OnRep_EnrageCountdownEndWorldTime()
+{
+	// Clients refresh HUD via widget timer/delegates.
 }
 
 void ADFBossBase::Multicast_OnPhaseTransitionVFX_Implementation()
@@ -247,6 +298,32 @@ void ADFBossBase::Multicast_OnEnrageVFX_Implementation()
 	{
 		const FVector L = GetActorLocation() + FVector(0.f, 0.f, 80.f);
 		UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, EnrageVFX, L, FRotator::ZeroRotator, FVector(1.2f), true, true, ENCPoolMethod::None, true);
+	}
+}
+
+void ADFBossBase::Multicast_PlayMeteorWarning_Implementation(
+	const FVector& Location,
+	const float DecalRadius,
+	const float DurationSeconds,
+	const TSubclassOf<ADFMeteorWarningDecal> DecalClass)
+{
+	if (!DecalClass || IsRunningDedicatedServer())
+	{
+		return;
+	}
+	UWorld* const World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	FActorSpawnParameters Sp;
+	Sp.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	Sp.Owner = this;
+	Sp.Instigator = this;
+	if (ADFMeteorWarningDecal* const Decal = World->SpawnActor<ADFMeteorWarningDecal>(
+		DecalClass, FTransform(FRotator(-90.f, 0.f, 0.f), Location), Sp))
+	{
+		Decal->ConfigureWarning(DecalRadius, DurationSeconds);
 	}
 }
 
@@ -309,11 +386,31 @@ void ADFBossBase::HandleServerDeath(AActor* Killer)
 	Super::HandleServerDeath(Killer);
 }
 
-void ADFBossBase::RegisterSpawnedMinion(ADFEnemyBase* Minion)
+void ADFBossBase::RegisterSpawnedMinion(ADFEnemyBase* const Minion, const EDFBossMinionRole MinionRole)
 {
 	if (!Minion)
 	{
 		return;
+	}
+	if (UWorld* const World = GetWorld())
+	{
+		if (UDFCombatDirectorSubsystem* const Director = World->GetSubsystem<UDFCombatDirectorSubsystem>())
+		{
+			Director->RegisterBossMinion();
+		}
+	}
+	UDFBossMinionComponent* MinionComp = Minion->FindComponentByClass<UDFBossMinionComponent>();
+	if (!MinionComp)
+	{
+		MinionComp = NewObject<UDFBossMinionComponent>(Minion, UDFBossMinionComponent::StaticClass());
+		if (MinionComp)
+		{
+			MinionComp->RegisterComponent();
+		}
+	}
+	if (MinionComp)
+	{
+		MinionComp->InitializeMinion(this, MinionRole);
 	}
 	SpawnedMinions.Add(Minion);
 	Minion->OnEnemyDied.AddUniqueDynamic(this, &ADFBossBase::HandleMinionEnemyDied);
@@ -340,6 +437,13 @@ void ADFBossBase::HandleMinionEnemyDied(AActor* const Enemy, AActor* const Kille
 {
 	(void)Killer;
 	(void)Exp;
+	if (UWorld* const World = GetWorld())
+	{
+		if (UDFCombatDirectorSubsystem* const Director = World->GetSubsystem<UDFCombatDirectorSubsystem>())
+		{
+			Director->UnregisterBossMinion();
+		}
+	}
 	SpawnedMinions.RemoveAll([Enemy](const TWeakObjectPtr<ADFEnemyBase>& W) { return W.Get() == Enemy; });
 }
 
@@ -353,9 +457,21 @@ void ADFBossBase::ClearSpawnedMinions()
 			if (A->GetAbilitySystemComponent())
 			{
 				A->GetAbilitySystemComponent()->RemoveLooseGameplayTag(FDFGameplayTags::State_Spawned_Boss);
+				if (FDFGameplayTags::State_Spawned_Boss_Guard.IsValid())
+				{
+					A->GetAbilitySystemComponent()->RemoveLooseGameplayTag(FDFGameplayTags::State_Spawned_Boss_Guard);
+				}
+				if (FDFGameplayTags::State_Spawned_Boss_Exploder.IsValid())
+				{
+					A->GetAbilitySystemComponent()->RemoveLooseGameplayTag(FDFGameplayTags::State_Spawned_Boss_Exploder);
+				}
 			}
 			if (HasAuthority() && A->GetWorld())
 			{
+				if (UDFCombatDirectorSubsystem* const Director = A->GetWorld()->GetSubsystem<UDFCombatDirectorSubsystem>())
+				{
+					Director->UnregisterBossMinion();
+				}
 				A->Destroy();
 			}
 		}

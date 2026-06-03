@@ -12,6 +12,7 @@
 #include "Equipment/UDFEquipmentComponent.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Run/DFRunManager.h"
+#include "Run/UDFBetweenFloorSubsystem.h"
 #include "DungeonForgedModule.h"
 #include "AbilitySystemComponent.h"
 #include "Engine/Engine.h"
@@ -182,7 +183,7 @@ void ADFRunGameMode::HandleStartingNewPlayer_Implementation(APlayerController* N
 	{
 		InitializePlayerFromClass(NewPlayer, PendingClass);
 	}
-	else if (Arrival == EDFRunTravelReason::NextFloor && P)
+	else if ((Arrival == EDFRunTravelReason::NextFloor || Arrival == EDFRunTravelReason::ResumeCheckpoint) && P)
 	{
 		RM->RestoreRunState(P);
 	}
@@ -339,6 +340,15 @@ void ADFRunGameMode::SkipDefeatToNexus()
 	ScheduleFinishDefeatToNexus();
 }
 
+void ADFRunGameMode::SkipVictoryToNexus()
+{
+	if (UWorld* const W = GetWorld())
+	{
+		W->GetTimerManager().ClearTimer(VictoryEndTimer);
+	}
+	ScheduleFinishVictoryToNexus();
+}
+
 void ADFRunGameMode::HandleRunEnemyKilled(AActor* const /*Enemy*/)
 {
 	if (ADFRunGameState* const RGS = GetGameState<ADFRunGameState>())
@@ -371,23 +381,11 @@ void ADFRunGameMode::HandleDungeonRunCompleted()
 
 void ADFRunGameMode::TriggerBetweenFloorSequence()
 {
-	if (ADFRunGameState* const RGS = GetGameState<ADFRunGameState>())
+	if (UWorld* const W = GetWorld())
 	{
-		RGS->SetPhase(ERunPhase::BetweenFloors);
-	}
-	if (UGameInstance* const GI = GetGameInstance())
-	{
-		if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
+		if (UDFBetweenFloorSubsystem* const BF = W->GetSubsystem<UDFBetweenFloorSubsystem>())
 		{
-			RM->CaptureRunState();
-		}
-	}
-	UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 0.0001f);
-	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
-	{
-		if (ADFRunPlayerController* const RPC = Cast<ADFRunPlayerController>(It->Get()))
-		{
-			RPC->Client_PresentBetweenFloorUI();
+			BF->StartBetweenFloorFlow(this);
 		}
 	}
 }

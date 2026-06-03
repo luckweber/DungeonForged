@@ -31,6 +31,7 @@
 #include "NiagaraSystem.h"
 #include "Run/DFRunManager.h"
 #include "Run/DFSaveGame.h"
+#include "Run/UDFSaveLibrary.h"
 #include "Run/UDFSaveSlotManagerSubsystem.h"
 #include "World/UDFWorldTransitionSubsystem.h"
 #include "World/DFWorldTypes.h"
@@ -475,14 +476,7 @@ void UDFClassSelectionSubsystem::EnsureSaveLoaded()
 		return;
 	}
 	UGameInstance* const GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
-	if (UDFSaveSlotManagerSubsystem* const S = GI ? GI->GetSubsystem<UDFSaveSlotManagerSubsystem>() : nullptr)
-	{
-		SaveRef = S->GetActiveOrLegacyMetaSave();
-	}
-	if (!SaveRef)
-	{
-		SaveRef = UDFSaveGame::Load();
-	}
+	SaveRef = UDFSaveLibrary::ResolveMutableMetaSave(this);
 }
 
 const FDFClassTableRow* UDFClassSelectionSubsystem::GetClassData(const FName ClassName) const
@@ -771,15 +765,12 @@ void UDFClassSelectionSubsystem::CloseClassSelection(const bool bConfirm)
 		UGameInstance* const GI = W ? W->GetGameInstance() : nullptr;
 		if (MainMenuClassDestination != EDFMainMenuClassPickDestination::None)
 		{
-			if (UDFSaveSlotManagerSubsystem* const Slots = GI ? GI->GetSubsystem<UDFSaveSlotManagerSubsystem>() : nullptr)
+			if (UDFSaveGame* const Save = UDFSaveLibrary::ResolveMutableMetaSave(this))
 			{
-				if (UDFSaveGame* const Save = Slots->GetActiveSave())
-				{
-					Save->LastRunClass = ConfirmedClass;
-					Save->bHasActiveRun = true;
-					Save->bIsFirstLaunch = false;
-					(void)Slots->SaveActiveSlot();
-				}
+				Save->LastRunClass = ConfirmedClass;
+				Save->bHasActiveRun = true;
+				Save->bIsFirstLaunch = false;
+				(void)UDFSaveLibrary::SaveMetaSave(this, Save);
 			}
 			if (UDFRunManager* const RM = GI ? GI->GetSubsystem<UDFRunManager>() : nullptr)
 			{

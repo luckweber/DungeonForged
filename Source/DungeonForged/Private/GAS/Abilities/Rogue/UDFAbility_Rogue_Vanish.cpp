@@ -162,10 +162,6 @@ void UDFAbility_Rogue_Vanish::ActivateAbility(
 	UAbilitySystemComponent* const Src = GetAbilitySystemComponentFromActorInfo();
 	ACharacter* const C = Cast<ACharacter>(ActorInfo->AvatarActor.Get());
 	ADFPlayerState* const PS = C ? C->GetPlayerState<ADFPlayerState>() : nullptr;
-	if (Src->GetOwner() && Src->GetOwner()->HasAuthority())
-	{
-		ApplyResourceCostsToOwner(Src);
-	}
 	if (PS && PS->AttributeSet)
 	{
 		BoundAttr = PS->AttributeSet;

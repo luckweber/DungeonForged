@@ -4,11 +4,14 @@
 #include "Boss/ADFBossBase.h"
 #include "GameModes/Run/ADFRunGameState.h"
 #include "GameModes/Run/DFRunTypes.h"
+#include "Performance/UDFAssetLoaderSubsystem.h"
 #include "UI/Minimap/ADFMinimapRoom.h"
 #include "Characters/ADFPlayerState.h"
 #include "Characters/ADFEnemyBase.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Combat/UDFCombatStateLibrary.h"
+#include "Run/DFRunManager.h"
+#include "GameModes/Run/ADFRunGameMode.h"
 #include "UI/UDFAbilitySelectionSubsystem.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
@@ -254,6 +257,8 @@ void UDFDungeonManager::StartFloor(int32 FloorNumber)
 	}
 
 	CurrentFloor = FloorNumber;
+	CurrentFloorGenerationSeed = ComputeFloorGenerationSeed(FloorNumber);
+	FMath::RandInit(static_cast<int32>(CurrentFloorGenerationSeed));
 	CachedCurrentFloorRow = Row;
 	bHasCurrentFloorRow = true;
 	bFloorCleared = false;
@@ -269,6 +274,19 @@ void UDFDungeonManager::StartFloor(int32 FloorNumber)
 	}
 
 	GenerateDungeon();
+
+	if (UWorld* const W = GetWorld())
+	{
+		if (ADFRunGameState* const GS = W->GetGameState<ADFRunGameState>())
+		{
+			GS->CurrentFloor = FloorNumber;
+		}
+		if (UDFAssetLoaderSubsystem* const Loader = W->GetSubsystem<UDFAssetLoaderSubsystem>())
+		{
+			Loader->PreloadFloorAssets(FloorNumber);
+		}
+	}
+	SyncRunGameState();
 }
 
 void UDFDungeonManager::PlaceRoomTemplates_Implementation()
@@ -297,6 +315,7 @@ void UDFDungeonManager::GenerateDungeon()
 	{
 		PCG->OnPCGGraphGeneratedExternal.AddDynamic(this, &UDFDungeonManager::OnPCGGenerationFinished);
 		PCGBoundComponent = PCG;
+		PCG->Seed = static_cast<int32>(CurrentFloorGenerationSeed);
 		PCG->Generate(true);
 
 		// Failsafe if a PCG run never calls back (graph misconfiguration, etc.)
@@ -428,6 +447,7 @@ void UDFDungeonManager::SpawnEnemies(const FDFDungeonFloorRow& FloorData)
 	{
 		UE_LOG(LogTemp, Error, TEXT("SpawnEnemies: EnemyDataTable is not set"));
 		EnemiesRemaining = 0;
+		SyncRunGameState();
 		return;
 	}
 
@@ -462,7 +482,21 @@ void UDFDungeonManager::SpawnEnemies(const FDFDungeonFloorRow& FloorData)
 				UE_LOG(LogTemp, Warning,
 					TEXT("SpawnEnemies: no spawn points — no PCG component with a graph in the level, SpawnPointsPreview empty, and PCG Owner Actor unset. Spawning at origin as fallback."));
 			}
-			SpawnPoints.Add(FTransform::Identity);
+			FTransform Fallback;
+			if (TryResolveSafeFallbackSpawnTransform(Fallback))
+			{
+				SpawnPoints.Add(Fallback);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Error,
+					TEXT("SpawnEnemies: CRITICAL — no spawn points and no player pawn for fallback on floor %d."),
+					CurrentFloor);
+			}
+		}
+		else
+		{
+			ShuffleSpawnPointsWithSeed(SpawnPoints);
 		}
 	}
 	else
@@ -475,6 +509,10 @@ void UDFDungeonManager::SpawnEnemies(const FDFDungeonFloorRow& FloorData)
 	const int32 MinC = FMath::Min(FloorData.MinEnemies, FloorData.MaxEnemies);
 	const int32 MaxC = FMath::Max(FloorData.MinEnemies, FloorData.MaxEnemies);
 	int32 GruntCount = FloorData.bUseManualEnemyLayoutOnly ? 0 : ((MinC == MaxC) ? MinC : FMath::RandRange(MinC, MaxC));
+	if (FloorData.bHasBoss && !FloorData.BossEnemyRow.IsNone())
+	{
+		GruntCount = FMath::Min(GruntCount, 2);
+	}
 	if (FloorData.PossibleEnemyRows.Num() == 0)
 	{
 		GruntCount = 0;
@@ -546,6 +584,7 @@ void UDFDungeonManager::SpawnEnemies(const FDFDungeonFloorRow& FloorData)
 	}
 
 	EnemiesRemaining = SpawnedEnemies.Num();
+	SyncRunGameState();
 }
 
 void UDFDungeonManager::RegisterSpawnedEnemy(AActor* Enemy)
@@ -560,6 +599,7 @@ void UDFDungeonManager::RegisterSpawnedEnemy(AActor* Enemy)
 	{
 		E->OnEnemyDied.AddDynamic(this, &UDFDungeonManager::HandleEnemyDied);
 	}
+	SyncRunGameState();
 }
 
 void UDFDungeonManager::SnapEnemySpawnToWorld(
@@ -624,6 +664,7 @@ void UDFDungeonManager::UnregisterEnemy(AActor* Enemy)
 	if (SpawnedEnemies.Remove(Enemy) > 0)
 	{
 		EnemiesRemaining = FMath::Max(0, EnemiesRemaining - 1);
+		SyncRunGameState();
 	}
 }
 
@@ -642,6 +683,7 @@ void UDFDungeonManager::ClearFloorActors()
 	}
 	SpawnedEnemies.Reset();
 	EnemiesRemaining = 0;
+	SyncRunGameState();
 }
 
 void UDFDungeonManager::OnEnemyKilled(AActor* const Enemy, AActor* const Killer)
@@ -718,39 +760,12 @@ void UDFDungeonManager::PerformFloorCleared()
 		}
 	}
 
-	// Server-only: roll 1-of-3 and send the same set to all clients. Empty pool → next floor, no UI.
-	if (UWorld* const W = GetWorld())
+	// Server-only: between-floor pipeline (events → rest → shop → draft → next floor).
+	if (UWorld* const W2 = GetWorld())
 	{
-		bFloorOfferResolved = false;
-		++ActiveFloorOfferId;
-		if (UDFAbilitySelectionSubsystem* const Sub = W->GetSubsystem<UDFAbilitySelectionSubsystem>())
+		if (ADFRunGameMode* const GM = W2->GetAuthGameMode<ADFRunGameMode>())
 		{
-			const TArray<FDFAbilityRolledChoice> Choices = Sub->RollAbilityChoices(3);
-			const int32 FloorForUi = CurrentFloor;
-			const int32 SkipG = Sub->SkipGoldReward;
-			if (Choices.Num() == 0)
-			{
-				bFloorOfferResolved = true;
-				AdvanceToNextFloor();
-			}
-			else
-			{
-				for (FConstPlayerControllerIterator It = W->GetPlayerControllerIterator(); It; ++It)
-				{
-					if (APlayerController* const Pc = It->Get())
-					{
-						if (ADFPlayerState* const PState = Pc->GetPlayerState<ADFPlayerState>())
-						{
-							PState->Client_OpenAbilitySelectionScreen(FloorForUi, Choices, SkipG, ActiveFloorOfferId, 30.f);
-						}
-					}
-				}
-			}
-		}
-		else
-		{
-			bFloorOfferResolved = true;
-			AdvanceToNextFloor();
+			GM->TriggerBetweenFloorSequence();
 		}
 	}
 }
@@ -761,6 +776,17 @@ void UDFDungeonManager::AdvanceToNextFloor()
 	{
 		return;
 	}
+	if (UWorld* const W = GetWorld())
+	{
+		if (const ADFRunGameMode* const GM = W->GetAuthGameMode<ADFRunGameMode>())
+		{
+			if (GM->MaxRunFloor > 0 && CurrentFloor >= GM->MaxRunFloor)
+			{
+				OnRunCompleted.Broadcast();
+				return;
+			}
+		}
+	}
 	FDFDungeonFloorRow NextRow;
 	if (!FindFloorRowByNumber(CurrentFloor + 1, NextRow))
 	{
@@ -768,6 +794,21 @@ void UDFDungeonManager::AdvanceToNextFloor()
 		return;
 	}
 	StartFloor(CurrentFloor + 1);
+	if (UGameInstance* const GI = GetGameInstance())
+	{
+		if (UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
+		{
+			const int32 Delta = CurrentFloor - RM->GetCurrentRunState().CurrentFloor;
+			if (Delta != 0)
+			{
+				RM->AdvanceFloor(Delta);
+			}
+			if (ADFRunGameState* const RGS = GetWorld() ? GetWorld()->GetGameState<ADFRunGameState>() : nullptr)
+			{
+				RGS->CurrentFloor = FMath::Max(1, RM->GetCurrentRunState().CurrentFloor);
+			}
+		}
+	}
 }
 
 bool UDFDungeonManager::GetCurrentFloorData(FDFDungeonFloorRow& OutRow) const
@@ -825,6 +866,27 @@ bool UDFDungeonManager::IsAuthorityWorld() const
 	return World && (World->GetNetMode() != NM_Client);
 }
 
+void UDFDungeonManager::SyncRunGameState() const
+{
+	if (!IsAuthorityWorld())
+	{
+		return;
+	}
+	UWorld* const W = GetWorld();
+	if (!W)
+	{
+		return;
+	}
+	if (ADFRunGameState* const GS = W->GetGameState<ADFRunGameState>())
+	{
+		GS->AuthoritySetEnemiesRemaining(EnemiesRemaining);
+		if (CurrentFloor > 0)
+		{
+			GS->CurrentFloor = CurrentFloor;
+		}
+	}
+}
+
 float UDFDungeonManager::ComputeSpawnWeight(const FDFEnemyTableRow& EnemyRow, const FDFDungeonFloorRow& FloorRow) const
 {
 	const float StatSum = FMath::Max(1.f, EnemyRow.BaseHealth + EnemyRow.BaseDamage + EnemyRow.BaseArmor);
@@ -877,6 +939,52 @@ void UDFDungeonManager::Dev_ForceFloorCleared()
 	PerformFloorCleared();
 }
 
+uint32 UDFDungeonManager::ComputeFloorGenerationSeed(const int32 FloorNumber) const
+{
+	uint32 Seed = static_cast<uint32>(FMath::Max(1, FloorNumber)) * 19603u + 0xDF0000u;
+	if (UGameInstance* const GI = GetGameInstance())
+	{
+		if (const UDFRunManager* const RM = GI->GetSubsystem<UDFRunManager>())
+		{
+			const FDFRunState& RS = RM->GetCurrentRunState();
+			Seed ^= static_cast<uint32>(GetTypeHash(RS.SelectedClass));
+			Seed ^= static_cast<uint32>(RS.RunStartTime);
+		}
+	}
+	return Seed == 0 ? 1u : Seed;
+}
+
+void UDFDungeonManager::ShuffleSpawnPointsWithSeed(TArray<FTransform>& InOutPoints) const
+{
+	if (InOutPoints.Num() <= 1)
+	{
+		return;
+	}
+	FRandomStream Rng(static_cast<int32>(CurrentFloorGenerationSeed));
+	for (int32 I = InOutPoints.Num() - 1; I > 0; --I)
+	{
+		const int32 J = Rng.RandRange(0, I);
+		InOutPoints.Swap(I, J);
+	}
+}
+
+bool UDFDungeonManager::TryResolveSafeFallbackSpawnTransform(FTransform& OutTransform) const
+{
+	if (UWorld* const W = GetWorld())
+	{
+		for (FConstPlayerControllerIterator It = W->GetPlayerControllerIterator(); It; ++It)
+		{
+			if (AActor* const Pawn = It->Get()->GetPawn())
+			{
+				OutTransform = Pawn->GetActorTransform();
+				OutTransform.SetLocation(Pawn->GetActorLocation() + FVector(800.f, 0.f, 0.f));
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 void UDFDungeonManager::Dev_RevealAllMinimapRooms()
 {
 	for (TObjectPtr<ADFMinimapRoom> R : RegisteredMinimapRooms)
@@ -920,6 +1028,7 @@ void UDFDungeonManager::Dev_SpawnEnemiesAt(const FName RowName, int32 const Coun
 		}
 		EnemiesRemaining = SpawnedEnemies.Num();
 		bFloorCleared = false;
+		SyncRunGameState();
 	}
 }
 

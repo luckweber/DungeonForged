@@ -25,9 +25,15 @@ protected:
 	void TryBindVitals();
 	void OnAnyVitalAttributeChanged(const FOnAttributeChangeData& Data);
 	void SetResourceWidgets(UProgressBar* Bar, UTextBlock* Text, float Current, float MaxValue, const FText& Label) const;
+	void UpdateHealthLagBar(float ActualPercent);
+	void UpdateLowHealthBarPulse(float ActualPercent, float DeltaTime);
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UProgressBar> HealthBar = nullptr;
+
+	/** Optional trailing bar shown behind @c HealthBar when taking damage. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UProgressBar> HealthLagBar = nullptr;
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UProgressBar> ManaBar = nullptr;
@@ -63,6 +69,17 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|UI|Vitals")
 	bool bShowLabelsInValueText = false;
 
+	/** Trailing health bar catch-up speed (percent/sec). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|UI|Vitals", meta = (ClampMin = "0.5"))
+	float HealthLagDecaySpeed = 2.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|UI|Vitals", meta = (ClampMin = "0.05", ClampMax = "0.5"))
+	float LowHealthThreshold = 0.25f;
+
 	float RebindAccumulator = 0.f;
 	bool bVitalsBound = false;
+	float DisplayedLagHealthPercent = 1.f;
+	float TargetHealthPercent = 1.f;
+	float LowHealthPulsePhase = 0.f;
+	FLinearColor DefaultHealthFillColor = FLinearColor(0.85f, 0.12f, 0.08f, 1.f);
 };

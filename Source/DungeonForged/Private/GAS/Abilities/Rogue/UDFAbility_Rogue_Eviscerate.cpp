@@ -84,13 +84,6 @@ void UDFAbility_Rogue_Eviscerate::ActivateAbility(
 		PointsSpentCache = Combo->GetComboPoints();
 		Combo->ResetComboPoints();
 	}
-	if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (ASC->GetOwner() && ASC->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(ASC);
-		}
-	}
 	const TObjectPtr<UAnimMontage> M = EviscerateMontage ? EviscerateMontage : AbilityMontage;
 	if (!M)
 	{

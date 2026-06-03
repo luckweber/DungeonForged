@@ -3,7 +3,10 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Performance/UDFPoolable.h"
 #include "ADFKnifeProjectile.generated.h"
+
+class UDFProjectileSweepComponent;
 
 class UProjectileMovementComponent;
 class USphereComponent;
@@ -13,7 +16,7 @@ class UNiagaraSystem;
 struct FHitResult;
 
 UCLASS()
-class DUNGEONFORGED_API ADFKnifeProjectile : public AActor
+class DUNGEONFORGED_API ADFKnifeProjectile : public AActor, public IUDFPoolable
 {
 	GENERATED_BODY()
 
@@ -46,10 +49,17 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Rogue|Knife|VFX")
 	TObjectPtr<UNiagaraSystem> ImpactBladeGlintVFX;
 
+	virtual void OnAcquiredFromPool() override;
+	virtual void OnReleasedToPool() override;
+	virtual FName GetPoolName() const override;
+
 protected:
 	virtual void BeginPlay() override;
 	UFUNCTION()
 	void OnHit(UPrimitiveComponent* HitComp, AActor* Other, UPrimitiveComponent* OtherComp, FVector N, const FHitResult& Hit);
+	UFUNCTION()
+	void OnSweepHit(const FHitResult& Hit, UPrimitiveComponent* SweptComponent);
+	void FinishProjectile();
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<USphereComponent> Collision;
@@ -59,4 +69,7 @@ protected:
 
 	UPROPERTY(VisibleAnywhere)
 	TObjectPtr<class UDFProjectileHitTrackerComponent> HitTracker;
+
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<UDFProjectileSweepComponent> ProjectileSweep;
 };

@@ -12,6 +12,7 @@
 class UDataTable;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDFAbilityAssetsReady);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDFFloorAssetsReady);
 
 UCLASS()
 class DUNGEONFORGED_API UDFAssetLoaderSubsystem : public UWorldSubsystem
@@ -32,6 +33,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "DF|Preload|Events")
 	FOnDFAbilityAssetsReady OnAbilityAssetsReady;
 
+	UPROPERTY(BlueprintAssignable, Category = "DF|Preload|Events")
+	FOnDFFloorAssetsReady OnFloorAssetsReady;
+
 	/** Gathers classes/montages/FX from the dungeon floor row and async-loads their packages via `FStreamableManager` (and primary assets when registered). */
 	UFUNCTION(BlueprintCallable, Category = "DF|Preload")
 	void PreloadFloorAssets(int32 FloorNumber);
@@ -39,6 +43,13 @@ public:
 	/** Resolves `FDFAbilityTableRow` by name and requests async load of class + soft paths. Fires `OnAbilityAssetsReady` on completion. */
 	UFUNCTION(BlueprintCallable, Category = "DF|Preload")
 	void PreloadAbilityAssets(const TArray<FName>& AbilityRowNames);
+
+	/** Unloads the previous floor bundle before loading the next. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Preload")
+	void UnloadPreviousFloorAssets();
+
+	UFUNCTION(BlueprintPure, Category = "DF|Preload")
+	int32 GetLoadedFloorNumber() const { return LoadedFloorNumber; }
 
 protected:
 	void AddEnemyRowPaths(const FDFEnemyTableRow& Row, TArray<FSoftObjectPath>& OutPaths) const;
@@ -48,4 +59,10 @@ protected:
 	/** In-flight streamable handles (restarted when a new request of the same kind is made). */
 	TSharedPtr<FStreamableHandle> ActiveFloorLoad;
 	TSharedPtr<FStreamableHandle> ActiveAbilityLoad;
+
+	UPROPERTY(Transient)
+	TArray<FSoftObjectPath> LoadedFloorPaths;
+
+	UPROPERTY(Transient)
+	int32 LoadedFloorNumber = INDEX_NONE;
 };

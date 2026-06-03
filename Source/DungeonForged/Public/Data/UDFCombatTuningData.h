@@ -70,6 +70,27 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee")
 	float AttackInputBufferDuration = 0.20f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee|Aerial", meta = (ClampMin = "0"))
+	int32 MaxAerialJuggleHits = 5;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee|Aerial", meta = (ClampMin = "0.0"))
+	float AerialComboLandResetGrace = 0.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee|CrowdControl", meta = (ClampMin = "0"))
+	int32 MaxJuggleHitsPerTarget = 3;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee|CrowdControl", meta = (ClampMin = "0.1"))
+	float JuggleCountResetSeconds = 2.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee|CrowdControl", meta = (ClampMin = "0.0"))
+	float KnockbackMagnitudeThreshold = 60.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee|CrowdControl", meta = (ClampMin = "0.0"))
+	float HeavyFlinchDamageThreshold = 30.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Projectile", meta = (ClampMin = "1", ClampMax = "8"))
+	int32 ProjectileSweepSubSteps = 3;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge")
 	float DodgeIFrameDuration = 0.35f;
 
@@ -96,6 +117,29 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn")
 	bool bDodgeKeepFacingTargetOnLockOn = true;
+
+	/** Weight for camera/view alignment when picking lock-on targets (0–1, normalized internally). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn|Scoring", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LockOnScoreCameraWeight = 0.40f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn|Scoring", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LockOnScoreDistanceWeight = 0.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn|Scoring", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LockOnScoreThreatWeight = 0.20f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn|Scoring", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LockOnScoreElevationWeight = 0.15f;
+
+	/** Max vertical offset (uu) before elevation score reaches zero. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn|Scoring", meta = (ClampMin = "50.0"))
+	float LockOnElevationTolerance = 400.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn")
+	bool bLockOnRetargetOnHit = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "LockOn")
+	bool bLockOnSoftAimWhenUnlocked = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0.0"))
 	float JumpZVelocity = 750.f;

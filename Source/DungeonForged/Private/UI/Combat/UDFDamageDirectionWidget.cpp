@@ -20,66 +20,119 @@ void UDFDamageDirectionWidget::PulseFromWorldLocation(const FVector& DamageSourc
 	const float Dot = FVector::DotProduct(Fwd, ToHit);
 	const float Side = FVector::DotProduct(Right, ToHit);
 
-	UImage* Target = nullptr;
-	if (FMath::Abs(Dot) > FMath::Abs(Side))
+	UImage* Target = Indicator_Radial.Get();
+	if (Target)
 	{
-		Target = Dot > 0.f ? Indicator_Top.Get() : Indicator_Bottom.Get();
+		const float AngleDeg = FMath::RadiansToDegrees(FMath::Atan2(Side, Dot));
+		Target->SetRenderTransformAngle(AngleDeg - 90.f);
 	}
 	else
 	{
-		Target = Side > 0.f ? Indicator_Right.Get() : Indicator_Left.Get();
+		Target = ResolveCardinalIndicator(Dot, Side);
 	}
-	PulseIndicator(Target, FMath::Clamp(Intensity, 0.05f, 1.f));
+	StartPulseOnImage(Target, Intensity);
 }
 
-void UDFDamageDirectionWidget::PulseIndicator(UImage* const Target, const float Intensity)
+UImage* UDFDamageDirectionWidget::ResolveCardinalIndicator(const float Dot, const float Side) const
+{
+	if (FMath::Abs(Dot) > FMath::Abs(Side))
+	{
+		return Dot > 0.f ? Indicator_Top.Get() : Indicator_Bottom.Get();
+	}
+	return Side > 0.f ? Indicator_Right.Get() : Indicator_Left.Get();
+}
+
+void UDFDamageDirectionWidget::StartPulseOnImage(UImage* const Target, const float Intensity)
 {
 	if (!Target)
 	{
 		return;
 	}
-	ClearPulse();
-	ActiveIndicator = Target;
-	PulseElapsed = 0.f;
-	PulseTotalDuration = PulseFadeInDuration + PulseFadeOutDuration;
-	PulsePeakOpacity = FMath::Clamp(Intensity, 0.15f, 1.f);
-	Target->SetRenderOpacity(PulsePeakOpacity);
+
+	for (FDamagePulseSlot& PulseSlot : ActivePulses)
+	{
+		if (PulseSlot.Image.Get() == Target)
+		{
+			PulseSlot.Elapsed = 0.f;
+			PulseSlot.TotalDuration = PulseFadeInDuration + PulseFadeOutDuration;
+			PulseSlot.PeakOpacity = FMath::Clamp(Intensity, 0.15f, 1.f);
+			Target->SetRenderOpacity(PulseSlot.PeakOpacity);
+			Target->SetVisibility(ESlateVisibility::HitTestInvisible);
+			return;
+		}
+	}
+
+	for (FDamagePulseSlot& PulseSlot : ActivePulses)
+	{
+		if (!PulseSlot.Image.IsValid())
+		{
+			PulseSlot.Image = Target;
+			PulseSlot.Elapsed = 0.f;
+			PulseSlot.TotalDuration = PulseFadeInDuration + PulseFadeOutDuration;
+			PulseSlot.PeakOpacity = FMath::Clamp(Intensity, 0.15f, 1.f);
+			Target->SetRenderOpacity(PulseSlot.PeakOpacity);
+			Target->SetVisibility(ESlateVisibility::HitTestInvisible);
+			return;
+		}
+	}
+
+	if (ActivePulses.Num() >= MaxConcurrentPulses)
+	{
+		ActivePulses.RemoveAt(0);
+	}
+	FDamagePulseSlot NewSlot;
+	NewSlot.Image = Target;
+	NewSlot.Elapsed = 0.f;
+	NewSlot.TotalDuration = PulseFadeInDuration + PulseFadeOutDuration;
+	NewSlot.PeakOpacity = FMath::Clamp(Intensity, 0.15f, 1.f);
+	Target->SetRenderOpacity(NewSlot.PeakOpacity);
 	Target->SetVisibility(ESlateVisibility::HitTestInvisible);
+	ActivePulses.Add(NewSlot);
 }
 
-void UDFDamageDirectionWidget::ClearPulse()
+void UDFDamageDirectionWidget::HideImage(UImage* const Image) const
 {
-	if (UImage* const Prev = ActiveIndicator.Get())
+	if (!Image)
 	{
-		Prev->SetRenderOpacity(0.f);
-		Prev->SetVisibility(ESlateVisibility::Collapsed);
+		return;
 	}
-	ActiveIndicator = nullptr;
+	Image->SetRenderOpacity(0.f);
+	Image->SetVisibility(ESlateVisibility::Collapsed);
+}
+
+void UDFDamageDirectionWidget::StepPulseSlot(FDamagePulseSlot& PulseSlot, const float DeltaTime)
+{
+	UImage* const Img = PulseSlot.Image.Get();
+	if (!Img)
+	{
+		return;
+	}
+	PulseSlot.Elapsed += DeltaTime;
+	if (PulseSlot.Elapsed >= PulseSlot.TotalDuration)
+	{
+		HideImage(Img);
+		PulseSlot.Image = nullptr;
+		return;
+	}
+	float Opacity = 0.f;
+	if (PulseSlot.Elapsed <= PulseFadeInDuration)
+	{
+		Opacity = PulseSlot.PeakOpacity * (PulseSlot.Elapsed / FMath::Max(PulseFadeInDuration, KINDA_SMALL_NUMBER));
+	}
+	else
+	{
+		const float T = (PulseSlot.Elapsed - PulseFadeInDuration) / FMath::Max(PulseFadeOutDuration, KINDA_SMALL_NUMBER);
+		Opacity = PulseSlot.PeakOpacity * (1.f - FMath::Clamp(T, 0.f, 1.f));
+	}
+	Img->SetRenderOpacity(Opacity);
 }
 
 void UDFDamageDirectionWidget::NativeTick(const FGeometry& MyGeometry, const float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
-	UImage* const Img = ActiveIndicator.Get();
-	if (!Img)
+	for (FDamagePulseSlot& PulseSlot : ActivePulses)
 	{
-		return;
+		StepPulseSlot(PulseSlot, InDeltaTime);
 	}
-	PulseElapsed += InDeltaTime;
-	if (PulseElapsed >= PulseTotalDuration)
-	{
-		ClearPulse();
-		return;
-	}
-	float Opacity = 0.f;
-	if (PulseElapsed <= PulseFadeInDuration)
-	{
-		Opacity = PulsePeakOpacity * (PulseElapsed / FMath::Max(PulseFadeInDuration, KINDA_SMALL_NUMBER));
-	}
-	else
-	{
-		const float T = (PulseElapsed - PulseFadeInDuration) / FMath::Max(PulseFadeOutDuration, KINDA_SMALL_NUMBER);
-		Opacity = PulsePeakOpacity * (1.f - FMath::Clamp(T, 0.f, 1.f));
-	}
-	Img->SetRenderOpacity(Opacity);
+	ActivePulses.RemoveAll([](const FDamagePulseSlot& PulseSlot) { return !PulseSlot.Image.IsValid(); });
 }

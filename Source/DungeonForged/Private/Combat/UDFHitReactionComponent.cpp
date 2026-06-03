@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/Combat/UDFHitReactionComponent.cpp
 #include "Combat/UDFHitReactionComponent.h"
+#include "Combat/UDFStaggerComponent.h"
 #include "Animation/UDFAnimInstance_Enemy.h"
 #include "AI/DFAIKeys.h"
 #include "AIController.h"
@@ -8,6 +9,7 @@
 #include "Characters/ADFPlayerCharacter.h"
 #include "DungeonForgedModule.h"
 #include "Engine/Engine.h"
+#include "FX/UDFCombatFeedbackLibrary.h"
 #include "FX/UDFCombatFeedbackTypes.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
@@ -25,10 +27,113 @@
 #include "GameplayEffectTypes.h"
 #include "Kismet/GameplayStatics.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/AssetManager.h"
+#include "Engine/StreamableManager.h"
+#include "Materials/MaterialInterface.h"
+#include "NiagaraSystem.h"
 
 UDFHitReactionComponent::UDFHitReactionComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
+}
+
+void UDFHitReactionComponent::BeginPlay()
+{
+	Super::BeginPlay();
+	EnsureHitReactionAssetsLoaded();
+}
+
+void UDFHitReactionComponent::EnsureHitReactionAssetsLoaded()
+{
+	TArray<FSoftObjectPath> Paths;
+	auto AppendOne = [&](const FSoftObjectPath& Path)
+	{
+		if (Path.IsValid())
+		{
+			Paths.AddUnique(Path);
+		}
+	};
+	auto AppendSoftObj = [&](const FSoftObjectPath& Path) { AppendOne(Path); };
+
+	AppendSoftObj(LightHitMontage.ToSoftObjectPath());
+	AppendSoftObj(HeavyHitMontage.ToSoftObjectPath());
+	AppendSoftObj(KnockbackMontage.ToSoftObjectPath());
+	AppendSoftObj(LightHit_Front.ToSoftObjectPath());
+	AppendSoftObj(LightHit_Back.ToSoftObjectPath());
+	AppendSoftObj(LightHit_Left.ToSoftObjectPath());
+	AppendSoftObj(LightHit_Right.ToSoftObjectPath());
+	AppendSoftObj(HeavyHit_Front.ToSoftObjectPath());
+	AppendSoftObj(HeavyHit_Back.ToSoftObjectPath());
+	AppendSoftObj(HeavyHit_Left.ToSoftObjectPath());
+	AppendSoftObj(HeavyHit_Right.ToSoftObjectPath());
+	AppendSoftObj(HitImpactNiagara.ToSoftObjectPath());
+	AppendSoftObj(DecalMaterial.ToSoftObjectPath());
+
+	for (const auto& Pair : DamageSourceHitMontages)
+	{
+		AppendSoftObj(Pair.Value.ToSoftObjectPath());
+	}
+	for (const auto& Pair : DamageSourceHitImpactNiagara)
+	{
+		AppendSoftObj(Pair.Value.ToSoftObjectPath());
+	}
+	for (const auto& Pair : BoneHitMontages)
+	{
+		AppendSoftObj(Pair.Value.ToSoftObjectPath());
+	}
+
+	if (Paths.Num() == 0)
+	{
+		RefreshResolvedHitReactionAssets();
+		return;
+	}
+
+	FStreamableManager& Mgr = UAssetManager::GetStreamableManager();
+	TWeakObjectPtr<UDFHitReactionComponent> WeakSelf(this);
+	HitReactionStreamHandle = Mgr.RequestAsyncLoad(
+		Paths,
+		FStreamableDelegate::CreateLambda([WeakSelf]()
+		{
+			if (UDFHitReactionComponent* const Self = WeakSelf.Get())
+			{
+				Self->RefreshResolvedHitReactionAssets();
+			}
+		}),
+		FStreamableManager::AsyncLoadHighPriority,
+		/*bManageActiveHandle=*/false);
+}
+
+void UDFHitReactionComponent::RefreshResolvedHitReactionAssets()
+{
+	ResolvedLightHitMontage = LightHitMontage.Get();
+	ResolvedHeavyHitMontage = HeavyHitMontage.Get();
+	ResolvedKnockbackMontage = KnockbackMontage.Get();
+	ResolvedLightHit_Front = LightHit_Front.Get();
+	ResolvedLightHit_Back  = LightHit_Back.Get();
+	ResolvedLightHit_Left  = LightHit_Left.Get();
+	ResolvedLightHit_Right = LightHit_Right.Get();
+	ResolvedHeavyHit_Front = HeavyHit_Front.Get();
+	ResolvedHeavyHit_Back  = HeavyHit_Back.Get();
+	ResolvedHeavyHit_Left  = HeavyHit_Left.Get();
+	ResolvedHeavyHit_Right = HeavyHit_Right.Get();
+	ResolvedHitImpactNiagara = HitImpactNiagara.Get();
+	ResolvedDecalMaterial = DecalMaterial.Get();
+
+	ResolvedDamageSourceHitMontages.Reset();
+	for (const auto& Pair : DamageSourceHitMontages)
+	{
+		ResolvedDamageSourceHitMontages.Add(Pair.Key, Pair.Value.Get());
+	}
+	ResolvedDamageSourceHitImpactNiagara.Reset();
+	for (const auto& Pair : DamageSourceHitImpactNiagara)
+	{
+		ResolvedDamageSourceHitImpactNiagara.Add(Pair.Key, Pair.Value.Get());
+	}
+	ResolvedBoneHitMontages.Reset();
+	for (const auto& Pair : BoneHitMontages)
+	{
+		ResolvedBoneHitMontages.Add(Pair.Key, Pair.Value.Get());
+	}
 }
 
 void UDFHitReactionComponent::OnHitReceived(
@@ -60,14 +165,20 @@ void UDFHitReactionComponent::OnHitReceived(
 	Dir.Z = 0.f;
 	Dir.Normalize();
 
-	const bool bIsKnockback = DamageAmount >= KnockbackThreshold;
+	const bool bHasKnockbackMag = KnockbackMagnitude > KINDA_SMALL_NUMBER;
+	const bool bIsKnockback = bHasKnockbackMag
+		? KnockbackMagnitude >= KnockbackThreshold
+		: DamageAmount >= KnockbackThreshold;
 	if (ACharacter* C = Cast<ACharacter>(GetOwner()))
 	{
 		if (UCharacterMovementComponent* CMC = C->GetCharacterMovement())
 		{
 			if (bIsKnockback)
 			{
-				const FVector Impulse = Dir * (KnockbackMagnitude * KnockbackImpulseFromHit);
+				const float ImpulseScale = bHasKnockbackMag
+					? KnockbackMagnitude
+					: (DamageAmount * KnockbackImpulseFromHit);
+				const FVector Impulse = Dir * ImpulseScale;
 				CMC->AddImpulse(Impulse, true);
 			}
 		}
@@ -78,7 +189,7 @@ void UDFHitReactionComponent::OnHitReceived(
 		PlayHitReaction(ReactionMontage, 1.f);
 	}
 
-	if (StaggerStunGameplayEffect && (!bIsKnockback) && (DamageAmount >= StaggerThreshold))
+	if (!bIsKnockback && DamageAmount >= StaggerThreshold && !ShouldDeferStaggerStunToPoise())
 	{
 		TryApplyStaggerStun(Instigator);
 	}
@@ -162,6 +273,14 @@ void UDFHitReactionComponent::OnHitReceived(
 						Cts->SpawnTextString(
 							VfxPos + FVector(0.f, 0.f, 40.f), TEXT("BLOCK"), ECombatTextType::Block);
 					}
+					UDFCombatFeedbackLibrary::ExecuteCombatFeedbackCue(
+						this,
+						FDFGameplayTags::GameplayCue_Combat_Block,
+						GetOwner(),
+						Instigator,
+						VfxPos,
+						bUseImpact ? HitNormal : FVector::UpVector,
+						FDFGameplayTags::Impact_Light_Blunt);
 				}
 			}
 		}
@@ -218,7 +337,7 @@ UAnimMontage* UDFHitReactionComponent::ResolveHitMontage(
 {
 	if (HitBoneName != NAME_None)
 	{
-		if (const TObjectPtr<UAnimMontage>* const BoneMontage = BoneHitMontages.Find(HitBoneName))
+		if (const TObjectPtr<UAnimMontage>* const BoneMontage = ResolvedBoneHitMontages.Find(HitBoneName))
 		{
 			if (*BoneMontage)
 			{
@@ -228,7 +347,7 @@ UAnimMontage* UDFHitReactionComponent::ResolveHitMontage(
 	}
 	if (DamageSourceTag.IsValid())
 	{
-		if (const TObjectPtr<UAnimMontage>* const Found = DamageSourceHitMontages.Find(DamageSourceTag))
+		if (const TObjectPtr<UAnimMontage>* const Found = ResolvedDamageSourceHitMontages.Find(DamageSourceTag))
 		{
 			if (*Found)
 			{
@@ -239,7 +358,7 @@ UAnimMontage* UDFHitReactionComponent::ResolveHitMontage(
 
 	if (bIsKnockback)
 	{
-		return KnockbackMontage;
+		return ResolvedKnockbackMontage;
 	}
 	if (DamageAmount <= 0.f)
 	{
@@ -271,41 +390,73 @@ UAnimMontage* UDFHitReactionComponent::ResolveHitMontage(
 
 		if (const ACharacter* const Victim = Cast<ACharacter>(GetOwner()))
 		{
-			UAnimMontage* const Fallback = bHeavy ? HeavyHitMontage : LightHitMontage;
+			UAnimMontage* const Fallback = bHeavy ? ResolvedHeavyHitMontage : ResolvedLightHitMontage;
 			if (bHeavy)
 			{
 				return PickDirectionalMontage(
 					Victim,
 					HitDirection2D,
-					HeavyHit_Front,
-					HeavyHit_Back,
-					HeavyHit_Left,
-					HeavyHit_Right,
+					ResolvedHeavyHit_Front,
+					ResolvedHeavyHit_Back,
+					ResolvedHeavyHit_Left,
+					ResolvedHeavyHit_Right,
 					PickDirectionalMontage(
 						Victim,
 						HitDirection2D,
-						LightHit_Front,
-						LightHit_Back,
-						LightHit_Left,
-						LightHit_Right,
+						ResolvedLightHit_Front,
+						ResolvedLightHit_Back,
+						ResolvedLightHit_Left,
+						ResolvedLightHit_Right,
 						Fallback));
 			}
 			return PickDirectionalMontage(
 				Victim,
 				HitDirection2D,
-				LightHit_Front,
-				LightHit_Back,
-				LightHit_Left,
-				LightHit_Right,
+				ResolvedLightHit_Front,
+				ResolvedLightHit_Back,
+				ResolvedLightHit_Left,
+				ResolvedLightHit_Right,
 				Fallback);
 		}
 	}
 
 	if (bHeavy)
 	{
-		return HeavyHitMontage ? HeavyHitMontage : LightHitMontage;
+		return ResolvedHeavyHitMontage ? ResolvedHeavyHitMontage.Get() : ResolvedLightHitMontage.Get();
 	}
-	return LightHitMontage;
+	return ResolvedLightHitMontage;
+}
+
+bool UDFHitReactionComponent::ShouldDeferStaggerStunToPoise() const
+{
+	if (!bDeferStaggerStunToPoiseComponent || !StaggerStunGameplayEffect)
+	{
+		return false;
+	}
+	return GetOwner() && GetOwner()->FindComponentByClass<UDFStaggerComponent>() != nullptr;
+}
+
+void UDFHitReactionComponent::OnPoiseStaggerTriggered(AActor* const Instigator, const float OvershootDamage)
+{
+	(void)OvershootDamage;
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+	FVector Dir = FVector::ForwardVector;
+	if (Instigator)
+	{
+		Dir = GetOwner()->GetActorLocation() - Instigator->GetActorLocation();
+		Dir.Z = 0.f;
+		if (!Dir.Normalize())
+		{
+			Dir = FVector::ForwardVector;
+		}
+	}
+	if (UAnimMontage* const Montage = ResolveHitMontage(StaggerThreshold + 1.f, false, Dir, Instigator, FGameplayTag(), NAME_None))
+	{
+		PlayHitReaction(Montage, 1.f);
+	}
 }
 
 void UDFHitReactionComponent::TryApplyStaggerStun(AActor* const InstigatorActor) const
@@ -365,7 +516,7 @@ void UDFHitReactionComponent::SpawnHitVFX(
 	{
 		if (DamageSourceTag.IsValid())
 		{
-			if (const TObjectPtr<UNiagaraSystem>* const Found = DamageSourceHitImpactNiagara.Find(DamageSourceTag))
+			if (const TObjectPtr<UNiagaraSystem>* const Found = ResolvedDamageSourceHitImpactNiagara.Find(DamageSourceTag))
 			{
 				if (*Found)
 				{
@@ -373,7 +524,7 @@ void UDFHitReactionComponent::SpawnHitVFX(
 				}
 			}
 		}
-		return HitImpactNiagara;
+		return ResolvedHitImpactNiagara;
 	}();
 	if (!Vfx)
 	{
@@ -386,10 +537,10 @@ void UDFHitReactionComponent::SpawnHitVFX(
 
 void UDFHitReactionComponent::SpawnHitDecal(const FVector Location, const FRotator NormalRotation)
 {
-	if (IsRunningDedicatedServer() || !DecalMaterial)
+	if (IsRunningDedicatedServer() || !ResolvedDecalMaterial)
 	{
 		return;
 	}
 	UGameplayStatics::SpawnDecalAtLocation(
-		this, DecalMaterial, DecalSize, Location, NormalRotation, DecalLifespan);
+		this, ResolvedDecalMaterial, DecalSize, Location, NormalRotation, DecalLifespan);
 }

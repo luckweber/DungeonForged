@@ -43,6 +43,14 @@ public:
 
 	//~ Resources
 
+	/**
+	 * Meta-attribute: execution damage lands here first; PostGameplayEffectExecute applies
+	 * mana shield / future absorption, then subtracts from Health. Not replicated.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "DF|Attributes|Meta")
+	FGameplayAttributeData IncomingDamage;
+	ATTRIBUTE_ACCESSORS(UDFAttributeSet, IncomingDamage)
+
 	UPROPERTY(BlueprintReadOnly, Category = "DF|Attributes|Vitals", ReplicatedUsing = OnRep_Health)
 	FGameplayAttributeData Health;
 	ATTRIBUTE_ACCESSORS(UDFAttributeSet, Health)
@@ -208,6 +216,9 @@ private:
 		const FGameplayAttribute& CurrentAttribute, const FGameplayAttribute& MaxAttribute, float NewMax);
 	void TryBroadcastHealth();
 	void TryBroadcastMana();
+
+	/** Mana shield and future absorption; returns HP loss after modifiers. */
+	float ResolveIncomingDamageToHealthLoss(float RawDamage, UAbilitySystemComponent& ASC);
 
 	void ProcessSecondWindAftermath();
 

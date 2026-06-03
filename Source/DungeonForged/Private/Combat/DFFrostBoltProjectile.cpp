@@ -1,6 +1,8 @@
 // Source/DungeonForged/Private/Combat/DFFrostBoltProjectile.cpp
 #include "Combat/DFFrostBoltProjectile.h"
 #include "Combat/UDFProjectileHitTrackerComponent.h"
+#include "Combat/UDFProjectilePoolLibrary.h"
+#include "Combat/UDFProjectileSweepComponent.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "FX/UDFCombatFeedbackLibrary.h"
 #include "GAS/DFGameplayTags.h"
@@ -42,14 +44,67 @@ ADFFrostBoltProjectile::ADFFrostBoltProjectile()
 	FrostSlowEffect = UGE_Debuff_FrostSlow::StaticClass();
 	DoTFrostEffect = UGE_DoT_Frost::StaticClass();
 	FreezeEffect = UGE_CrowdControl_Freeze::StaticClass();
+	ProjectileSweep = CreateDefaultSubobject<UDFProjectileSweepComponent>(TEXT("ProjectileSweep"));
+}
+
+FName ADFFrostBoltProjectile::GetPoolName() const
+{
+	return FName(TEXT("FrostBoltProjectile"));
+}
+
+void ADFFrostBoltProjectile::OnAcquiredFromPool()
+{
+	if (HitTracker)
+	{
+		HitTracker->ClearHitHistory();
+	}
+	if (ProjectileMove)
+	{
+		ProjectileMove->Velocity = GetActorForwardVector() * ProjectileMove->InitialSpeed;
+		ProjectileMove->UpdateComponentVelocity();
+	}
+	if (ProjectileSweep)
+	{
+		ProjectileSweep->ResetTraceSegment();
+	}
+	SetLifeSpan(0.f);
+}
+
+void ADFFrostBoltProjectile::OnReleasedToPool()
+{
+	HomingTarget = nullptr;
+	if (ProjectileMove)
+	{
+		ProjectileMove->HomingTargetComponent = nullptr;
+		ProjectileMove->StopMovementImmediately();
+	}
+}
+
+void ADFFrostBoltProjectile::ApplyHomingTarget()
+{
+	if (ProjectileMove && IsValid(HomingTarget) && HomingTarget->GetRootComponent())
+	{
+		ProjectileMove->HomingTargetComponent = HomingTarget->GetRootComponent();
+	}
+	else if (ProjectileMove)
+	{
+		ProjectileMove->HomingTargetComponent = nullptr;
+	}
+}
+
+void ADFFrostBoltProjectile::FinishProjectile()
+{
+	UDFProjectilePoolLibrary::FinishProjectile(this, this);
 }
 
 void ADFFrostBoltProjectile::BeginPlay()
 {
 	Super::BeginPlay();
-	if (IsValid(HomingTarget) && IsValid(HomingTarget->GetRootComponent()))
+	ApplyHomingTarget();
+	if (ProjectileSweep)
 	{
-		ProjectileMove->HomingTargetComponent = HomingTarget->GetRootComponent();
+		ProjectileSweep->OnSweepHit.AddDynamic(this, &ADFFrostBoltProjectile::OnSweepHit);
+		ProjectileSweep->ResetTraceSegment();
 	}
 }
 
@@ -62,17 +117,22 @@ void ADFFrostBoltProjectile::OnHit(UPrimitiveComponent* HitComponent, AActor* Ot
 	{
 		if (HasAuthority())
 		{
-			Destroy();
+			FinishProjectile();
 		}
 		return;
 	}
 	if (HitTracker && !HitTracker->TryRegisterHit(Other))
 	{
-		Destroy();
+		FinishProjectile();
 		return;
 	}
 	ApplyFrostTo(Other, Hit);
-	Destroy();
+	FinishProjectile();
+}
+
+void ADFFrostBoltProjectile::OnSweepHit(const FHitResult& Hit, UPrimitiveComponent* const SweptComponent)
+{
+	OnHit(SweptComponent, Hit.GetActor(), Hit.GetComponent(), FVector::ZeroVector, Hit);
 }
 
 void ADFFrostBoltProjectile::ApplyFrostTo(AActor* Target, const FHitResult& InHit)

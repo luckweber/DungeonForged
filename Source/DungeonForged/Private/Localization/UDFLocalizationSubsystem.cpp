@@ -5,11 +5,12 @@
 #include "Internationalization/Culture.h"
 #include "Internationalization/Internationalization.h"
 #include "Run/DFSaveGame.h"
+#include "Run/UDFSaveLibrary.h"
 
 void UDFLocalizationSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
-	if (UDFSaveGame* const S = UDFSaveGame::Load())
+	if (UDFSaveGame* const S = UDFSaveLibrary::ResolveMutableMetaSave(this))
 	{
 		ApplyCulture(S->PreferredCultureCode, S->PreferredLanguage, false);
 	}
@@ -84,11 +85,11 @@ void UDFLocalizationSubsystem::ApplyCulture(const FString& CultureCode, const ED
 
 	if (bSave)
 	{
-		if (UDFSaveGame* S = UDFSaveGame::Load())
+		if (UDFSaveGame* S = UDFSaveLibrary::ResolveMutableMetaSave(this))
 		{
 			S->PreferredLanguage = InLanguage;
 			S->PreferredCultureCode = CultureCode;
-			UDFSaveGame::Save(S);
+			UDFSaveLibrary::SaveMetaSave(this, S);
 		}
 	}
 	OnLanguageChanged.Broadcast(InLanguage);

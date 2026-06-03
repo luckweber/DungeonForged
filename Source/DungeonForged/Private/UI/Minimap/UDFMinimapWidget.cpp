@@ -79,7 +79,6 @@ void UDFMinimapWidget::NativeTick(const FGeometry& MyGeometry, const float InDel
 			}
 		}
 	}
-	UpdateMinimapTexture();
 }
 
 void UDFMinimapWidget::RebuildKnownRoomsList()

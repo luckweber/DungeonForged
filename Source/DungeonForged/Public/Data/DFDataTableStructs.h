@@ -16,6 +16,7 @@
 #include "GAS/UDFGameplayAbility.h"
 #include "Equipment/DFEquipmentTypes.h"
 #include "Animation/DFAnimSetTypes.h"
+#include "Combat/DFComboDirectionalTypes.h"
 #include "DFDataTableStructs.generated.h"
 
 class AActor;
@@ -138,6 +139,20 @@ struct DUNGEONFORGED_API FDFAbilityTableRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Abilities|UI")
 	EItemRarity Rarity = EItemRarity::Common;
 
+	/**
+	 * If non-empty, the player must already have a granted ability whose @c AbilityTag matches
+	 * one of these tags (build synergy / archetype pools).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Abilities|Draft")
+	FGameplayTagContainer RequiresSynergyTags;
+
+	/**
+	 * Excludes this row from offers when the player already has a granted ability whose
+	 * @c AbilityTag matches any tag here (dedup / exclusion).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Abilities|Draft")
+	FGameplayTagContainer ExcludedIfGrantedTags;
+
 	/** Optional text for the selection card (GAS cost/cooldown can be separate). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Abilities|UI")
 	FText DisplayCooldown = FText::GetEmpty();
@@ -169,8 +184,9 @@ struct DUNGEONFORGED_API FDFComboVariant
 {
 	GENERATED_BODY()
 
+	/** Soft ref — resolved lazily by callers (e.g. UDFComboComponent::ApplyComboStepData) via LoadSynchronous on equip. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
-	TObjectPtr<UAnimMontage> Montage = nullptr;
+	TSoftObjectPtr<UAnimMontage> Montage;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float Weight = 1.f;
@@ -191,16 +207,16 @@ struct DUNGEONFORGED_API FDFComboStep
 {
 	GENERATED_BODY()
 
-	/** Legacy single montage; used when @c LightVariants is empty. */
+	/** Legacy single montage; used when @c LightVariants is empty. Soft-loaded on equip. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
-	TObjectPtr<UAnimMontage> LightMontage = nullptr;
+	TSoftObjectPtr<UAnimMontage> LightMontage;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
 	TArray<FDFComboVariant> LightVariants;
 
 	/** Played instead of light when the player holds primary during the combo window (heavy finisher branch). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
-	TObjectPtr<UAnimMontage> HeavyBranchMontage = nullptr;
+	TSoftObjectPtr<UAnimMontage> HeavyBranchMontage;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
 	TArray<FDFComboVariant> HeavyBranchVariants;
@@ -277,6 +293,17 @@ struct DUNGEONFORGED_API FDFComboTableRow : public FTableRowBase
 	/** The actual chain steps. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo")
 	TArray<FDFComboStep> Steps;
+
+	/** Optional aerial juggle chain (used after launcher / while @c bAerialComboActive). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Aerial")
+	TArray<FDFComboStep> AerialSteps;
+
+	/**
+	 * Optional 8-way montage overrides per step index (parallel to @c Steps).
+	 * When a step entry is configured, it overrides legacy Backward/Side arrays for that step.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Directional")
+	TArray<FDFComboDirectionalMontageSet> DirectionalStepOverrides;
 };
 
 /** Item definition row (e.g. DT_Items). */
@@ -341,7 +368,7 @@ struct DUNGEONFORGED_API FDFItemTableRow : public FTableRowBase
 
 	/** Combo montages for basic melee while this weapon is equipped (overrides armed fallback class row / BP baseline). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat")
-	TArray<TObjectPtr<UAnimMontage>> WeaponMeleeComboMontages;
+	TArray<TSoftObjectPtr<UAnimMontage>> WeaponMeleeComboMontages;
 
 	/**
 	 * Preferred: handle to a row in DT_Combos. Reusable across items and exports as JSON/CSV.
@@ -360,11 +387,11 @@ struct DUNGEONFORGED_API FDFItemTableRow : public FTableRowBase
 
 	/** Loops on primary-attack hold before heavy tier commits (optional). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat|Heavy")
-	TObjectPtr<UAnimMontage> WeaponChargeWindupMontage;
+	TSoftObjectPtr<UAnimMontage> WeaponChargeWindupMontage;
 
 	/** Optional bridge montage on heavy release after windup; falls back to heavy montage. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat|Heavy")
-	TObjectPtr<UAnimMontage> WeaponHeavyChargeReleaseMontage;
+	TSoftObjectPtr<UAnimMontage> WeaponHeavyChargeReleaseMontage;
 
 	/** e.g. Weapon.Sword.1H, Weapon.Axe — applied to ASC while equipped. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat", meta = (Categories = "Weapon"))
@@ -375,11 +402,11 @@ struct DUNGEONFORGED_API FDFItemTableRow : public FTableRowBase
 	FGameplayTag WeaponDamageSourceTag;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat")
-	TObjectPtr<UAnimMontage> WeaponHeavyAttackMontage;
+	TSoftObjectPtr<UAnimMontage> WeaponHeavyAttackMontage;
 
 	/** Played when the player held primary attack past @c UDFComboComponent::MaxHeavyChargeThreshold (the biggest swing this weapon owns). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat")
-	TObjectPtr<UAnimMontage> WeaponMaxHeavyAttackMontage;
+	TSoftObjectPtr<UAnimMontage> WeaponMaxHeavyAttackMontage;
 
 	/** Overrides UDFMeleeTraceComponent::BaseDamage while equipped; leave 0 to use character defaults. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Item|Combat", meta = (ClampMin = "0.0"))
@@ -509,14 +536,14 @@ struct DUNGEONFORGED_API FDFEnemyTableRow : public FTableRowBase
 	TArray<FVector> PatrolPathPoints;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI")
-	TArray<TObjectPtr<UAnimMontage>> TauntMontages;
+	TArray<TSoftObjectPtr<UAnimMontage>> TauntMontages;
 
 	/**
 	 * Opcional: reproduzida uma vez ao aplicar a linha no spawn (`InitializeFromDataTable`).
 	 * Multicast para todos os clientes; no servidor a árvore de comportamento pode esperar até o fim (ver @a bDelayAIUntilSpawnBirthMontageFinishes).
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Spawn")
-	TObjectPtr<UAnimMontage> SpawnBirthMontage = nullptr;
+	TSoftObjectPtr<UAnimMontage> SpawnBirthMontage;
 
 	/** Se true e `SpawnBirthMontage` estiver definida, o servidor adia `RunBehaviorTree` até acabar a duração da montagem. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Spawn")
@@ -624,35 +651,43 @@ struct DUNGEONFORGED_API FDFClassTableRow : public FTableRowBase
 
 	/** Unarmed combo montages (soco) when Weapon slot is empty. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat")
-	TArray<TObjectPtr<UAnimMontage>> UnarmedMeleeComboMontages;
+	TArray<TSoftObjectPtr<UAnimMontage>> UnarmedMeleeComboMontages;
 
 	/** Fallback armed montages when the equipped weapon row has no WeaponMeleeComboMontages. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat")
-	TArray<TObjectPtr<UAnimMontage>> ArmedMeleeComboMontagesFallback;
+	TArray<TSoftObjectPtr<UAnimMontage>> ArmedMeleeComboMontagesFallback;
 
 	/** Per-step armed combo when weapon row has no @c WeaponMeleeComboSteps. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat")
 	TArray<FDFComboStep> ArmedMeleeComboStepsFallback;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat|Heavy")
-	TObjectPtr<UAnimMontage> ArmedChargeWindupMontageFallback;
+	TSoftObjectPtr<UAnimMontage> ArmedChargeWindupMontageFallback;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat|Heavy")
-	TObjectPtr<UAnimMontage> ArmedHeavyChargeReleaseMontageFallback;
+	TSoftObjectPtr<UAnimMontage> ArmedHeavyChargeReleaseMontageFallback;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat")
-	TObjectPtr<UAnimMontage> ArmedHeavyAttackMontageFallback;
+	TSoftObjectPtr<UAnimMontage> ArmedHeavyAttackMontageFallback;
 
 	/** Max-tier heavy fallback when the weapon row has no @c WeaponMaxHeavyAttackMontage. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat")
-	TObjectPtr<UAnimMontage> ArmedMaxHeavyAttackMontageFallback;
+	TSoftObjectPtr<UAnimMontage> ArmedMaxHeavyAttackMontageFallback;
 
 	/** Optional per-step Backward / Side directional combo overrides (used when owner is moving in that direction). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat|Directional")
-	TArray<TObjectPtr<UAnimMontage>> ArmedBackwardMeleeComboMontagesFallback;
+	TArray<TSoftObjectPtr<UAnimMontage>> ArmedBackwardMeleeComboMontagesFallback;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat|Directional")
-	TArray<TObjectPtr<UAnimMontage>> ArmedSideMeleeComboMontagesFallback;
+	TArray<TSoftObjectPtr<UAnimMontage>> ArmedSideMeleeComboMontagesFallback;
+
+	/** Optional 8-way per-step overrides (class-wide fallback when combo row has no directional data). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat|Directional")
+	TArray<FDFComboDirectionalMontageSet> ArmedDirectionalMeleeComboMontagesFallback;
+
+	/** Class-wide aerial juggle steps when weapon combo row has no @c AerialSteps. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|Combat|Aerial")
+	TArray<FDFComboStep> ArmedAerialMeleeComboStepsFallback;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Class|GAS")
 	TMap<FGameplayAttribute, float> BaseAttributeValues;

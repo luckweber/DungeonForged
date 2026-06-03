@@ -15,6 +15,18 @@ class UCameraComponent;
 class APlayerController;
 class AActor;
 
+/** Higher priority vignette wins when multiple sources write in the same frame. */
+UENUM()
+enum class EDFScreenVignettePriority : uint8
+{
+	None = 0,
+	LowHealth = 1,
+	Spectacle = 2,
+	Hit = 3,
+	Berserk = 4,
+	Death = 5
+};
+
 /**
  * Local-player screen post-process (MID or native FPostProcessSettings fallbacks when no master material).
  * Expected MID scalar/vector: VignetteIntensity, VignetteColor, ChromaticAberration, BlurAmount, SaturationMult, FlashIntensity, FlashColor, GrainAmount.
@@ -68,8 +80,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|FX|Screen")
 	void ChromaticAberrationPulse(float Duration, float Intensity);
 
+	/** Brief radial blur pulse (MID @c BlurAmount or motion-blur fallback). */
+	UFUNCTION(BlueprintCallable, Category = "DF|FX|Screen")
+	void BlurPulse(float Duration, float Intensity);
+
+	UFUNCTION(BlueprintCallable, Category = "DF|FX|Screen")
+	void SetBlurAmount(float Amt);
+
 	UFUNCTION(BlueprintCallable, Category = "DF|FX|Screen|Low Health")
 	void LowHealthSetEnabledFromRatio(float Health, float MaxHealth);
+
+	/** Re-evaluate low-health / reduce-motion presentation after accessibility settings change. */
+	UFUNCTION(BlueprintCallable, Category = "DF|FX|Screen|Accessibility")
+	void RefreshAccessibilityPresentation();
 
 protected:
 	/** If set, runtime MID; otherwise native post-process only. */
@@ -85,10 +108,11 @@ protected:
 	void SetFlash(float Intensity, const FLinearColor& Color);
 	void SetVignette(float Intensity, const FLinearColor& Tint, bool bFromLowHealth = false);
 	void SetChroma(float Intensity);
-	void SetBlurAmount(float Amt);
 	void SetSaturationMult(float Mult);
 	void SetFilmGrain(float Intensity);
 	void LerpLocalPlayerFOV(float TargetFOV, float DeltaTime, float InterpSpeed);
+	void ResolveAndApplyVignette();
+	void SetHitVignette(float Intensity, const FLinearColor& Tint, float Duration);
 
 	void HandleHealthChanged(float NewHealth, float NewMax);
 	void HandleOutOfHealth();
@@ -111,6 +135,10 @@ protected:
 	float ChromaInit = 0.f;
 	float ChromaInitDuration = 0.1f;
 
+	float BlurTimeRemaining = 0.f;
+	float BlurInit = 0.f;
+	float BlurInitDuration = 0.1f;
+
 	float HealEffectElapsed = 0.f;
 	bool bHealEffectActive = false;
 	float HealEffectDuration = 0.5f;
@@ -130,4 +158,6 @@ protected:
 
 	float HitVignetteTimeRemaining = 0.f;
 	float HitVignetteDuration = 0.f;
+	float HitVignetteIntensity = 0.f;
+	FLinearColor HitVignetteTint = FLinearColor(0.5f, 0.f, 0.f, 1.f);
 };

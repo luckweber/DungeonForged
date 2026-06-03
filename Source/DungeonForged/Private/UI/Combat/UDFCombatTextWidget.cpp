@@ -1,6 +1,7 @@
 // Source/DungeonForged/Private/UI/Combat/UDFCombatTextWidget.cpp
 #include "UI/Combat/UDFCombatTextWidget.h"
 #include "UI/Combat/UDFCombatTextSubsystem.h"
+#include "Network/UDFNetworkLibrary.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Components/TextBlock.h"
 #include "Kismet/GameplayStatics.h"
@@ -32,7 +33,7 @@ void UDFCombatTextWidget::UpdateScreenPosition()
 	{
 		return;
 	}
-	APlayerController* const PC = UGameplayStatics::GetPlayerController(this, 0);
+	APlayerController* const PC = UDFNetworkLibrary::GetLocalPlayerController(this);
 	if (!PC)
 	{
 		return;

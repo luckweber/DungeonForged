@@ -46,6 +46,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|Save|Slots")
 	bool SaveActiveSlot();
 
+	/** Writes a backup copy to @c DungeonForged_Slot{N}_Backup before the primary save. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Save|Slots")
+	bool SaveActiveSlotWithBackup();
+
 	UFUNCTION(BlueprintCallable, Category = "DF|Save|Slots")
 	void DeleteSlot(int32 SlotIndex);
 
@@ -58,9 +62,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Save|Slots")
 	bool HasAnyProfileOrLegacySave() const;
 
-	/** Active save if selected; else falls back to legacy @c UDFSaveGame::Load. */
+	/** Active save if selected; else resolves slot 0 / legacy migration. Prefer @c UDFSaveLibrary::ResolveMutableMetaSave. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Save|Slots")
+	UDFSaveGame* ResolveMutableMetaSave();
+
+	/** @deprecated Use @c ResolveMutableMetaSave or @c UDFSaveLibrary::GetMutableMetaSave. */
 	UFUNCTION(BlueprintCallable, Category = "DF|Save|Slots")
 	UDFSaveGame* GetActiveOrLegacyMetaSave();
+
+	/** First resumable profile (prefers @c ActiveSlotIndex when valid). Returns @c INDEX_NONE if none. */
+	UFUNCTION(BlueprintPure, Category = "DF|Save|Slots")
+	bool FindSlotWithActiveRun(int32& OutSlotIndex) const;
 
 	/** Any slot data changed (load, select, save, delete). */
 	UPROPERTY(BlueprintAssignable, Category = "DF|Save|Slots")

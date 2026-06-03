@@ -1,10 +1,16 @@
 // Source/DungeonForged/Private/FX/UDFCombatFeedbackLibrary.cpp
 #include "FX/UDFCombatFeedbackLibrary.h"
+#include "FX/UDFPresentationOrchestratorSubsystem.h"
+#include "Network/UDFNetworkLibrary.h"
 
+#include "AI/UDFAINoiseLibrary.h"
+#include "AI/UDFAIThreatComponent.h"
 #include "GameplayEffect.h"
 #include "AbilitySystemBlueprintLibrary.h"
+#include "Camera/UDFLockOnComponent.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Combat/UDFComboComponent.h"
+#include "Combat/UDFCombatCrowdControlComponent.h"
 #include "Combat/UDFHitReactionComponent.h"
 #include "DFAssetManager.h"
 #include "Data/UDFCombatTuningData.h"
@@ -12,10 +18,15 @@
 #include "Engine/World.h"
 #include "FX/UDFCameraShakeFunctionLibrary.h"
 #include "FX/UDFHitStopSubsystem.h"
+#include "FX/UDFImpactFramingComponent.h"
+#include "Characters/ADFEnemyBase.h"
 #include "FX/UDFScreenEffectsComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "AbilitySystemComponent.h"
+#include "GAS/DFGameplayCueRegistration.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
+#include "GAS/UDFGameplayCueRegistry.h"
 #include "Kismet/GameplayStatics.h"
 #include "NiagaraFunctionLibrary.h"
 #include "UI/Combat/DFCombatTextTypes.h"
@@ -72,50 +83,39 @@ FGameplayTag PickImpactTagForSource(const FGameplayTag& SourceSuffix, const FGam
 	return FGameplayTag();
 }
 
-void SpawnImpactFeedbackFromTuning(UObject* const WorldContextObject, const FDFHitConfirmedContext& Context,
-	const EDFHitFeedbackBand Band)
+const FDFImpactFeedbackAssets* FindImpactAssetsForTag(
+	const UDFCombatTuningData* const Tuning, FGameplayTag LookupTag, const EDFHitFeedbackBand Band)
 {
-	if (IsRunningDedicatedServer())
-	{
-		return;
-	}
-	const UDFCombatTuningData* const Tuning = UDFAssetManager::Get().GetCombatTuningData();
 	if (!Tuning || Tuning->ImpactFeedbackByTag.IsEmpty())
 	{
-		return;
+		return nullptr;
 	}
-	FGameplayTag LookupTag = Context.ImpactTag;
-	if (!LookupTag.IsValid())
+	if (const FDFImpactFeedbackAssets* const Direct = Tuning->ImpactFeedbackByTag.Find(LookupTag))
 	{
-		LookupTag = UDFCombatFeedbackLibrary::ResolveImpactTag(Band, Context.DamageSourceTag);
+		return Direct;
 	}
-	const FDFImpactFeedbackAssets* Assets = Tuning->ImpactFeedbackByTag.Find(LookupTag);
-	if (!Assets)
+	if (LookupTag.MatchesTag(FDFGameplayTags::Impact_Knockback))
 	{
-		switch (Band)
-		{
-		case EDFHitFeedbackBand::Knockback: Assets = Tuning->ImpactFeedbackByTag.Find(FDFGameplayTags::Impact_Knockback); break;
-		case EDFHitFeedbackBand::Critical: Assets = Tuning->ImpactFeedbackByTag.Find(FDFGameplayTags::Impact_Critical); break;
-		case EDFHitFeedbackBand::Heavy: Assets = Tuning->ImpactFeedbackByTag.Find(FDFGameplayTags::Impact_Heavy); break;
-		default: Assets = Tuning->ImpactFeedbackByTag.Find(FDFGameplayTags::Impact_Light); break;
-		}
+		return Tuning->ImpactFeedbackByTag.Find(FDFGameplayTags::Impact_Knockback);
 	}
-	if (!Assets)
+	if (LookupTag.MatchesTag(FDFGameplayTags::Impact_Critical))
 	{
-		return;
+		return Tuning->ImpactFeedbackByTag.Find(FDFGameplayTags::Impact_Critical);
 	}
-	const FVector SpawnLoc = Context.Location.IsNearlyZero() && Context.Victim
-		? Context.Victim->GetActorLocation()
-		: Context.Location;
-	const FRotator SpawnRot = Context.Normal.IsNearlyZero() ? FRotator::ZeroRotator : Context.Normal.Rotation();
-	if (Assets->ImpactVFX)
+	if (LookupTag.MatchesTag(FDFGameplayTags::Impact_Heavy))
 	{
-		UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-			WorldContextObject, Assets->ImpactVFX, SpawnLoc, SpawnRot, FVector(1.f), true, true);
+		return Tuning->ImpactFeedbackByTag.Find(FDFGameplayTags::Impact_Heavy);
 	}
-	if (Assets->ImpactSFX)
+	if (LookupTag.MatchesTag(FDFGameplayTags::Impact_Light))
 	{
-		UGameplayStatics::PlaySoundAtLocation(WorldContextObject, Assets->ImpactSFX, SpawnLoc);
+		return Tuning->ImpactFeedbackByTag.Find(FDFGameplayTags::Impact_Light);
+	}
+	switch (Band)
+	{
+	case EDFHitFeedbackBand::Knockback: return Tuning->ImpactFeedbackByTag.Find(FDFGameplayTags::Impact_Knockback);
+	case EDFHitFeedbackBand::Critical: return Tuning->ImpactFeedbackByTag.Find(FDFGameplayTags::Impact_Critical);
+	case EDFHitFeedbackBand::Heavy: return Tuning->ImpactFeedbackByTag.Find(FDFGameplayTags::Impact_Heavy);
+	default: return Tuning->ImpactFeedbackByTag.Find(FDFGameplayTags::Impact_Light);
 	}
 }
 
@@ -225,6 +225,126 @@ FGameplayTag UDFCombatFeedbackLibrary::ResolveImpactTag(
 		Band);
 }
 
+void UDFCombatFeedbackLibrary::SpawnImpactAssetsForTag(
+	UObject* const WorldContextObject,
+	const FVector Location,
+	const FVector Normal,
+	const FGameplayTag ImpactTag)
+{
+	if (IsRunningDedicatedServer() || !ImpactTag.IsValid())
+	{
+		return;
+	}
+	const UDFCombatTuningData* const Tuning = UDFAssetManager::Get().GetCombatTuningData();
+	EDFHitFeedbackBand Band = EDFHitFeedbackBand::Light;
+	if (ImpactTag.MatchesTag(FDFGameplayTags::Impact_Knockback))
+	{
+		Band = EDFHitFeedbackBand::Knockback;
+	}
+	else if (ImpactTag.MatchesTag(FDFGameplayTags::Impact_Critical))
+	{
+		Band = EDFHitFeedbackBand::Critical;
+	}
+	else if (ImpactTag.MatchesTag(FDFGameplayTags::Impact_Heavy))
+	{
+		Band = EDFHitFeedbackBand::Heavy;
+	}
+	const FDFImpactFeedbackAssets* const Assets = FindImpactAssetsForTag(Tuning, ImpactTag, Band);
+	if (!Assets)
+	{
+		return;
+	}
+	const FRotator SpawnRot = Normal.IsNearlyZero() ? FRotator::ZeroRotator : Normal.Rotation();
+	if (Assets->ImpactVFX)
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+			WorldContextObject, Assets->ImpactVFX, Location, SpawnRot, FVector(1.f), true, true);
+	}
+	if (Assets->ImpactSFX)
+	{
+		UGameplayStatics::PlaySoundAtLocation(WorldContextObject, Assets->ImpactSFX, Location);
+	}
+}
+
+void UDFCombatFeedbackLibrary::ExecuteCombatFeedbackCue(
+	UObject* const WorldContextObject,
+	const FGameplayTag GameplayCueTag,
+	AActor* const TargetActor,
+	AActor* const InstigatorActor,
+	const FVector Location,
+	const FVector Normal,
+	const FGameplayTag ImpactTag)
+{
+	if (IsRunningDedicatedServer() || !GameplayCueTag.IsValid())
+	{
+		return;
+	}
+	DFGameplayCueRegistration::RegisterNativeGameplayCues();
+	FGameplayCueParameters Params;
+	Params.Location = FVector(Location);
+	Params.Normal = FVector(Normal);
+	Params.Instigator = InstigatorActor;
+	if (ImpactTag.IsValid())
+	{
+		Params.AggregatedSourceTags.AddTag(ImpactTag);
+	}
+	if (TargetActor)
+	{
+		Params.TargetAttachComponent = TargetActor->GetRootComponent();
+	}
+	if (UAbilitySystemComponent* const TargetASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(TargetActor))
+	{
+		TargetASC->ExecuteGameplayCue(GameplayCueTag, Params);
+		return;
+	}
+	if (UAbilitySystemComponent* const InstASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(InstigatorActor))
+	{
+		InstASC->ExecuteGameplayCue(GameplayCueTag, Params);
+		return;
+	}
+	if (ImpactTag.IsValid())
+	{
+		const FVector Loc = Location.IsNearlyZero() && TargetActor
+			? TargetActor->GetActorLocation()
+			: Location;
+		SpawnImpactAssetsForTag(WorldContextObject, Loc, Normal, ImpactTag);
+	}
+}
+
+void UDFCombatFeedbackLibrary::ExecuteCombatImpactCue(
+	UObject* const WorldContextObject,
+	const FDFHitConfirmedContext& Context,
+	const EDFHitFeedbackBand Band)
+{
+	if (IsRunningDedicatedServer())
+	{
+		return;
+	}
+	FGameplayTag ImpactTag = Context.ImpactTag;
+	if (!ImpactTag.IsValid())
+	{
+		ImpactTag = ResolveImpactTag(Band, Context.DamageSourceTag);
+	}
+	const FGameplayTag CueTag = UDFGameplayCueRegistry::ResolveGameplayCueForImpactTag(ImpactTag);
+	const FVector SpawnLoc = Context.Location.IsNearlyZero() && Context.Victim
+		? Context.Victim->GetActorLocation()
+		: Context.Location;
+	const FVector Normal = Context.Normal.IsNearlyZero() ? FVector::UpVector : Context.Normal;
+	if (!CueTag.IsValid())
+	{
+		SpawnImpactAssetsForTag(WorldContextObject, SpawnLoc, Normal, ImpactTag);
+		return;
+	}
+	ExecuteCombatFeedbackCue(
+		WorldContextObject,
+		CueTag,
+		Context.Victim,
+		Context.Instigator,
+		SpawnLoc,
+		Normal,
+		ImpactTag);
+}
+
 void UDFCombatFeedbackLibrary::PlayHitFeedbackForBand(
 	UObject* const WorldContextObject,
 	const EDFHitFeedbackBand Band,
@@ -239,7 +359,19 @@ void UDFCombatFeedbackLibrary::PlayHitFeedbackForBand(
 	{
 		HS->PlayBand(Band, InstigatorActor, 1.f);
 	}
-	if (APlayerController* const PC = UGameplayStatics::GetPlayerController(WorldContextObject, 0))
+	APlayerController* PC = nullptr;
+	if (InstigatorActor)
+	{
+		if (const APawn* const InstigatorPawn = Cast<APawn>(InstigatorActor))
+		{
+			PC = Cast<APlayerController>(InstigatorPawn->GetController());
+		}
+	}
+	if (!PC)
+	{
+		PC = UDFNetworkLibrary::GetLocalPlayerController(WorldContextObject);
+	}
+	if (PC)
 	{
 		switch (Band)
 		{
@@ -342,7 +474,29 @@ void UDFCombatFeedbackLibrary::DispatchAttackerHitFeel(
 	{
 		ImpactCtx.ImpactTag = ResolveImpactTag(Band, Context.DamageSourceTag);
 	}
-	SpawnImpactFeedbackFromTuning(WorldContextObject, ImpactCtx, Band);
+	ExecuteCombatImpactCue(WorldContextObject, ImpactCtx, Band);
+}
+
+void UDFCombatFeedbackLibrary::ApplyVictimMontageHitStop(
+	AActor* const Victim,
+	const EDFHitFeedbackBand Band,
+	const float MagnitudeFactor)
+{
+	if (!Victim)
+	{
+		return;
+	}
+	if (UWorld* const W = Victim->GetWorld())
+	{
+		if (W->GetNetMode() == NM_DedicatedServer && !Victim->HasAuthority())
+		{
+			return;
+		}
+	}
+	if (UDFImpactFramingComponent* const Framing = Victim->FindComponentByClass<UDFImpactFramingComponent>())
+	{
+		Framing->PlayBand(Band, MagnitudeFactor);
+	}
 }
 
 void UDFCombatFeedbackLibrary::DispatchVictimHitFeel(
@@ -365,9 +519,18 @@ void UDFCombatFeedbackLibrary::DispatchVictimHitFeel(
 	const bool bKnockback = Context.KnockbackMagnitude >= 60.f
 		|| Context.Band == EDFHitFeedbackBand::Knockback;
 	EDFHitFeedbackBand Band = Context.Band;
-	if (Band == EDFHitFeedbackBand::Light)
+	if (Context.bWasLethal)
+	{
+		Band = EDFHitFeedbackBand::Critical;
+	}
+	else if (Band == EDFHitFeedbackBand::Light)
 	{
 		Band = ResolveFeedbackBand(Context.Magnitude, MaxH, Context.bIsCrit, bKnockback);
+	}
+	const float MagFactor = FMath::Clamp(DamagePct / 0.15f, 0.5f, 1.5f);
+	if (!Cast<ADFEnemyBase>(Context.Victim))
+	{
+		ApplyVictimMontageHitStop(Context.Victim, Band, MagFactor);
 	}
 
 	if (ADFPlayerCharacter* const VictimPlayer = Cast<ADFPlayerCharacter>(Context.Victim))
@@ -395,7 +558,24 @@ void UDFCombatFeedbackLibrary::DispatchOnHitConfirmed(
 		return;
 	}
 
+	if (UDFPresentationOrchestratorSubsystem* const Pres = World->GetSubsystem<UDFPresentationOrchestratorSubsystem>())
+	{
+		Pres->DispatchFromHitContext(Context);
+	}
+
 	const bool bRunGameplay = World->GetNetMode() != NM_Client;
+	if (bRunGameplay && Context.Instigator)
+	{
+		UDFAINoiseLibrary::ReportCombatHitNoise(
+			Context.Instigator,
+			Context.Location.IsNearlyZero() ? Context.Victim->GetActorLocation() : Context.Location,
+			Context.Band,
+			Context.bWasLethal);
+		if (UDFAIThreatComponent* const Threat = Context.Victim->FindComponentByClass<UDFAIThreatComponent>())
+		{
+			Threat->AddThreat(Context.Instigator, Context.Magnitude);
+		}
+	}
 	if (bRunGameplay)
 	{
 		FVector HitDir = Context.HitDirection2D;
@@ -408,7 +588,15 @@ void UDFCombatFeedbackLibrary::DispatchOnHitConfirmed(
 				HitDir.Normalize();
 			}
 		}
-		if (UDFHitReactionComponent* const HitReact = Context.Victim->FindComponentByClass<UDFHitReactionComponent>())
+		if (UDFCombatCrowdControlComponent* const CC =
+			Context.Victim->FindComponentByClass<UDFCombatCrowdControlComponent>())
+		{
+			FDFHitConfirmedContext Ctx = Context;
+			Ctx.HitDirection2D = HitDir;
+			(void)CC->ProcessCombatHit(Ctx);
+		}
+		else if (UDFHitReactionComponent* const HitReact =
+			Context.Victim->FindComponentByClass<UDFHitReactionComponent>())
 		{
 			HitReact->OnHitReceived(
 				Context.Magnitude,
@@ -419,6 +607,37 @@ void UDFCombatFeedbackLibrary::DispatchOnHitConfirmed(
 				Context.Normal,
 				Context.DamageSourceTag,
 				Context.HitBoneName);
+		}
+		if (Context.Victim->HasAuthority())
+		{
+			float VictimMaxH = Context.MaxHealth;
+			if (VictimMaxH <= KINDA_SMALL_NUMBER)
+			{
+				if (UAbilitySystemComponent* const VictimASC =
+					UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Context.Victim))
+				{
+					VictimMaxH = FMath::Max(1.f, VictimASC->GetNumericAttribute(UDFAttributeSet::GetMaxHealthAttribute()));
+				}
+			}
+			const bool bVictimKnockback = Context.KnockbackMagnitude >= 60.f
+				|| Context.Band == EDFHitFeedbackBand::Knockback;
+			EDFHitFeedbackBand VictimBand = Context.Band;
+			if (Context.bWasLethal)
+			{
+				VictimBand = EDFHitFeedbackBand::Critical;
+			}
+			else if (VictimBand == EDFHitFeedbackBand::Light)
+			{
+				VictimBand = ResolveFeedbackBand(
+					Context.Magnitude, VictimMaxH, Context.bIsCrit, bVictimKnockback);
+			}
+			const float VictimMag = VictimMaxH > KINDA_SMALL_NUMBER
+				? FMath::Clamp((Context.Magnitude / VictimMaxH) / 0.15f, 0.5f, 1.5f)
+				: 1.f;
+			if (ADFEnemyBase* const EnemyVictim = Cast<ADFEnemyBase>(Context.Victim))
+			{
+				EnemyVictim->Multicast_PlayVictimHitFraming(VictimBand, VictimMag);
+			}
 		}
 		if (Context.Instigator)
 		{
@@ -485,6 +704,13 @@ void UDFCombatFeedbackLibrary::DispatchOnHitConfirmed(
 
 	DispatchAttackerHitFeel(WorldContextObject, LocalCtx);
 	DispatchVictimHitFeel(WorldContextObject, LocalCtx);
+	if (Context.Instigator && Context.Victim)
+	{
+		if (UDFLockOnComponent* const LockOn = Context.Instigator->FindComponentByClass<UDFLockOnComponent>())
+		{
+			LockOn->NotifyCombatHitConfirmed(Context.Victim);
+		}
+	}
 	SpawnCombatTextFromHitContext(WorldContextObject, LocalCtx);
 
 	UE_LOG(LogDFFeel, Verbose,

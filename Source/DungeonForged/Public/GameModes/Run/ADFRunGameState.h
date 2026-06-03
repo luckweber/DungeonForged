@@ -39,6 +39,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_TotalGoldCollected, Category = "Run")
 	int32 TotalGoldCollected = 0;
 
+	/** Live enemies on current floor (authority sync from @ref UDFDungeonManager). */
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_EnemiesRemaining, Category = "Run")
+	int32 EnemiesRemaining = 0;
+
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_CurrentPhase, Category = "Run")
 	ERunPhase CurrentPhase = ERunPhase::PreRun;
 
@@ -54,6 +58,8 @@ public:
 	void OnRep_TotalKills();
 	UFUNCTION()
 	void OnRep_TotalGoldCollected();
+	UFUNCTION()
+	void OnRep_EnemiesRemaining();
 	UFUNCTION()
 	void OnRep_CurrentPhase();
 
@@ -74,6 +80,10 @@ public:
 	/** Authority: updates @c CurrentPhase and notifies clients. */
 	UFUNCTION(BlueprintCallable, Category = "Run")
 	void SetPhase(ERunPhase const Phase);
+
+	/** Authority: mirror dungeon manager enemy count for clients. */
+	UFUNCTION(BlueprintCallable, Category = "Run")
+	void AuthoritySetEnemiesRemaining(int32 Count);
 
 	UFUNCTION(BlueprintCallable, Category = "Run")
 	FDFRunSummary GetRunSummary() const;

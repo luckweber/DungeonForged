@@ -5,6 +5,7 @@
 #include "AlphaBlend.h"
 #include "Components/ActorComponent.h"
 #include "Data/DFDataTableStructs.h"
+#include "Combat/DFComboDirectionalTypes.h"
 #include "GameplayTagContainer.h"
 #include "UDFComboComponent.generated.h"
 
@@ -49,6 +50,15 @@ public:
 	UPROPERTY(ReplicatedUsing = OnRep_LockedComboActivationStep, BlueprintReadOnly, Category = "Combat|Combo")
 	int32 LockedComboActivationStep = -1;
 
+	/** Server-picked index into the variant array for co-op montage parity. */
+	UPROPERTY(ReplicatedUsing = OnRep_AuthorityComboVariantIndex, BlueprintReadOnly, Category = "Combat|Combo")
+	mutable int32 AuthorityComboVariantIndex = -1;
+
+	UFUNCTION()
+	void OnRep_AuthorityComboVariantIndex();
+
+	void ClearAuthorityComboVariantIndex();
+
 	/** @deprecated display / server sync mirror; use @c LockedComboActivationStep for activation. */
 	UPROPERTY(BlueprintReadOnly, Category = "Combat|Combo")
 	int32 PendingComboActivationStep = -1;
@@ -65,9 +75,18 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Combat|Combo")
 	TObjectPtr<UDFMeleeTraceComponent> MeleeTrace;
 
-	/** One montage per step (0 .. MaxComboSteps-1). The "forward / neutral" path. */
+	/**
+	 * One montage per step (0 .. MaxComboSteps-1). The "forward / neutral" path.
+	 * Stored as soft refs to keep BP defaults out of the CDO load cascade.
+	 * Use @c GetResolvedComboMontage / @c GetComboMontagesResolved at runtime — those read from
+	 * the resolved cache populated by @c EnsureBPDefaultMontagesLoaded (async on BeginPlay).
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo")
-	TArray<TObjectPtr<UAnimMontage>> ComboMontages;
+	TArray<TSoftObjectPtr<UAnimMontage>> ComboMontages;
+
+	/** Resolved runtime cache populated by async load or via SetComboMontagesFromHardRefs. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Combat|Combo")
+	TArray<TObjectPtr<UAnimMontage>> ResolvedComboMontages;
 
 	/**
 	 * Per-step combo data (light + optional heavy finisher branch). When non-empty, overrides montage resolution
@@ -76,17 +95,46 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo")
 	TArray<FDFComboStep> ComboSteps;
 
-	/** Used when @c IsOwnerAirborne() and this array is non-empty. */
+	/** Used when @c ShouldUseAerialComboSteps() and this array is non-empty. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Combo|Aerial")
 	TArray<FDFComboStep> AerialComboSteps;
 
-	/** Loops while primary attack is held before heavy tier commits (optional). */
+	/** True after a launcher hit until land or combo reset — drives aerial step table + tags. */
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Combat|Combo|Aerial")
+	bool bAerialComboActive = false;
+
+	/** Confirmed aerial hits during the current juggle window (local display / style hooks). */
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Combat|Combo|Aerial")
+	int32 AerialJuggleHitCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Aerial", meta = (ClampMin = "0"))
+	int32 MaxAerialJuggleHits = 5;
+
+	/** Grace after landing before aerial combo counters reset when no montage is playing. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Aerial", meta = (ClampMin = "0.0"))
+	float AerialComboLandResetGrace = 0.25f;
+
+	/** When true, @c ResolveDirectionalComboMontage uses 8-way octant snapping (falls back to 3-way legacy). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Directional")
+	bool bUseEightWayDirectionalCombo = true;
+
+	/** Per-step 8-way montage overrides (populated from DT_Combos / class fallback). */
+	UPROPERTY(Transient)
+	TArray<FDFComboDirectionalMontageCache> ResolvedDirectionalComboMontages;
+
+	/** Loops while primary attack is held before heavy tier commits (optional). Soft to keep CDO light. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Heavy")
-	TObjectPtr<UAnimMontage> ChargeWindupMontage;
+	TSoftObjectPtr<UAnimMontage> ChargeWindupMontage;
 
 	/** Bridge montage on heavy release after windup; falls back to heavy attack montage when null. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Heavy")
-	TObjectPtr<UAnimMontage> HeavyChargeReleaseMontage;
+	TSoftObjectPtr<UAnimMontage> HeavyChargeReleaseMontage;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Combat|Combo|Heavy")
+	TObjectPtr<UAnimMontage> ResolvedChargeWindupMontage;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Combat|Combo|Heavy")
+	TObjectPtr<UAnimMontage> ResolvedHeavyChargeReleaseMontage;
 
 	/** True when the next combo step should use @c FDFComboStep::HeavyBranchMontage instead of light. */
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Combat|Combo")
@@ -97,11 +145,17 @@ public:
 	 * Empty = always use @c ComboMontages.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Directional")
-	TArray<TObjectPtr<UAnimMontage>> BackwardComboMontages;
+	TArray<TSoftObjectPtr<UAnimMontage>> BackwardComboMontages;
 
 	/** Optional override per step when the owner is strafing left/right. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Directional")
-	TArray<TObjectPtr<UAnimMontage>> SideComboMontages;
+	TArray<TSoftObjectPtr<UAnimMontage>> SideComboMontages;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Combat|Combo|Directional")
+	TArray<TObjectPtr<UAnimMontage>> ResolvedBackwardComboMontages;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Combat|Combo|Directional")
+	TArray<TObjectPtr<UAnimMontage>> ResolvedSideComboMontages;
 
 	/** Minimum local-axis velocity (cm/s) to consider the swing "directional". Below = neutral/forward. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Directional", meta = (ClampMin = "0.0"))
@@ -147,13 +201,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo", meta = (ClampMin = "0.0"))
 	float ComboRefreshOnHitExtension = 0.30f;
 
-	/** If null, uses equipped-weapon override or first combo montage. */
+	/** If null, uses equipped-weapon override or first combo montage. Soft to keep CDO light. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Heavy")
-	TObjectPtr<UAnimMontage> HeavyAttackMontage;
+	TSoftObjectPtr<UAnimMontage> HeavyAttackMontage;
 
 	/** Played when the player held the button past @c MaxHeavyChargeThreshold. If null, falls back to @c HeavyAttackMontage. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Combo|Heavy|MaxTier")
-	TObjectPtr<UAnimMontage> MaxHeavyAttackMontage;
+	TSoftObjectPtr<UAnimMontage> MaxHeavyAttackMontage;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Combat|Combo|Heavy")
+	TObjectPtr<UAnimMontage> ResolvedHeavyAttackMontage;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Combat|Combo|Heavy|MaxTier")
+	TObjectPtr<UAnimMontage> ResolvedMaxHeavyAttackMontage;
 
 	/** Blend-in when chaining to the next swing (runtime override via Montage_PlayWithBlendIn). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Combo|Animation", meta = (ClampMin = "0.0", ClampMax = "0.5"))
@@ -312,6 +372,34 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Aerial")
 	bool IsOwnerAirborne() const;
 
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Aerial")
+	bool IsAerialComboActive() const { return bAerialComboActive; }
+
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Aerial")
+	int32 GetAerialJuggleHitCount() const { return AerialJuggleHitCount; }
+
+	/** Ground vs aerial step table selector. */
+	UFUNCTION(BlueprintPure, Category = "Combat|Combo|Aerial")
+	bool ShouldUseAerialComboSteps() const;
+
+	/** Called when a launcher step confirms — enters aerial juggle mode. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Aerial")
+	void EnterAerialComboMode();
+
+	/** Increment aerial juggle counter after a confirmed hit while @c bAerialComboActive. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Aerial")
+	void NotifyAerialJuggleHit();
+
+	/** Called from movement when the owner lands. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Aerial")
+	void OnOwnerLanded();
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Aerial")
+	void ApplyAerialComboStepData(const TArray<FDFComboStep>& Steps);
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Directional")
+	void SetDirectionalComboMontagesFromData(const TArray<FDFComboDirectionalMontageSet>& Sets);
+
 	/** Active step data (aerial vs grounded). */
 	UFUNCTION(BlueprintPure, Category = "Combat|Combo")
 	bool GetActiveComboStep(int32 Step, FDFComboStep& OutStep) const;
@@ -324,6 +412,68 @@ public:
 	/** Sends finisher QTE input when Execute is active; tries Execute when FinisherReady. */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Finisher")
 	bool TryHandleFinisherPrimaryInput();
+
+	// ─── Soft-ref runtime API ──────────────────────────────────────────────────────────────
+	// Runtime (weapon-equip / class fallback) supplies hard refs from DataTable. These helpers
+	// convert to TSoftObjectPtr storage *and* populate the Resolved* caches in one shot, so
+	// callers don't have to wait for async load when the assets are already in memory.
+
+	/** Populates @c ComboMontages (soft) AND @c ResolvedComboMontages (hard) from a hard-ref array. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo")
+	void SetComboMontagesFromHardRefs(const TArray<UAnimMontage*>& Hards);
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Directional")
+	void SetBackwardComboMontagesFromHardRefs(const TArray<UAnimMontage*>& Hards);
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Directional")
+	void SetSideComboMontagesFromHardRefs(const TArray<UAnimMontage*>& Hards);
+
+	// C++-only overloads (UHT rejects TObjectPtr in UFUNCTION parameters).
+	void SetComboMontagesFromHardRefs(const TArray<TObjectPtr<UAnimMontage>>& Hards);
+	void SetBackwardComboMontagesFromHardRefs(const TArray<TObjectPtr<UAnimMontage>>& Hards);
+	void SetSideComboMontagesFromHardRefs(const TArray<TObjectPtr<UAnimMontage>>& Hards);
+
+	/**
+	 * Equip-path setters: receive soft refs from DataTable rows. Performs sync load on each entry
+	 * (one-shot cost at equip — keeps combat hot path on cache reads only). Empty refs are preserved as null.
+	 */
+	void SetComboMontagesFromSoftRefs(const TArray<TSoftObjectPtr<UAnimMontage>>& Softs);
+	void SetBackwardComboMontagesFromSoftRefs(const TArray<TSoftObjectPtr<UAnimMontage>>& Softs);
+	void SetSideComboMontagesFromSoftRefs(const TArray<TSoftObjectPtr<UAnimMontage>>& Softs);
+	void SetHeavyAttackMontageFromSoft(const TSoftObjectPtr<UAnimMontage>& Soft);
+	void SetMaxHeavyAttackMontageFromSoft(const TSoftObjectPtr<UAnimMontage>& Soft);
+	void SetChargeWindupMontageFromSoft(const TSoftObjectPtr<UAnimMontage>& Soft);
+	void SetHeavyChargeReleaseMontageFromSoft(const TSoftObjectPtr<UAnimMontage>& Soft);
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Heavy")
+	void SetHeavyAttackMontage(UAnimMontage* Montage);
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Heavy|MaxTier")
+	void SetMaxHeavyAttackMontage(UAnimMontage* Montage);
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Heavy")
+	void SetChargeWindupMontage(UAnimMontage* Montage);
+
+	UFUNCTION(BlueprintCallable, Category = "Combat|Combo|Heavy")
+	void SetHeavyChargeReleaseMontage(UAnimMontage* Montage);
+
+	/** Snapshot of all soft refs (BP defaults snapshot for restore by ADFPlayerCharacter). */
+	struct FComboMontageBaselineSnapshot
+	{
+		TArray<TSoftObjectPtr<UAnimMontage>> Combo;
+		TArray<TSoftObjectPtr<UAnimMontage>> Backward;
+		TArray<TSoftObjectPtr<UAnimMontage>> Side;
+		TSoftObjectPtr<UAnimMontage> Heavy;
+		TSoftObjectPtr<UAnimMontage> MaxHeavy;
+		TSoftObjectPtr<UAnimMontage> ChargeWindup;
+		TSoftObjectPtr<UAnimMontage> HeavyChargeRelease;
+	};
+
+	void CaptureBaselineSnapshot(FComboMontageBaselineSnapshot& OutSnapshot) const;
+	void RestoreFromBaselineSnapshot(const FComboMontageBaselineSnapshot& Snapshot);
+
+	/** Triggers async load of all soft refs and fills Resolved* caches on completion. */
+	void EnsureBPDefaultMontagesLoaded();
 
 protected:
 	virtual void BeginPlay() override;
@@ -392,6 +542,10 @@ protected:
 	bool bSwingHitConfirmedThisActivation = false;
 	int32 LastRepLockedComboStep = -1;
 	void ApplyCombatTuningFromDataAsset();
+	void ExitAerialComboMode();
+	void SyncAerialComboTags(bool bActive);
+	EDFDodgeDirection ResolveComboInputDirection() const;
+	UAnimMontage* ResolveLegacyDirectionalMontage(int32 Step, EDFDodgeDirection Dir) const;
 	void BufferComboInputAndTryAdvance();
 	void DrawCombatDebug() const;
 	void StartChargeWindupMontage();
@@ -411,4 +565,10 @@ protected:
 	bool ConsumeMaxHeavyStamina();
 	void ExecuteMaxHeavyAttackAuthority();
 	void ExecuteMaxHeavyAttackPresentation();
+
+	// Repopulates Resolved* caches by reading currently-loaded soft pointers.
+	void RefreshResolvedMontageCaches();
+
+	/** Streamable handle for the async load kicked off in @c EnsureBPDefaultMontagesLoaded. */
+	TSharedPtr<struct FStreamableHandle> DefaultMontagesStreamHandle;
 };

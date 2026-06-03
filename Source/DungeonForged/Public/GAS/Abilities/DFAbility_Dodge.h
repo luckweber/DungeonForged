@@ -71,4 +71,6 @@ protected:
 	bool IsOwnerArmed() const;
 
 	float GetEffectiveDodgeStaminaCost() const;
+
+	virtual float GetAbilityStaminaCost() const override;
 };

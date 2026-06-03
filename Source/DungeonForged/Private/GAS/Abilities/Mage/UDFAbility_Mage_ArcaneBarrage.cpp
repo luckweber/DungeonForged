@@ -3,6 +3,7 @@
 #include "Camera/UDFLockOnComponent.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Combat/DFArcaneMissileProjectile.h"
+#include "Combat/UDFProjectilePoolLibrary.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "GAS/Effects/UGE_Damage_Magic.h"
@@ -84,13 +85,6 @@ void UDFAbility_Mage_ArcaneBarrage::ActivateAbility(const FGameplayAbilitySpecHa
 		const double T = W->GetTimeSeconds();
 		LastGlobalCast = T;
 	}
-	if (UAbilitySystemComponent* const asc = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (asc->GetOwner() && asc->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(asc);
-		}
-	}
 	if (RemainingCharges < MaxCharges)
 	{
 		if (UWorld* const W = GetWorld())
@@ -152,19 +146,17 @@ void UDFAbility_Mage_ArcaneBarrage::OnTraceEvent(FGameplayEventData /*Payload*/)
 	}
 	const FTransform Sx = Sk->DoesSocketExist(FName("hand_r")) ? Sk->GetSocketTransform(FName("hand_r"), RTS_World) : FTransform(Char->GetActorRotation(), Char->GetActorLocation());
 	const FRotator BaseRot = Sx.Rotator();
-	if (UWorld* const W = GetWorld())
+	for (int32 I = -1; I <= 1; ++I)
 	{
-		for (int32 I = -1; I <= 1; ++I)
+		const FRotator Spread(BaseRot.Pitch, BaseRot.Yaw + (I * 5.f), BaseRot.Roll);
+		const FTransform T(Spread, Sx.GetLocation());
+		if (AActor* const Spawned = UDFProjectilePoolLibrary::AcquireProjectile(this, MissileClass, T, Char, Char))
 		{
-			const FRotator Spread(BaseRot.Pitch, BaseRot.Yaw + (I * 5.f), BaseRot.Roll);
-			const FTransform T(Spread, Sx.GetLocation());
-			ADFArcaneMissileProjectile* const Miss = W->SpawnActorDeferred<ADFArcaneMissileProjectile>(MissileClass, T, Char, Char,
-				ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn);
-			if (IsValid(Miss))
+			if (ADFArcaneMissileProjectile* const Miss = Cast<ADFArcaneMissileProjectile>(Spawned))
 			{
 				Miss->SourceAbility = this;
 				Miss->HomingTarget = Homing;
-				Miss->FinishSpawning(T);
+				Miss->ApplyHomingTarget();
 			}
 		}
 	}

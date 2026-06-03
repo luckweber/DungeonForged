@@ -71,10 +71,6 @@ void UDFAbility_Rogue_ShadowStep::ActivateAbility(
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
-	if (Src->GetOwner() && Src->GetOwner()->HasAuthority())
-	{
-		ApplyResourceCostsToOwner(Src);
-	}
 	AActor* const Target = P->LockOnComponent->GetCurrentTarget();
 	if (!IsValid(Target) || !Target->GetRootComponent())
 	{

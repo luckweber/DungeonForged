@@ -41,6 +41,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Nexus|UI")
 	void QueueUnlockNotificationForEntry(const FDFPendingUnlockEntry& Entry);
 
+	/** Short toast when returning from a run (victory / defeat / first launch). */
+	UFUNCTION(BlueprintCallable, Category = "Nexus|UI")
+	void ShowArrivalBanner(FText const& Title, FText const& Body, float DisplaySeconds = 4.f);
+
 	/** Push next notification in queue. */
 	UFUNCTION(BlueprintCallable, Category = "Nexus|UI")
 	void DequeueAndShowNextNotification();

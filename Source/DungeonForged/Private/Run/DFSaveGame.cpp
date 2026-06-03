@@ -8,6 +8,7 @@
 #include "Misc/DateTime.h"
 #include "Engine/DataTable.h"
 #include "GameModes/Nexus/DFNexusLevelData.h"
+#include "GameModes/Nexus/DFNexusTypes.h"
 
 namespace
 {
@@ -115,6 +116,51 @@ void UDFSaveGame::ResetRunData()
 	LastRunFloor = 0;
 }
 
+void UDFSaveGame::ProcessMetaLevelUps(UDFSaveGame* const Save, UDataTable const* const NexusLevelsTable)
+{
+	if (!Save || !NexusLevelsTable)
+	{
+		return;
+	}
+	int32 Level = FMath::Max(1, Save->MetaLevel);
+	for (;;)
+	{
+		FName RowName;
+		FDFNexusLevelRow const* const Row = FindLevelRowByNexusLevel(NexusLevelsTable, Level + 1, RowName);
+		if (!Row || Save->MetaXP < Row->MetaXPRequired)
+		{
+			break;
+		}
+		++Level;
+		Save->MetaLevel = Level;
+		if (!Row->UnlockClassRow.IsNone())
+		{
+			FDFPendingUnlockEntry E;
+			E.Type = ENexusPendingUnlockType::UnlockClass;
+			E.ClassRow = Row->UnlockClassRow;
+			Save->PendingUnlocks.Add(E);
+		}
+		if (!Row->UnlockNPCRow.IsNone())
+		{
+			FDFPendingUnlockEntry E;
+			E.Type = ENexusPendingUnlockType::UnlockNPC;
+			E.NPCId = Row->UnlockNPCRow;
+			Save->PendingUnlocks.Add(E);
+		}
+		for (FName const U : Row->UnlockUpgradeRows)
+		{
+			if (U.IsNone())
+			{
+				continue;
+			}
+			FDFPendingUnlockEntry E;
+			E.Type = ENexusPendingUnlockType::UnlockUpgrade;
+			E.UpgradeRow = U;
+			Save->PendingUnlocks.Add(E);
+		}
+	}
+}
+
 bool UDFSaveGame::IsCompatible() const
 {
 	if (GameVersion.IsEmpty())
@@ -126,7 +172,17 @@ bool UDFSaveGame::IsCompatible() const
 	{
 		return true;
 	}
-	return GameVersion == ProjectVer;
+	auto MajorMinor = [](FString const& Ver) -> FString
+	{
+		TArray<FString> Parts;
+		Ver.ParseIntoArray(Parts, TEXT("."));
+		if (Parts.Num() >= 2)
+		{
+			return Parts[0] + TEXT(".") + Parts[1];
+		}
+		return Ver;
+	};
+	return MajorMinor(GameVersion) == MajorMinor(ProjectVer);
 }
 
 float UDFSaveGame::GetNexusMetaXPFillRatio(UDataTable const* const NexusLevelsTable) const

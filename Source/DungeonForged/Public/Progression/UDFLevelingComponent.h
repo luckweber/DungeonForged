@@ -80,6 +80,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "DF|Leveling")
 	void SpendAttributePoint(EDFLevelingStat Stat, int32 Amount = 1);
 
+	/** Authority: restore XP/level/unspent from a checkpoint without re-granting skipped level rewards. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Leveling")
+	void AuthorityRestoreProgress(int32 InLevel, int32 InXP, int32 InUnspentPoints);
+
 	/** XP from CurrentXP to the next level threshold, or 0 if max. */
 	UFUNCTION(BlueprintPure, Category = "DF|Leveling")
 	int32 GetXPToNextLevel() const;

@@ -188,18 +188,33 @@ void UDFAbility_Enemy_Melee::ActivateAbility(
 		return;
 	}
 	bHoldsAttackToken = false;
+	bHoldsRangedCastToken = false;
 	if (ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(GetAvatarActorFromActorInfo()))
 	{
 		if (UWorld* const World = GetWorld())
 		{
 			if (UDFCombatDirectorSubsystem* const Director = World->GetSubsystem<UDFCombatDirectorSubsystem>())
 			{
-				if (!Director->RequestAttackToken(Enemy))
+				const bool bIsRangedAttack = FDFGameplayTags::Ability_Attack_Ranged.IsValid()
+					&& AbilityTags.HasTag(FDFGameplayTags::Ability_Attack_Ranged);
+				if (bIsRangedAttack)
 				{
-					EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
-					return;
+					if (!Director->RequestRangedCastToken(Enemy))
+					{
+						EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+						return;
+					}
+					bHoldsRangedCastToken = true;
 				}
-				bHoldsAttackToken = true;
+				else
+				{
+					if (!Director->RequestAttackToken(Enemy))
+					{
+						EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
+						return;
+					}
+					bHoldsAttackToken = true;
+				}
 			}
 		}
 
@@ -377,8 +392,19 @@ void UDFAbility_Enemy_Melee::EndAbility(
 				}
 			}
 		}
+		if (bHoldsRangedCastToken)
+		{
+			if (UWorld* const World = GetWorld())
+			{
+				if (UDFCombatDirectorSubsystem* const Director = World->GetSubsystem<UDFCombatDirectorSubsystem>())
+				{
+					Director->ReleaseRangedCastToken(Enemy);
+				}
+			}
+		}
 	}
 	bHoldsAttackToken = false;
+	bHoldsRangedCastToken = false;
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
 

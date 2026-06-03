@@ -16,6 +16,7 @@
 #include "UI/DFAbilityBarTypes.h"
 #include "World/DFWorldTypes.h"
 #include "World/UDFWorldTransitionSubsystem.h"
+#include "Run/UDFBetweenFloorSubsystem.h"
 #include "Blueprint/UserWidget.h"
 
 namespace DFRunPlayerControllerInput_Impl
@@ -602,14 +603,32 @@ void ADFRunPlayerController::Client_OpenDefeatScreen_Implementation(
 	}
 }
 
-void ADFRunPlayerController::PresentBetweenFloorFlow_Implementation() {}
+void ADFRunPlayerController::PresentBetweenFloorFlow_Implementation()
+{
+	if (UWorld* const W = GetWorld())
+	{
+		if (UDFBetweenFloorSubsystem* const BF = W->GetSubsystem<UDFBetweenFloorSubsystem>())
+		{
+			BF->PresentStepForLocalPlayer(this);
+		}
+	}
+}
 
 void ADFRunPlayerController::Client_PresentBetweenFloorUI_Implementation()
 {
 	PresentBetweenFloorFlow();
 }
 
-void ADFRunPlayerController::Server_FinishBetweenFloorUI_Implementation() {}
+void ADFRunPlayerController::Server_FinishBetweenFloorUI_Implementation()
+{
+	if (UWorld* const W = GetWorld())
+	{
+		if (UDFBetweenFloorSubsystem* const BF = W->GetSubsystem<UDFBetweenFloorSubsystem>())
+		{
+			BF->NotifyClientStepFinished(this);
+		}
+	}
+}
 
 bool ADFRunPlayerController::Server_FinishBetweenFloorUI_Validate()
 {

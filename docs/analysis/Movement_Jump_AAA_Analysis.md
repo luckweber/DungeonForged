@@ -24,6 +24,7 @@
 - [13. Tabela de arquivos a tocar](#13-tabela-de-arquivos-a-tocar)
 - [14. Próximos passos sugeridos](#14-próximos-passos-sugeridos)
 - [15. Análise dos logs runtime (`df.JumpDebug`)](#15-análise-dos-logs-runtime-dfjumpdebug)
+- [16. Análise dos logs runtime — Locomoção (`df.LocomotionDebug 4`)](#16-análise-dos-logs-runtime--locomoção-dflocomotiondebug-4)
 
 ---
 
@@ -1202,3 +1203,165 @@ Use `df.JumpDebug 3+4 dump` e verifique:
 **Má notícia:** Há 5 bugs ativos no estado atual — sendo 2 deles **críticos** (AnimBP SM stuck + State.Landing stale). Esses **precisam ser resolvidos antes** de adicionar double jump / air dash, senão o caos vai se multiplicar com novas mecânicas aéreas.
 
 **Recomendação imediata:** dedicar 1 dia para os 5 bugs (todos são 5-30 linhas de fix cada). Depois prosseguir com Coyote Time (15min) e então Double Jump (Fase 2).
+
+---
+
+## 16. Análise dos logs runtime — Locomoção (`df.LocomotionDebug 4`)
+
+> **Captura:** sessão de play (~90s), com `df.LocomotionDebug 4` ligado.
+> **Sintoma reportado:** "tirou slow [exhaustion] mas Stop está travando de novo".
+> **Diagnóstico:** **mesmo padrão do Bug #1 do Jump SM** — AnimBP State Machine não consome os flags de transição C++. A travada do Stop é causa-raiz idêntica.
+
+### 16.1 Sequência observada: Run → Stop trava
+
+Sequência simplificada do log (player decelerando após soltar input em velocidade Run=429):
+
+```log
+1) Spd=429 Gait=2 (Run)  | I>S=0 S>L=1 L>P=0 S>M=1 P>I=0     ← rodando OK
+2) Spd=234 Gait=1 (Walk) | I>S=0 S>L=0 L>P=1 S>M=0 P>I=0     ← Loop>Stop dispara
+3) Spd=106 Gait=1        | I>S=0 S>L=0 L>P=1 S>M=0 P>I=0
+4) Spd=28  Gait=0 (Idle) | I>S=0 S>L=0 L>P=1 S>M=0 P>I=0
+5) Spd=0   Gait=0        | I>S=0 S>L=0 L>P=1 S>M=0 P>I=1     ← Stop>Idle dispara
+6) Spd=0   Gait=0        | I>S=0 S>L=0 L>P=1 S>M=0 P>I=1     ← FLAGS PERSISTEM
+7) Spd=0   Gait=0        | I>S=0 S>L=0 L>P=1 S>M=0 P>I=1     ← (continua indef.)
+```
+
+E no HUD dump correspondente:
+
+```log
+== Locomotion [MAIN] ABP_JSHeroCharacter_C ==
+Speed=0 Gait=Idle Dir=Forward Accel=0
+Trans: Idle>Start=0 Start>Loop=0 Loop>Stop=1 Stop>Move=0 Stop>Idle=1 TIP=0
+Anim Stop = Run_Stop_F_0_Seq
+Stop=0/202(consumed 0) Time=0.77/1.50(end 0.77)   ← TRAVADO em Time=0.77
+```
+
+### 16.2 Smoking gun
+
+Três pistas confirmam que é **AnimBP SM stuck na transição Stop → Idle**:
+
+| Pista | Significado |
+|---|---|
+| `Time=0.77/1.50(end 0.77)` repetido em dumps consecutivos | A timeline do Stop **parou** exatamente no end-fraction. Não está avançando para a próxima keyframe. |
+| `Stop=0/202(consumed 0)` ou `consumed 5/17` | A distância-matching consumiu **17 cm de 202 cm** previstos antes de a velocidade zerar. O Stop foi cortado prematuro pela queda de velocidade. |
+| `Loop>Stop=1` **e** `Stop>Idle=1` simultaneamente, persistentes | C++ está reportando duas transições prontas ao mesmo tempo — o SM não consumiu nenhuma. |
+
+Ao mesmo tempo, dados de tuning mostram inconsistências:
+
+```log
+WARN AuthoredLoopSpeed(429) != loop Distance avg(167) — tune Class Defaults
+```
+
+→ `Walk_Loop_F_0_Seq` declara velocidade de 429 cm/s mas a curva Distance dela só dá 167 cm/s. Diferença **2.5×**. Não é a causa do travamento mas afeta stride scale e dist-matching.
+
+### 16.3 Root cause: idêntica ao Bug #1 do Jump SM
+
+O padrão é o **mesmo bug** já documentado para o Jump (§15.2 Bug #1):
+
+| Camada | Comportamento |
+|---|---|
+| C++ AnimInstance | Atualiza `bTransition_StopToIdle = true` corretamente |
+| C++ time-tracker | Atualiza `Time=0.77/1.50` correctamente até atingir o end-fraction |
+| **AnimBP State Machine** | **Não usa** `bTransition_StopToIdle` como regra de transição da State `Stop` → `Idle` |
+| Resultado visível | Stop anim freezeada no último frame, personagem não volta ao idle anim, "trava" |
+
+### 16.4 Fix: refatorar o AnimBP State Machine de locomoção
+
+Em `ABP_JSHeroCharacter` (ou equivalente compartilhado):
+
+1. Abrir o State Machine principal de locomoção (provavelmente `Locomotion SM` ou `Main States`).
+2. Listar todas as State→State transitions:
+   - `Idle → Start`
+   - `Start → Loop`
+   - `Loop → Stop`
+   - `Stop → Idle`
+   - `Stop → Move` (re-engage quando solto e volta a pressionar)
+3. Em **cada uma** dessas transições, abrir a **transition rule** (graph dentro do nó).
+4. Substituir a condição atual (provavelmente baseada em `Speed`, `Time Remaining`, ou similar) por **leitura direta do flag correspondente do AnimInstance**:
+   - `Idle → Start`: `Get bTransition_IdleToStart`
+   - `Start → Loop`: `Get bTransition_StartToLoop`
+   - `Loop → Stop`: `Get bTransition_LoopToStop`
+   - `Stop → Idle`: `Get bTransition_StopToIdle`
+   - `Stop → Move`: `Get bTransition_StopToMove`
+5. Em "Transition Settings" de cada transição:
+   - **Duration**: 0.10–0.15s (crossfade curto)
+   - **Blend Logic**: Standard Blend
+   - **Priority Order**: Stop→Idle > Stop→Move > demais (resolve conflito quando os dois flags ficam true)
+6. **Garantir que NÃO há "Automatic Rule based on Sequence Player in State"** marcado nas transições — esse modo ignora `bTransition_*` e usa só o tempo restante da animação. Provavelmente é isso que está causando o stuck (anim chega ao end-fraction mas a regra "Automatic" não dispara porque o tempo total da Run_Stop_F_0_Seq é 1.50s e o end-fraction é 0.77s — a engine só faz auto-blend nos últimos N% do tempo TOTAL).
+
+### 16.5 Bug colateral: Anim Stop nunca consome distância completa
+
+```log
+Stop=0/202(consumed 0)      ← player parou antes de qualquer movimento de Stop
+Stop=64/202(consumed 5)
+Stop=194/202(consumed 7)
+Stop=1/202(consumed 17)     ← 17 cm de 202 cm planejados
+```
+
+O player **desacelera mais rápido do que a animação Stop esperava**. A `Run_Stop_F_0_Seq` quer percorrer 202 cm enquanto o CMC só precisa de ~50-100 cm para chegar a 0. Resultado: a animação é cortada no meio e o tracker `Stop=consumed` fica abaixo do esperado, deixando estado ambíguo.
+
+**Fix de tuning (não é bug crítico, mas afeta a "qualidade" do stop):**
+
+Em `UDFCharacterMovementComponent` (Class Defaults):
+- `BrakingDecelerationWalking`: hoje provavelmente está em 2048 ou 4096. Reduzir para **1200-1600** quando NÃO está em landing recovery, para deixar o stop visual completar.
+- Alternativa: aumentar `BrakingFriction` para suavizar.
+
+Ou re-export a `Run_Stop_F_0_Seq` com distância de 100 cm (não 202 cm), batendo com a realidade física.
+
+### 16.6 Bug colateral: `MaxWS=429` mas `RunSpeed=540` configurado
+
+```log
+Spd=429 ... MaxWS=429 ... RunCfg=429 SprintCfg=750
+```
+
+Mas no [`UDFCharacterMovementComponent.h:36`](../../Source/DungeonForged/Public/Characters/UDFCharacterMovementComponent.h) o default é `RunSpeed = 540.f`. O log mostra 429.
+
+Hipóteses (em ordem de probabilidade):
+1. **`DA_CombatTuning` ou `BP_JCHero_Character` override** — alguém setou `RunSpeed=429` no BP/DA para casar com `Walk_Loop_F_0_Seq` `avgSpd~429`.
+2. **Stamina exhaustion reduzindo MaxWalkSpeed** — improvável, log mostra `Sprint=0` e não há indicador de exhaust.
+3. **MaxWS sendo recalculado em outro lugar** — verificar `RefreshMaxWalkSpeed`.
+
+O valor de 429 não é problema **se intencional** (provável: igualar ao avgSpd do loop anim). Mas o `WARN AuthoredLoopSpeed(429) != loop Distance avg(167)` indica que **mesmo o 429 está errado para a anim Walk** — o player rodando a 429 mas com Walk_Loop avgSpd=167 vai exibir foot sliding 2.5×.
+
+**Fix:**
+- Decidir: `RunSpeed = 429` (casa com Run_Loop_F_0_Seq que tem `avgSpd~429`) e `WalkSpeed/Gait Walk threshold` em 167 cm/s para casar Walk_Loop.
+- Ou re-export anims com velocidade real desejada.
+- Atualizar `GaitThr Walk>=50 Run>=350` para refletir a curva de avgSpd correta.
+
+### 16.7 Bug colateral: enemy ABP gera log poluído
+
+```log
+== Locomotion [MAIN] ABP_DeepSeaLizard_C ==
+Speed=0 Gait=Idle ...
+Anim Start = None
+Anim Loop = None
+Anim Stop = None
+RunCfg=0 SprintCfg=0
+```
+
+O `UDFLocomotionDebug` está iterando sobre **todos os AnimInstances UDF-derived** no mundo. Para o inimigo (`ABP_DeepSeaLizard`) que não usa o sistema de Start/Loop/Stop direcional, isso polui o log com 70% de linhas vazias.
+
+**Fix simples:** no helper de log, skipar AnimInstances cujo `ActiveAnimSet.MovementBlendSpace == nullptr` AND `Start == nullptr` AND `Loop == nullptr` (sinal de que não usa o sistema direcional). Ou expor um bool `bEnableLocomotionDebugLog` na AnimInstance e default false em inimigos.
+
+### 16.8 Sumário do bug do Stop
+
+| Item | Valor |
+|---|---|
+| **Causa-raiz** | AnimBP State Machine não usa flags `bTransition_*ToIdle` como regra de transição |
+| **Sintoma** | Stop animation freezeada no end-fraction (`Time=0.77/1.50`); player visualmente travado |
+| **Mesma causa que** | Bug #1 (Jump SM stuck) — §15.2 |
+| **Fix** | Refatorar todas as transition rules do SM de locomoção para usar `Get bTransition_*` (§16.4) |
+| **Tempo estimado** | 30-60 min (apenas editor; toca ~5 transition rules no AnimBP) |
+| **Não-bloqueia, mas é cleanup** | Stop distance mismatch (§16.5), MaxWS vs Anim avgSpd (§16.6), log do enemy (§16.7) |
+
+### 16.9 Recomendação consolidada
+
+**Faça um único pass no AnimBP** que conserta TANTO o Jump SM stuck QUANTO o Locomotion Stop stuck — é o mesmo padrão. Para cada State Machine do AnimBP:
+
+1. Listar transições.
+2. Para cada uma: verificar se a transition rule **lê o flag `bTransition_*` correspondente** do AnimInstance.
+3. Se não lê: substituir a lógica antiga pela leitura do flag.
+4. Verificar "Automatic Rule based on Sequence Player in State" — **desligar** se ativo (deixa o C++ controlar tempo de transição via flag, não a engine).
+5. Setar Priority Order onde houver conflito (Stop→Idle deve preceder Stop→Move).
+
+Tempo total: ~1h para Locomotion SM + Jump SM. Após isso, ambos os bugs P0 (§15.4 #1 e §16) resolvem-se simultaneamente.

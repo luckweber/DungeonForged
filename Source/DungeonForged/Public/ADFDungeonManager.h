@@ -237,7 +237,14 @@ protected:
 
 	TWeakObjectPtr<UPCGComponent> PCGBoundComponent;
 
+	/** Mixed from run + floor for PCG regen and spawn shuffle. */
+	uint32 CurrentFloorGenerationSeed = 1;
+
 	FTimerHandle PCGFallbackTimer;
+
+	uint32 ComputeFloorGenerationSeed(int32 FloorNumber) const;
+	void ShuffleSpawnPointsWithSeed(TArray<FTransform>& InOutPoints) const;
+	bool TryResolveSafeFallbackSpawnTransform(FTransform& OutTransform) const;
 
 	UFUNCTION()
 	void OnPCGGenerationFinished(UPCGComponent* PCG);
@@ -251,6 +258,7 @@ protected:
 	void UnregisterEnemy(AActor* Enemy);
 	bool FindFloorRowByNumber(int32 InFloor, FDFDungeonFloorRow& OutRow) const;
 	bool IsAuthorityWorld() const;
+	void SyncRunGameState() const;
 	float ComputeSpawnWeight(const FDFEnemyTableRow& EnemyRow, const FDFDungeonFloorRow& FloorRow) const;
 	FName PickWeightedRandomEnemyRow(const TArray<FName>& RowNames, const FDFDungeonFloorRow& FloorRow) const;
 	UPCGComponent* ResolvePCGComponent() const;

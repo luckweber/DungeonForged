@@ -1,7 +1,8 @@
 // Source/DungeonForged/Private/AI/UDFBTService_CheckHealth.cpp
 
 #include "AI/UDFBTService_CheckHealth.h"
-#include "AI/DFAIKeys.h" // EADFAICombatState
+#include "AI/DFAIKeys.h"
+#include "AI/UDFEnemyArchetypeLibrary.h"
 #include "Characters/ADFEnemyBase.h"
 #include "GAS/UDFAttributeSet.h"
 #include "AIController.h"
@@ -41,12 +42,15 @@ void UDFBTService_CheckHealth::TickNode(
 	const float Ratio = Hp / Mx;
 	const uint8 StateRaw = BB->GetValueAsEnum(DFAIKeys::CombatState);
 	const EADFAICombatState CurrentState = static_cast<EADFAICombatState>(StateRaw);
+	const EDFEnemyArchetype Archetype = E->GetEnemyArchetype();
+	const float FleeEnter = UDFEnemyArchetypeLibrary::GetFleeEnterHealthFraction(Archetype);
+	const float FleeReturn = UDFEnemyArchetypeLibrary::GetFleeReturnHealthFraction(Archetype);
 
-	if (Ratio < FleeHealthFraction && CurrentState != EADFAICombatState::Flee)
+	if (Ratio < FleeEnter && CurrentState != EADFAICombatState::Flee)
 	{
 		BB->SetValueAsEnum(DFAIKeys::CombatState, static_cast<uint8>(EADFAICombatState::Flee));
 	}
-	else if (Ratio > FleeReturnHealthFraction && CurrentState == EADFAICombatState::Flee)
+	else if (Ratio > FleeReturn && CurrentState == EADFAICombatState::Flee)
 	{
 		BB->SetValueAsEnum(DFAIKeys::CombatState, static_cast<uint8>(EADFAICombatState::Chase));
 	}

@@ -18,3 +18,13 @@ enum class EDFMovementDirection : uint8
 	Left,
 	ForwardLeft
 };
+
+/** Locomotion gait: drives which 8-way Start/Loop/Stop set is chosen. */
+UENUM(BlueprintType)
+enum class EDFGait : uint8
+{
+	Idle,
+	Walk,
+	Run,
+	Sprint
+};

@@ -70,6 +70,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "DF|Audio|Music|Assets")
 	TObjectPtr<USoundBase> SoundCombat = nullptr;
 
+	/** Optional elite combat layer; falls back to @c SoundCombat when unset. */
+	UPROPERTY(EditAnywhere, Category = "DF|Audio|Music|Assets")
+	TObjectPtr<USoundBase> SoundElite = nullptr;
+
 	UPROPERTY(EditAnywhere, Category = "DF|Audio|Music|Assets")
 	TObjectPtr<USoundBase> SoundBoss = nullptr;
 

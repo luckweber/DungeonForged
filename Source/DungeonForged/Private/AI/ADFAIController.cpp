@@ -1,7 +1,9 @@
 // Source/DungeonForged/Private/AI/ADFAIController.cpp
 
 #include "AI/ADFAIController.h"
+#include "AI/UDFAILibrary.h"
 #include "Characters/ADFEnemyBase.h"
+#include "Combat/UDFCombatDirectorSubsystem.h"
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
 #include "BehaviorTree/BehaviorTree.h"
@@ -11,6 +13,7 @@
 #include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "Perception/AIPerceptionComponent.h"
+#include "Perception/AISense_Hearing.h"
 #include "Perception/AISense_Sight.h"
 #include "Perception/AISenseConfig_Sight.h"
 #include "Perception/AISenseConfig_Hearing.h"
@@ -34,6 +37,12 @@ bool IsDFPerceptionTargetAlive(AActor* const Actor)
 	}
 	const FGameplayAttribute HealthAttribute = UDFAttributeSet::GetHealthAttribute();
 	return !HealthAttribute.IsValid() || ASC->GetNumericAttribute(HealthAttribute) > 0.f;
+}
+
+bool IsHostilePlayerPawn(AActor* const Actor)
+{
+	const APawn* const SensePawn = Cast<APawn>(Actor);
+	return SensePawn && SensePawn->IsPlayerControlled() && IsDFPerceptionTargetAlive(Actor);
 }
 } // namespace
 
@@ -87,6 +96,10 @@ void ADFAIController::OnPossess(APawn* InPawn)
 	{
 		BB->SetValueAsObject(DFAIKeys::TargetActor, nullptr);
 		BB->SetValueAsBool(DFAIKeys::bCanSeeTarget, false);
+		BB->SetValueAsBool(DFAIKeys::bCanTelegraph, true);
+		BB->SetValueAsBool(DFAIKeys::bPrefersRangedCombat, false);
+		BB->SetValueAsBool(DFAIKeys::bHasLastKnownTarget, false);
+		BB->ClearValue(DFAIKeys::LastKnownTargetLocation);
 		BB->SetValueAsEnum(DFAIKeys::CombatState, static_cast<uint8>(EADFAICombatState::Patrol));
 	}
 
@@ -138,27 +151,77 @@ float ADFAIController::GetDistanceToTarget() const
 	return FVector::Dist(Self->GetActorLocation(), T->GetActorLocation());
 }
 
-void ADFAIController::OnPerceptionUpdated(AActor* Actor, const FAIStimulus Stimulus)
+void ADFAIController::ReceivePackAlert(
+	AActor* const SuspectedTarget,
+	const FVector LastKnownLocation,
+	const bool bHeardOnly)
+{
+	UBlackboardComponent* const BB = GetBlackboardComponent();
+	if (!IsValid(BB))
+	{
+		return;
+	}
+	const EADFAICombatState CurrentState = static_cast<EADFAICombatState>(BB->GetValueAsEnum(DFAIKeys::CombatState));
+	if (CurrentState == EADFAICombatState::Flee || CurrentState == EADFAICombatState::Recover)
+	{
+		return;
+	}
+	if (BB->GetValueAsBool(DFAIKeys::bCanSeeTarget))
+	{
+		return;
+	}
+	BB->SetValueAsVector(DFAIKeys::LastKnownTargetLocation, LastKnownLocation);
+	BB->SetValueAsVector(DFAIKeys::TargetLocation, LastKnownLocation);
+	BB->SetValueAsBool(DFAIKeys::bHasLastKnownTarget, true);
+	if (UDFAILibrary::IsValidHostilePlayerTarget(SuspectedTarget))
+	{
+		BB->SetValueAsObject(DFAIKeys::TargetActor, SuspectedTarget);
+	}
+	BB->SetValueAsBool(DFAIKeys::bCanSeeTarget, false);
+	SetCombatState(bHeardOnly ? EADFAICombatState::Investigate : EADFAICombatState::Chase);
+}
+
+void ADFAIController::HandleHostilePerceived(AActor* const Actor, const FAIStimulus& Stimulus)
 {
 	UBlackboardComponent* const BB = GetBlackboardComponent();
 	if (!IsValid(BB) || !IsValid(Actor))
 	{
 		return;
 	}
-	if (!Stimulus.WasSuccessfullySensed())
-	{
-		return;
-	}
-	// Only chase player-controlled pawns (sight/hearing can both deliver updates).
-	const APawn* const SensePawn = Cast<APawn>(Actor);
-	if (SensePawn == nullptr || !SensePawn->IsPlayerControlled() || !IsDFPerceptionTargetAlive(Actor))
-	{
-		return;
-	}
+	const FAISenseID HearingId = UAISense::GetSenseID<UAISense_Hearing>();
+	const FAISenseID SightId = UAISense::GetSenseID<UAISense_Sight>();
+	const FVector StimulusLocation = Stimulus.StimulusLocation.IsNearlyZero()
+		? Actor->GetActorLocation()
+		: Stimulus.StimulusLocation;
+	const bool bHeardOnly = Stimulus.Type == HearingId;
+	const bool bSawTarget = Stimulus.Type == SightId;
+
 	BB->SetValueAsObject(DFAIKeys::TargetActor, Actor);
-	BB->SetValueAsBool(DFAIKeys::bCanSeeTarget, true);
-	BB->SetValueAsVector(DFAIKeys::TargetLocation, Actor->GetActorLocation());
-	SetCombatState(EADFAICombatState::Chase);
+	BB->SetValueAsVector(DFAIKeys::LastKnownTargetLocation, StimulusLocation);
+	BB->SetValueAsVector(DFAIKeys::TargetLocation, StimulusLocation);
+	BB->SetValueAsBool(DFAIKeys::bHasLastKnownTarget, true);
+	BB->SetValueAsBool(DFAIKeys::bCanSeeTarget, bSawTarget && !bHeardOnly);
+	SetCombatState(bHeardOnly ? EADFAICombatState::Investigate : EADFAICombatState::Chase);
+
+	if (UWorld* const World = GetWorld())
+	{
+		if (UDFCombatDirectorSubsystem* const Director = World->GetSubsystem<UDFCombatDirectorSubsystem>())
+		{
+			if (ADFEnemyBase* const SelfEnemy = Cast<ADFEnemyBase>(GetPawn()))
+			{
+				Director->PropagatePackAlert(SelfEnemy, Actor, StimulusLocation, Director->PackAlertRadiusCm);
+			}
+		}
+	}
+}
+
+void ADFAIController::OnPerceptionUpdated(AActor* Actor, const FAIStimulus Stimulus)
+{
+	if (!Stimulus.WasSuccessfullySensed() || !IsHostilePlayerPawn(Actor))
+	{
+		return;
+	}
+	HandleHostilePerceived(Actor, Stimulus);
 }
 
 void ADFAIController::OnTargetPerceptionForgotten(AActor* Actor)
@@ -169,10 +232,19 @@ void ADFAIController::OnTargetPerceptionForgotten(AActor* Actor)
 		return;
 	}
 	AActor* const Current = Cast<AActor>(BB->GetValueAsObject(DFAIKeys::TargetActor));
-	if (Current == Actor)
+	if (Current != Actor)
 	{
-		BB->SetValueAsObject(DFAIKeys::TargetActor, nullptr);
-		BB->SetValueAsBool(DFAIKeys::bCanSeeTarget, false);
-		SetCombatState(EADFAICombatState::Patrol);
+		return;
+	}
+	const FVector LastSeen = Actor->GetActorLocation();
+	BB->SetValueAsVector(DFAIKeys::LastKnownTargetLocation, LastSeen);
+	BB->SetValueAsVector(DFAIKeys::TargetLocation, LastSeen);
+	BB->SetValueAsBool(DFAIKeys::bHasLastKnownTarget, true);
+	BB->SetValueAsObject(DFAIKeys::TargetActor, nullptr);
+	BB->SetValueAsBool(DFAIKeys::bCanSeeTarget, false);
+	const EADFAICombatState CurrentState = static_cast<EADFAICombatState>(BB->GetValueAsEnum(DFAIKeys::CombatState));
+	if (CurrentState != EADFAICombatState::Flee && CurrentState != EADFAICombatState::Recover)
+	{
+		SetCombatState(EADFAICombatState::Investigate);
 	}
 }

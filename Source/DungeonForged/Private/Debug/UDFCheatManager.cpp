@@ -1292,6 +1292,144 @@ static FAutoConsoleCommand GCmdJumpDebug(
 	TEXT("Jump debug: toggle df.DebugJump (0-4). Args: dump | 0 | 1 | 2 | 3 | 4 | log | hud | trans | deep | sm | on | off."),
 	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_jumpdebug));
 
+static void Cmd_df_locomotiondebug(TArray<FString> const& Args)
+{
+	IConsoleVariable* const Cv = IConsoleManager::Get().FindConsoleVariable(TEXT("df.DebugLocomotion"));
+	if (!Cv)
+	{
+		DF_LOG(Warning, "df.LocomotionDebug: df.DebugLocomotion CVar missing (shipping build?)");
+		return;
+	}
+
+	if (Args.Num() > 0)
+	{
+		const FString A = Args[0].ToLower();
+		if (A == TEXT("dump"))
+		{
+			UWorld* const W = GetCheatWorld();
+			if (ADFPlayerCharacter* const P = GetLocalDFPawn(W))
+			{
+				if (USkeletalMeshComponent* const Mesh = P->GetMesh())
+				{
+					if (UUDFAnimInstance* const Anim = Cast<UUDFAnimInstance>(Mesh->GetAnimInstance()))
+					{
+						DF_LOG(Log, "[Loco|Dump] %s", *Anim->BuildDirectionalLocomotionDebugString());
+						DF_LOG(Log, "[Loco|Dump|Deep] %s", *Anim->BuildDirectionalLocomotionDeepDebugString());
+					}
+				}
+			}
+			return;
+		}
+		if (A == TEXT("0") || A == TEXT("off"))
+		{
+			Cv->Set(0, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("1") || A == TEXT("log"))
+		{
+			Cv->Set(1, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("2") || A == TEXT("hud") || A == TEXT("on"))
+		{
+			Cv->Set(2, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("3") || A == TEXT("draw"))
+		{
+			Cv->Set(3, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("4") || A == TEXT("deep") || A == TEXT("verbose"))
+		{
+			Cv->Set(4, ECVF_SetByConsole);
+		}
+		else
+		{
+			DF_LOG(Warning, "df.LocomotionDebug: use [0|1|2|3|4|dump|log|hud|draw|deep|verbose|on|off]");
+			return;
+		}
+	}
+	else
+	{
+		const int32 Next = Cv->GetInt() >= 4 ? 0 : (Cv->GetInt() + 1);
+		Cv->Set(Next, ECVF_SetByConsole);
+	}
+
+	DF_LOG(Log, "df.LocomotionDebug: df.DebugLocomotion=%d (0=off 1=log 2=hud 3=draw 4=deep) — filter Output Log: Loco (TIP= turn in place)",
+		Cv->GetInt());
+}
+
+static FAutoConsoleCommand GCmdLocomotionDebug(
+	TEXT("df.LocomotionDebug"),
+	TEXT("Locomotion+TIP debug: toggle df.DebugLocomotion (0-4). Args: dump | 0-4 | log | hud | draw | deep | on | off. Log filter: Loco"),
+	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_locomotiondebug));
+
+static void Cmd_df_turndebug(TArray<FString> const& Args)
+{
+	IConsoleVariable* const Cv = IConsoleManager::Get().FindConsoleVariable(TEXT("df.DebugTurnInPlace"));
+	if (!Cv)
+	{
+		DF_LOG(Warning, "df.TurnDebug: df.DebugTurnInPlace CVar missing (shipping build?)");
+		return;
+	}
+
+	if (Args.Num() > 0)
+	{
+		const FString A = Args[0].ToLower();
+		if (A == TEXT("dump"))
+		{
+			UWorld* const W = GetCheatWorld();
+			if (ADFPlayerCharacter* const P = GetLocalDFPawn(W))
+			{
+				if (USkeletalMeshComponent* const Mesh = P->GetMesh())
+				{
+					if (UUDFAnimInstance* const Anim = Cast<UUDFAnimInstance>(Mesh->GetAnimInstance()))
+					{
+						DF_LOG(Log, "[TIP|Dump] %s", *Anim->BuildTurnInPlaceDebugString());
+						DF_LOG(Log, "%s", *Anim->BuildTurnInPlaceDebugOneLiner());
+					}
+				}
+			}
+			return;
+		}
+		if (A == TEXT("0") || A == TEXT("off"))
+		{
+			Cv->Set(0, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("1") || A == TEXT("log"))
+		{
+			Cv->Set(1, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("2") || A == TEXT("hud") || A == TEXT("on"))
+		{
+			Cv->Set(2, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("3") || A == TEXT("draw"))
+		{
+			Cv->Set(3, ECVF_SetByConsole);
+		}
+		else if (A == TEXT("4") || A == TEXT("verbose"))
+		{
+			Cv->Set(4, ECVF_SetByConsole);
+		}
+		else
+		{
+			DF_LOG(Warning, "df.TurnDebug: use [0|1|2|3|4|dump|log|hud|draw|verbose|on|off]");
+			return;
+		}
+	}
+	else
+	{
+		const int32 Next = Cv->GetInt() >= 3 ? 0 : (Cv->GetInt() + 1);
+		Cv->Set(Next, ECVF_SetByConsole);
+	}
+
+	DF_LOG(Log, "df.TurnDebug: df.DebugTurnInPlace=%d (0=off 1=log+line 2=hud 3=draw 4=same) — filter: TIP",
+		Cv->GetInt());
+}
+
+static FAutoConsoleCommand GCmdTurnDebug(
+	TEXT("df.TurnDebug"),
+	TEXT("Turn-in-place: df.DebugTurnInPlace 0-4. Args: dump | 0-4 | log | hud | draw | verbose | on | off. CVar df.TurnDebug.CircleRadius"),
+	FConsoleCommandWithArgsDelegate::CreateStatic(&Cmd_df_turndebug));
+
 } // namespace
 
 #endif

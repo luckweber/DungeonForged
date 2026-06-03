@@ -25,5 +25,11 @@ public class DungeonForgedEditor : ModuleRules
 			"UMGEditor",
 		});
 
+		PrivateDependencyModuleNames.AddRange(new string[]
+		{
+			"AnimationModifiers",
+			"AnimationBlueprintLibrary",
+			"AnimationDataController",
+		});
 	}
 }

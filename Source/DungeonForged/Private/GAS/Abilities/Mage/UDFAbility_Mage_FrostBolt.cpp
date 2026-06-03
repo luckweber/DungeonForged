@@ -3,6 +3,7 @@
 #include "Camera/UDFLockOnComponent.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Combat/DFFrostBoltProjectile.h"
+#include "Combat/UDFProjectilePoolLibrary.h"
 #include "GAS/DFGameplayTags.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
@@ -34,13 +35,6 @@ void UDFAbility_Mage_FrostBolt::ActivateAbility(const FGameplayAbilitySpecHandle
 	{
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
-	}
-	if (UAbilitySystemComponent* const asc = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (asc->GetOwner() && asc->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(asc);
-		}
 	}
 	const TObjectPtr<UAnimMontage> M = FrostBoltCastMontage ? FrostBoltCastMontage : AbilityMontage;
 	if (!M || !ActorInfo)
@@ -92,15 +86,13 @@ void UDFAbility_Mage_FrostBolt::OnFrostTraceEvent(FGameplayEventData /*Payload*/
 	const FTransform SocketXform = Sk->DoesSocketExist(MuzzleSocketName)
 		? Sk->GetSocketTransform(MuzzleSocketName, ERelativeTransformSpace::RTS_World)
 		: FTransform(Char->GetActorRotation(), Char->GetActorLocation());
-		if (UWorld* const W = GetWorld())
+	const FTransform T(SocketXform.Rotator(), SocketXform.GetLocation());
+	if (AActor* const Spawned = UDFProjectilePoolLibrary::AcquireProjectile(this, FrostProjectileClass, T, Char, Char))
 	{
-		const FTransform T(SocketXform.Rotator(), SocketXform.GetLocation());
-		ADFFrostBoltProjectile* const Proj = W->SpawnActorDeferred<ADFFrostBoltProjectile>(FrostProjectileClass, T, Char, Char,
-			ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn);
-		if (IsValid(Proj))
+		if (ADFFrostBoltProjectile* const Proj = Cast<ADFFrostBoltProjectile>(Spawned))
 		{
 			Proj->HomingTarget = Homing;
-			Proj->FinishSpawning(T);
+			Proj->ApplyHomingTarget();
 		}
 	}
 }

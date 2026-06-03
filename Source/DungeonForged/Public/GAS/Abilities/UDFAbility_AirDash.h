@@ -93,6 +93,7 @@ protected:
 	void OnAirDashMontageCancelled();
 
 	float GetEffectiveAirDashStaminaCost() const;
+	virtual float GetAbilityStaminaCost() const override;
 	bool IsOwnerArmed() const;
 
 	void FinishAirDash(const TCHAR* Reason);

@@ -4,6 +4,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Run/DFSaveGame.h"
+#include "Run/UDFSaveLibrary.h"
 #include "Net/UnrealNetwork.h"
 #include "GameModes/Nexus/DFNexusUnlockData.h"
 #include "Animation/AnimInstance.h"
@@ -47,7 +48,7 @@ void ADFNexusNPCBase::BeginPlay()
 	{
 		if (W->GetNetMode() != NM_Client)
 		{
-			if (UDFSaveGame* const S = UDFSaveGame::Load())
+			if (UDFSaveGame* const S = UDFSaveLibrary::ResolveMutableMetaSave(this))
 			{
 				if (S->UnlockedNPCs.Contains(NPCId))
 				{

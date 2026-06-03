@@ -396,11 +396,11 @@ void UDFSaveSlotCardUserWidget::OnPlayClicked()
 	{
 		return;
 	}
-	if (S->bHasActiveRun)
+	if (UDFRunManager::CanResumeFromSave(S))
 	{
 		if (UDFWorldTransitionSubsystem* const T = GI->GetSubsystem<UDFWorldTransitionSubsystem>())
 		{
-			T->TravelToNexus(ETravelReason::FirstLaunch);
+			T->TravelToRunFromCheckpoint();
 		}
 		return;
 	}

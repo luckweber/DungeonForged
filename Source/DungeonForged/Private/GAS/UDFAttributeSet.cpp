@@ -112,6 +112,7 @@ void TrySpawnDFCombatText(UDFAttributeSet& Self, FGameplayEffectModCallbackData 
 UDFAttributeSet::UDFAttributeSet()
 {
 	// Baseline design-time defaults; replace or override with initialization effects
+	InitIncomingDamage(0.f);
 	InitHealth(100.f);
 	InitMaxHealth(100.f);
 	InitMana(50.f);
@@ -293,10 +294,60 @@ void UDFAttributeSet::PostAttributeChange(const FGameplayAttribute& Attribute, f
 	}
 }
 
+float UDFAttributeSet::ResolveIncomingDamageToHealthLoss(const float RawDamage, UAbilitySystemComponent& ASC)
+{
+	float Remaining = FMath::Max(0.f, RawDamage);
+	if (Remaining <= KINDA_SMALL_NUMBER)
+	{
+		return 0.f;
+	}
+
+	if (FDFGameplayTags::State_ManaShieldActive.IsValid()
+		&& ASC.HasMatchingGameplayTag(FDFGameplayTags::State_ManaShieldActive))
+	{
+		const float CurrentMana = ASC.GetNumericAttribute(GetManaAttribute());
+		const float ManaPortion = 0.7f * Remaining;
+		const float ManaToDrain = FMath::Min(CurrentMana, ManaPortion);
+		Remaining = 0.3f * Remaining + FMath::Max(0.f, ManaPortion - CurrentMana);
+		if (ManaToDrain > KINDA_SMALL_NUMBER)
+		{
+			ASC.ApplyModToAttribute(GetManaAttribute(), EGameplayModOp::Additive, -ManaToDrain);
+		}
+		if (ASC.GetNumericAttribute(GetManaAttribute()) <= KINDA_SMALL_NUMBER)
+		{
+			FGameplayTagContainer T;
+			T.AddTag(FDFGameplayTags::State_ManaShieldActive);
+			ASC.RemoveActiveEffectsWithGrantedTags(T);
+		}
+	}
+
+	return FMath::Max(0.f, Remaining);
+}
+
 void UDFAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(TEXT("DungeonForged.AttributeExecution"));
 	Super::PostGameplayEffectExecute(Data);
+
+	if (Data.EvaluatedData.Attribute == GetIncomingDamageAttribute())
+	{
+		const float RawDamage = GetIncomingDamage();
+		SetIncomingDamage(0.f);
+		if (RawDamage > KINDA_SMALL_NUMBER)
+		{
+			if (UAbilitySystemComponent* const ASC = GetOwningAbilitySystemComponent())
+			{
+				const float HealthLoss = ResolveIncomingDamageToHealthLoss(RawDamage, *ASC);
+				if (HealthLoss > KINDA_SMALL_NUMBER
+					&& ASC->GetOwner() && ASC->GetOwner()->HasAuthority())
+				{
+					ASC->ApplyModToAttribute(
+						GetHealthAttribute(), EGameplayModOp::Additive, -HealthLoss);
+				}
+			}
+		}
+		return;
+	}
 
 	// GAS: instant/duration changes are applied; react after evaluation (damage, buffs, etc.)
 	// Out-of-health is detected here and in PostAttributeChange so direct sets and GEs are both covered
@@ -352,30 +403,6 @@ void UDFAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 						DmgCtx.bWasLethal = ASC->GetNumericAttribute(GetHealthAttribute()) <= KINDA_SMALL_NUMBER;
 						DmgCtx.Tags = AssetTags;
 						UDFCombatEventsLibrary::BroadcastDamageDealt(DmgCtx);
-					}
-				}
-			}
-			if (Mag < 0.f && ASC->HasMatchingGameplayTag(FDFGameplayTags::State_ManaShieldActive))
-			{
-				const float Dmg = -Mag;
-				const float CurrentMana = ASC->GetNumericAttribute(GetManaAttribute());
-				const float ManaPortion = 0.7f * Dmg;
-				const float ManaToDrain = FMath::Min(CurrentMana, ManaPortion);
-				const float HLoss = 0.3f * Dmg + FMath::Max(0.f, ManaPortion - CurrentMana);
-				if (Dmg > KINDA_SMALL_NUMBER)
-				{
-					const float HealthNow = GetHealth();
-					const float NewHealth = FMath::Clamp(HealthNow + (Dmg - HLoss), 0.f, GetMaxHealth());
-					ASC->SetNumericAttributeBase(GetHealthAttribute(), NewHealth);
-					if (ManaToDrain > KINDA_SMALL_NUMBER)
-					{
-						ASC->ApplyModToAttribute(GetManaAttribute(), EGameplayModOp::Additive, -ManaToDrain);
-					}
-					if (ASC->GetNumericAttribute(GetManaAttribute()) <= KINDA_SMALL_NUMBER)
-					{
-						FGameplayTagContainer T;
-						T.AddTag(FDFGameplayTags::State_ManaShieldActive);
-						ASC->RemoveActiveEffectsWithGrantedTags(T);
 					}
 				}
 			}
@@ -516,10 +543,12 @@ void UDFAttributeSet::OnRep_MaxHealth(const FGameplayAttributeData& OldValue)
 void UDFAttributeSet::OnRep_Mana(const FGameplayAttributeData& OldValue)
 {
 	GAMEPLAYATTRIBUTE_REPNOTIFY(UDFAttributeSet, Mana, OldValue);
+	OnManaChanged.Broadcast(GetMana(), GetMaxMana());
 }
 void UDFAttributeSet::OnRep_MaxMana(const FGameplayAttributeData& OldValue)
 {
 	GAMEPLAYATTRIBUTE_REPNOTIFY(UDFAttributeSet, MaxMana, OldValue);
+	OnManaChanged.Broadcast(GetMana(), GetMaxMana());
 }
 void UDFAttributeSet::OnRep_Stamina(const FGameplayAttributeData& OldValue)
 {

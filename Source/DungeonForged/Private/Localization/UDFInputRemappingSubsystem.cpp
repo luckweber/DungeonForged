@@ -3,6 +3,7 @@
 #include "UserSettings/EnhancedInputUserSettings.h"
 #include "EnhancedInputSubsystems.h"
 #include "Run/DFSaveGame.h"
+#include "Run/UDFSaveLibrary.h"
 #include "InputMappingContext.h"
 #include "Engine/LocalPlayer.h"
 #include "GameplayTagContainer.h"
@@ -52,7 +53,7 @@ bool UDFInputRemappingSubsystem::RegisterInputMappingContextForLocalPlayer(
 void UDFInputRemappingSubsystem::LoadRemapping()
 {
 	RemappedKeys.Empty();
-	if (const UDFSaveGame* S = UDFSaveGame::Load())
+	if (const UDFSaveGame* S = UDFSaveLibrary::GetMetaSave(this))
 	{
 		for (const TPair<FName, FString>& P : S->SavedKeyBindings)
 		{
@@ -63,14 +64,14 @@ void UDFInputRemappingSubsystem::LoadRemapping()
 
 void UDFInputRemappingSubsystem::SaveRemapping()
 {
-	if (UDFSaveGame* S = UDFSaveGame::Load())
+	if (UDFSaveGame* S = UDFSaveLibrary::ResolveMutableMetaSave(this))
 	{
 		S->SavedKeyBindings.Empty();
 		for (const TPair<FName, FKey>& P : RemappedKeys)
 		{
 			S->SavedKeyBindings.Add(P.Key, P.Value.GetFName().ToString());
 		}
-		UDFSaveGame::Save(S);
+		UDFSaveLibrary::SaveMetaSave(this, S);
 	}
 }
 
@@ -124,9 +125,9 @@ void UDFInputRemappingSubsystem::ResetToDefaults(ULocalPlayer* const LocalPlayer
 	FGameplayTagContainer Fail;
 	US->ResetKeyProfileToDefault(US->GetCurrentKeyProfileIdentifier(), Fail);
 	RemappedKeys.Empty();
-	if (UDFSaveGame* S = UDFSaveGame::Load())
+	if (UDFSaveGame* S = UDFSaveLibrary::ResolveMutableMetaSave(this))
 	{
 		S->SavedKeyBindings.Empty();
-		UDFSaveGame::Save(S);
+		UDFSaveLibrary::SaveMetaSave(this, S);
 	}
 }

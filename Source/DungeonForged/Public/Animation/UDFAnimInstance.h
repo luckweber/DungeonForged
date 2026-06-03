@@ -56,6 +56,43 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Jump")
 	UAnimSequenceBase* GetJumpDoubleLoopAnim() const;
 
+	// ── 8-way Start / Loop / Stop locomotion ──
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Directional")
+	UAnimSequenceBase* GetLocomotionStartAnim() const;
+
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Directional")
+	UAnimSequenceBase* GetLocomotionLoopAnim() const;
+
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Directional")
+	UAnimSequenceBase* GetLocomotionStopAnim() const;
+
+	/** Grounded idle loop from ActiveAnimSet.IdleAnimation (layer / weapon set picks the clip). */
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Idle")
+	UAnimSequenceBase* GetLocomotionIdleAnim() const;
+
+	/** Turn-in-place clip for current RootYawOffset (90° or 180°, L/R). Wire Turn state. */
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|TurnInPlace")
+	UAnimSequenceBase* GetLocomotionTurnAnim() const;
+
+	/** Parado estilo ALS: no chão, sem stick de movimento, velocidade ~0 (Stop phase OK se spd=0). */
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|TurnInPlace")
+	bool IsIdleForTurnInPlace() const;
+
+	/** True se este frame deve entrar em Turn (|RootYawOffset| > TurnInPlaceTriggerYaw + idle). */
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|TurnInPlace")
+	bool ShouldPlayTurnInPlaceTransition() const;
+
+	/** Cápsula só deve girar durante bInTurnInPlacePhase (não seguir câmera aos 30°). */
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|TurnInPlace")
+	bool ShouldDriveCapsuleYawFromTurn() const { return bInTurnInPlacePhase; }
+
+	/** Exploração idle: trava yaw da cápsula (câmera não gira o corpo abaixo do trigger). */
+	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|TurnInPlace")
+	bool ShouldLockExplorationBodyYaw() const;
+
+	/** Reaplica yaw travado — chamado de PhysicsRotation quando ShouldLockExplorationBodyYaw. */
+	void EnforceExplorationBodyYawLock();
+
 	/** Alpha 0..1 for early land blend: 1 when close to ground while falling. */
 	UFUNCTION(BlueprintPure, Category = "DF|Locomotion|Jump")
 	float GetLandPreparationAlpha() const;
@@ -190,6 +227,16 @@ public:
 	/** One-line locomotion / blend space state for df.LockOnDebug. */
 	FString BuildLocomotionDebugString() const;
 
+	/** Multi-line 8-way Start/Loop/Stop locomotion state for df.LocomotionDebug / dump. */
+	FString BuildDirectionalLocomotionDebugString() const;
+
+	/** Extra lines: CMC caps, stride scale, loop anim Distance/RM (df.LocomotionDebug 4). */
+	FString BuildDirectionalLocomotionDeepDebugString() const;
+
+	/** Turn-in-place only — df.TurnDebug / df.DebugTurnInPlace. */
+	FString BuildTurnInPlaceDebugString() const;
+	FString BuildTurnInPlaceDebugOneLiner() const;
+
 	/** Multi-line jump SM transition debug for df.JumpDebug 3 / dump. */
 	FString BuildJumpTransitionDebugString() const;
 
@@ -198,6 +245,9 @@ public:
 
 	void LogJumpDeepSnapshot(const TCHAR* Reason);
 #endif
+
+	/** ALS ApplyRotationYawSpeedAnimationCurve — used by UDFCharacterMovementComponent::PhysicsRotation. */
+	bool TryApplyTurnInPlaceRotationYawSpeed(float DeltaSeconds);
 
 	// ── Default (unarmed) Anim Set ──
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "DF|Anim Set")
@@ -333,6 +383,270 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion")
 	EDFMovementDirection MovementDirection = EDFMovementDirection::Forward;
 
+	// ── 8-way Start / Loop / Stop state ──
+	/** Snapshot taken on Idle→Start; locked through Start playback. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	EDFMovementDirection LocomotionStartDirection = EDFMovementDirection::Forward;
+
+	/** Snapshot taken on Loop→Stop; locked through Stop playback. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	EDFMovementDirection LocomotionStopDirection = EDFMovementDirection::Forward;
+
+	/** Gait frozen when Idle→Start fired (used by Get Locomotion Start Anim). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	EDFGait LocomotionStartGait = EDFGait::Idle;
+
+	/** Gait frozen when Loop→Stop begins (used by Get Locomotion Stop Anim). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	EDFGait LocomotionStopGait = EDFGait::Idle;
+
+	/** Current gait (Idle/Walk/Run/Sprint) based on speed thresholds. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	EDFGait Gait = EDFGait::Idle;
+
+	/** True when player is providing input AND velocity is rising or steady. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	bool bIsAccelerating = false;
+
+	/** Edge: true on the frame Idle → Start should fire. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	bool bTransition_IdleToStart = false;
+
+	/** Edge: true on the frame Start → Loop should fire (Start anim ending or input held long enough). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	bool bTransition_StartToLoop = false;
+
+	/** True while decelerating after input release (sustained until stop distance consumed or re-accelerate). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	bool bTransition_LoopToStop = false;
+
+	/** Edge: true when Stop finished and speed ~= 0. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	bool bTransition_StopToIdle = false;
+
+	/** True when input returns during Stop — wire Stop → Start (or Start/Loop) in the layer SM. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	bool bTransition_StopToMove = false;
+
+	/** Cached time since Start was triggered (for fallback Start→Loop). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|Directional")
+	float LocomotionStartElapsed = 0.f;
+
+	/** Walk threshold (cm/s); below = Idle, between Walk/Run thresholds = Walk. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Directional|Tuning", meta = (ClampMin = "0.0"))
+	float WalkSpeedThreshold = 50.f;
+
+	/** Run threshold (cm/s); above this = Run gait set. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Directional|Tuning", meta = (ClampMin = "0.0"))
+	float RunSpeedThreshold = 350.f;
+
+	/** Idle speed deadband (cm/s); below this counts as stopped for Stop→Idle. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Directional|Tuning", meta = (ClampMin = "0.0"))
+	float IdleSpeedDeadband = 5.f;
+
+	/** Max time spent in Start before forcing Start→Loop (safety cap). Match authored Start length (~0.83s for Run_Start_F_0). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|Directional|Tuning", meta = (ClampMin = "0.0"))
+	float StartMaxPlayTime = 0.80f;
+
+	// ── Distance Matching ──
+	/** Distance accumulated since the last Idle→Start (0 while stopped). Feed into Distance Matching node. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|DistanceMatching")
+	float DistanceMatchingDistance = 0.f;
+
+	/** Velocity at takeoff (XY plane). Useful for predicting deceleration distance. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|DistanceMatching")
+	float DistanceMatchingStartSpeed = 0.f;
+
+	/** XY distance traveled this frame (cm). Feed Advance Time by Distance Matching on Start (Sequence Evaluator). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|DistanceMatching")
+	float DistanceMatchingDelta = 0.f;
+
+	/** Distance remaining until full stop (cm). Feed Distance Match to Target on Stop (Sequence Evaluator). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|DistanceMatching")
+	float DistanceMatchingStopToTarget = 0.f;
+
+	/**
+	 * Seconds into the active Stop sequence (0 → play length). Wire to Sequence Evaluator → Explicit Time
+	 * when the asset has no Distance curve yet, or remove any constant 0 on that pin.
+	 */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|DistanceMatching")
+	float DistanceMatchingStopExplicitTime = 0.f;
+
+	/** True when the resolved Stop anim has a usable baked "Distance" curve (runtime). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|DistanceMatching")
+	bool bActiveStopAnimHasDistanceCurve = false;
+
+	/** Total stop distance on the authored Distance curve (e.g. Run_Stop_F_0: |min curve| ≈ 202). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|DistanceMatching", meta = (ClampMin = "1.0"))
+	float AuthoredStopDistance = 202.f;
+
+	/** When true, sets AuthoredStopDistance from default Run stop Distance curve at init (if curve exists). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|DistanceMatching")
+	bool bAutoTuneAuthoredStopDistanceFromRunStop = true;
+
+	/**
+	 * Once the catch-up is active, drain the remaining StopTarget over this time-constant so the
+	 * Stop clip's explicit time advances at a natural rate instead of crawling. Lower = the Stop
+	 * animation completes faster (snappier settle); higher = slower. ~0.20 plays close to 1x.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|DistanceMatching", meta = (ClampMin = "0.05"))
+	float StopTailCatchUpSeconds = 0.20f;
+
+	/**
+	 * Speed (cm/s) below which the Stop tail catch-up engages. MUST be set high enough to cover the
+	 * deceleration band, otherwise the Stop clip is purely distance-driven while the capsule glides
+	 * slowly and the animation plays in SLOW MOTION (explicit time crawls because little distance is
+	 * consumed per frame). The authored Stop clip front-loads its translation and ends in a long
+	 * low-distance "settle"; with WalkStopBrakingDeceleration the capsule also stops short of the
+	 * clip's full authored distance, so the catch-up is what lets the clip finish on time. Set this
+	 * near the run speed (e.g. ~220 for a 429 run) so catch-up covers the whole settle.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|DistanceMatching", meta = (ClampMin = "0.0"))
+	float StopTailCatchUpSpeedThreshold = 220.f;
+
+	/** |Distance curve| below this (cm) is treated as end-of-motion for Stop playback (skips flat tail). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|DistanceMatching", meta = (ClampMin = "0.5"))
+	float StopCurveNearZeroCm = 8.f;
+
+	// ── Stride Warping ──
+	/** Computed alpha for Stride Warping node (1 = full warp, 0 = none). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|StrideWarping")
+	float StrideWarpingAlpha = 0.f;
+
+	/** Stride scale (capsule speed / AuthoredLoopSpeed). Feed into the Stride Warping node's Stride Scale pin. 1 = native. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|StrideWarping")
+	float StrideScale = 1.f;
+
+	/** Play-rate multiplier for the Loop sequence player to match capsule cadence. Use INSTEAD of StrideScale, not with it. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|StrideWarping")
+	float LocomotionPlayRate = 1.f;
+
+	/** Mesh component-space movement direction for the Stride Warping node's Stride Direction pin (Manual mode). Defaults to forward (1,0,0). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|StrideWarping")
+	FVector StrideWarpingDirection = FVector(1.f, 0.f, 0.f);
+
+	/** Authored speed of Loop animations (cm/s) — Stride Warping divides actual / authored. Tune to match loop Distance curve (see debug avgSpd~). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|StrideWarping", meta = (ClampMin = "1.0"))
+	float AuthoredLoopSpeed = 429.f;
+
+	/** When true, sets AuthoredLoopSpeed from default Run loop Distance curve at init (if curve exists). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|StrideWarping")
+	bool bAutoTuneAuthoredLoopSpeedFromRunLoop = true;
+
+	/** Min speed to engage stride warping (avoid warping during deceleration tail). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|StrideWarping", meta = (ClampMin = "0.0"))
+	float StrideWarpingMinSpeed = 150.f;
+
+	// ── Turn In Place (ALS exploration) ──
+	/**
+	 * Câmera vs corpo (graus). Enquanto |valor| < TurnInPlaceTriggerYaw a cápsula NÃO gira —
+	 * use no Aim Offset / spine do AnimBP. Turn in place só quando idle + |valor| >= trigger.
+	 */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|TurnInPlace")
+	float RootYawOffset = 0.f;
+
+	/** Yaw delta (deg) this frame; sign = direction of rotation. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|TurnInPlace")
+	float YawDeltaThisFrame = 0.f;
+
+	/** Should a TIP animation play this frame? (auto: |RootYawOffset| > threshold while idle) */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|TurnInPlace")
+	bool bTransition_TurnInPlace = false;
+
+	/** Direction of the queued TIP (positive = right, negative = left). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|TurnInPlace")
+	float TurnInPlaceDirection = 0.f;
+
+	/** True while a turn clip is playing (Sequence Evaluator / Turn state). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|TurnInPlace")
+	bool bInTurnInPlacePhase = false;
+
+	/** Explicit time (s) for Turn Sequence Evaluator — advanced in C++ each frame. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|TurnInPlace")
+	float TurnInPlaceExplicitTime = 0.f;
+
+	/** 90 or 180 for the clip selected this turn (debug / AnimBP). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|TurnInPlace")
+	float TurnInPlaceAnimDegrees = 0.f;
+
+	/** Threshold (deg) to trigger a turn in place. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
+	float TurnInPlaceTriggerYaw = 60.f;
+
+	/** |RootYawOffset| at or above this uses Turn_180_* instead of Turn_90_* (latched at turn start). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "45.0"))
+	float TurnInPlace180Threshold = 100.f;
+
+	/**
+	 * ALS-style: read RotationYawSpeed from the evaluated Turn clip (deg/s) and apply on the pawn
+	 * via PhysicsRotation while bInTurnInPlacePhase. Do not also rotate the pawn from AnimInstance C++.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace")
+	bool bTurnInPlaceDriveYawFromRotationCurve = true;
+
+	/** Turn clip curve (empty = RotationYawSpeed, then legacy Rotation/Yaw). Bake with DF modifier. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace")
+	FName TurnInPlaceRotationCurveName;
+
+	/**
+	 * Legacy linear yaw (deg/sec from clip length). Off by default — causes pawn spins when combined
+	 * with small offsets. Prefer bTurnInPlaceDriveYawFromRotationCurve or pose-only + end snap.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace")
+	bool bTurnInPlaceApplyActorYawFromCode = false;
+
+	/** Minimum time (s) in turn phase before bOffsetDone can end early (avoids 1-frame pops). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
+	float TurnInPlaceMinPhaseTime = 0.25f;
+
+	/** After the clip, optional snap toward aim (0 = off; ALS relies on curve + view modes). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
+	float TurnInPlacePostTurnSnapMaxYaw = 0.f;
+
+	/** |RootYawOffset| must drop below this before another turn can start (anti spam / re-trigger). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
+	float TurnInPlaceRetriggerYaw = 45.f;
+
+	/** Legacy / debug reference only — active turns no longer abort on Speed (see UpdateTurnInPlace). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
+	float TurnInPlaceAbortSpeed = 80.f;
+
+	/** Flip L/R clip selection if your Turn_* assets are authored with opposite naming. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace")
+	bool bInvertTurnInPlaceDirection = false;
+
+	/** Remaining |RootYawOffset| (deg) below which the turn phase ends. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
+	float TurnInPlaceCompleteYaw = 8.f;
+
+	/** Yaw drained per second while moving (bleed offset when not in TIP). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|TurnInPlace", meta = (ClampMin = "0.0"))
+	float TurnInPlaceYawInterpSpeed = 360.f;
+
+	// ── Foot Locker / Plant ──
+	/** True when the left foot should be locked to its plant point (curve-driven from anim). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|IK")
+	bool bLeftFootPlanted = false;
+
+	/** True when the right foot should be locked to its plant point. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|IK")
+	bool bRightFootPlanted = false;
+
+	/** Anim curve name fed by Sequence (1 = planted, 0 = free). Default matches Lyra convention. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|IK")
+	FName FootPlantCurveLeft = FName(TEXT("FootPlant_L"));
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|IK")
+	FName FootPlantCurveRight = FName(TEXT("FootPlant_R"));
+
+	// ── Aim Offset blend control ──
+	/** Alpha 0..1 for AimOffset overlay (1 while strafing / locked-on, 0 free exploration). */
+	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|AimOffset")
+	float AimOffsetAlpha = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DF|Locomotion|AimOffset", meta = (ClampMin = "0.0"))
+	float AimOffsetInterpSpeed = 8.f;
+
 	/** Traced distance from actor to walkable hit below; useful for landing / air blend. */
 	UPROPERTY(BlueprintReadOnly, Transient, Category = "DF|Locomotion|IK")
 	float GroundDistance = 0.f;
@@ -390,6 +704,29 @@ private:
 	bool IsPastApexExitableForJumpLoop() const;
 	void PlayFallLoopSlotAfterAirDash();
 	void StopFallLoopSlotOverlay();
+	void UpdateDirectionalLocomotion(float DeltaSeconds);
+	void TryAutoTuneAuthoredLoopSpeedFromDefaultRunLoop();
+	void TryAutoTuneAuthoredStopDistanceFromDefaultRunStop();
+	void UpdateDistanceMatching(float DeltaSeconds);
+	void UpdateStrideWarping(float DeltaSeconds);
+	void UpdateTurnInPlace(float DeltaSeconds);
+	void UpdateExplorationBodyYawLock();
+	bool HasMovementInputForTurnInPlace() const;
+	bool IsIdleForTurnInPlaceInternal() const;
+	void EnsureActiveAnimSetTurnSet();
+	void MergeTurnSetFromLinkedLayersIfEmpty();
+	void SyncTurnSetFromPrimaryMeshIfEmpty();
+	void DrawTurnInPlaceDebug(const UWorld* World) const;
+	void UpdateFootPlantCurves();
+	void UpdateAimOffsetBlend(float DeltaSeconds);
+
+	/** Notify TIP montage / state that we consumed N degrees of root yaw offset this tick. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Locomotion|TurnInPlace")
+	void ConsumeRootYawOffset(float ConsumedYaw);
+
+	/** True when caller (gameplay / lock-on) wants AimOffset overlay active. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Locomotion|AimOffset")
+	void SetAimOffsetEnabled(bool bEnabled) { bAimOffsetRequested = bEnabled; }
 
 	UPROPERTY(EditDefaultsOnly, Category = "DF|Locomotion|Jump|AirDash")
 	FName FallLoopOverlaySlotName = FName(TEXT("DefaultSlot"));
@@ -403,6 +740,10 @@ private:
 	bool bPrevTransition_LandToLoco = false;
 	bool bPrevTransition_LoopToLandPrep = false;
 	bool bPrevTransition_JumpGroundedExit = false;
+	bool bWarnedMissingTurnSet = false;
+	float TurnInPlaceYawAppliedTotal = 0.f;
+	bool bTurnInPlaceRetriggerArmed = true;
+	FString TurnInPlaceLastEndReason;
 
 	bool bWasInAirPreviousFrame = false;
 	bool bWasDoubleJumpingPreviousFrame = false;
@@ -417,10 +758,45 @@ private:
 	bool bFallLoopOverlayActive = false;
 	TObjectPtr<UAnimMontage> FallLoopOverlayMontage = nullptr;
 
+	// Locomotion polish runtime state
+	float PreviousActorYaw = 0.f;            // for YawDeltaThisFrame
+	float DistanceMatchingAccum = 0.f;        // raw XY distance integrator while moving
+	bool bAimOffsetRequested = false;         // gameplay toggles this
+	bool bWasAcceleratingPreviousFrame = false; // edge detection for Idle↔Start / Loop→Stop
+	bool bWasInLocomotionStopPhasePreviousFrame = false;
+	bool bStopToMoveLatch = false;             // sustained Stop→Start while re-accelerating after Stop
+	bool bInLocomotionStopPhase = false;       // sustained Loop→Stop until stop match consumed or re-accelerate
+	float LocomotionPeakSpeedThisBurst = 0.f;  // max speed while accelerating (stop gait snapshot)
+	float LocomotionStopInitialTarget = 0.f;   // StopTarget at input release (for curve time lookup)
+	float LocomotionStopDistanceConsumed = 0.f;
+	float CachedAuthoredStopPlayLength = 1.5f; // Run_Stop play length for fallback target decay
+	float CachedStopMotionEndTime = 1.2f;    // Time where |Distance| curve nears zero (no slow hold tail)
+	float CachedTurnAnimPlayLength = 1.f;
+	float TurnInPlaceStartAbsOffset = 0.f;
+	float TurnInPlaceStartActorYaw = 0.f;
+	float TurnInPlaceCurveYawLastSample = 0.f;
+	bool bTurnInPlaceHasRotationCurve = false;
+	FName TurnInPlaceResolvedCurveName;
+	bool bWasInTurnInPlacePhasePreviousFrame = false;
+	float TurnInPlaceDebugLogTimer = 0.f;
+	float ExplorationLockedBodyYaw = 0.f;
+	bool bExplorationBodyYawLockActive = false;
+	bool bSavedOrientRotationToMovementForLock = false;
+
 	void SyncEquippedWeaponAnimLayerFromOwner();
+
+	/** Push 8-way locomotion state from the mesh primary instance to linked layer instances. */
+	void CopyDirectionalLocomotionStateFrom(const UUDFAnimInstance& Source);
+	void SyncDirectionalLocomotionFromPrimaryMesh();
+	void PropagateDirectionalLocomotionToLinkedAnimLayers();
 
 	/** Layer class last applied via LinkAnimClassLayers (from item or manual). */
 	TSubclassOf<UAnimInstance> CachedLinkedWeaponLayerClass;
+
+#if !UE_BUILD_SHIPPING
+	float LocomotionDebugPrevSpeed = 0.f;
+	float LocomotionVerboseLogTimer = 0.f;
+#endif
 
 	/** Item row whose WeaponAnimSet is currently applied to ActiveAnimSet (NAME_None = unarmed default). */
 	FName CachedAnimSetItemRow = NAME_None;

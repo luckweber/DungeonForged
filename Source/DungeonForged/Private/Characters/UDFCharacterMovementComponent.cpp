@@ -1,11 +1,13 @@
 // Source/DungeonForged/Private/Characters/UDFCharacterMovementComponent.cpp
 #include "Characters/UDFCharacterMovementComponent.h"
 
+#include "Animation/UDFAnimInstance.h"
 #include "Characters/ADFPlayerCharacter.h"
 #include "Combat/DFAirDashDebug.h"
 #include "Combat/DFDodgeDebug.h"
 #include "Combat/DFJumpDebug.h"
 #include "Combat/UDFComboComponent.h"
+#include "Combat/UDFCombatCrowdControlComponent.h"
 #include "DFAssetManager.h"
 #include "Data/UDFCombatTuningData.h"
 #include "GAS/DFGameplayTags.h"
@@ -29,12 +31,30 @@ UDFCharacterMovementComponent::UDFCharacterMovementComponent(const FObjectInitia
 	JumpZVelocity = DFJumpZVelocity;
 	AirControl = DFAirControl;
 	GravityScale = DFGravityScale;
+
+	// ── Locomotion stop glide ────────────────────────────────────────────
+	// UE's default braking (GroundFriction 8 × BrakingFrictionFactor 2 = friction 16) stops the
+	// capsule in ~6 cm — far short of the ~202 cm the Stop animations (root-motion, distance-matched)
+	// are authored to cover. The result is a hard, animation-less "brusco" stop. Use a pure, separate
+	// braking deceleration so the capsule glides the authored distance and the Stop clip actually
+	// plays with planted feet. Tune via WalkStopBrakingDeceleration.
+	bUseSeparateBrakingFriction = true;
+	BrakingFriction = 0.f;
+	BrakingDecelerationWalking = WalkStopBrakingDeceleration;
 }
 
 void UDFCharacterMovementComponent::BeginPlay()
 {
 	Super::BeginPlay();
 	ApplyJumpTuningFromDataAsset();
+
+	// Re-assert the locomotion stop-glide braking after Blueprint/DataAsset class defaults are
+	// applied (the constructor runs before them, so an edited WalkStopBrakingDeceleration would
+	// otherwise be ignored). This is also the value the landing brake restores back to.
+	bUseSeparateBrakingFriction = true;
+	BrakingFriction = 0.f;
+	BrakingDecelerationWalking = WalkStopBrakingDeceleration;
+	NormalBrakingDecelerationWalking = WalkStopBrakingDeceleration;
 }
 
 void UDFCharacterMovementComponent::ClearLooseGameplayTagAll(UAbilitySystemComponent* const ASC, const FGameplayTag& Tag) const
@@ -416,6 +436,36 @@ void UDFCharacterMovementComponent::SetStrafeMode(const bool bStrafe)
 	BrakingFrictionFactor = bStrafe ? 2.f : DefaultBrakingFrictionFactor;
 }
 
+void UDFCharacterMovementComponent::PhysicsRotation(float DeltaTime)
+{
+	if (ACharacter* const Char = CharacterOwner)
+	{
+		if (USkeletalMeshComponent* const Mesh = Char->GetMesh())
+		{
+			if (UUDFAnimInstance* const DFAnim = Cast<UUDFAnimInstance>(Mesh->GetAnimInstance()))
+			{
+				if (DFAnim->TryApplyTurnInPlaceRotationYawSpeed(DeltaTime))
+				{
+					return;
+				}
+				if (DFAnim->ShouldLockExplorationBodyYaw())
+				{
+					DFAnim->EnforceExplorationBodyYawLock();
+					return;
+				}
+			}
+		}
+	}
+
+	const bool bHasMoveInput = GetLastInputVector().SizeSquared2D() > 0.01f;
+	if (!bHasMoveInput && Velocity.Size2D() <= RunSpeed)
+	{
+		return;
+	}
+
+	Super::PhysicsRotation(DeltaTime);
+}
+
 FNetworkPredictionData_Client* UDFCharacterMovementComponent::GetPredictionData_Client() const
 {
 	if (ClientPredictionData == nullptr)
@@ -518,6 +568,18 @@ void UDFCharacterMovementComponent::OnMovementModeChanged(EMovementMode Previous
 		if (UWorld* const W = GetWorld())
 		{
 			TimeLastLanded = W->GetTimeSeconds();
+		}
+		if (UDFCombatCrowdControlComponent* const CC =
+			CharacterOwner->FindComponentByClass<UDFCombatCrowdControlComponent>())
+		{
+			CC->OnOwnerLanded();
+		}
+		if (ADFPlayerCharacter* const PC = Cast<ADFPlayerCharacter>(CharacterOwner))
+		{
+			if (UDFComboComponent* const Combo = PC->Combo)
+			{
+				Combo->OnOwnerLanded();
+			}
 		}
 
 		float LandingRecoveryDuration = DFLandingRecoveryWindow;
@@ -902,6 +964,8 @@ void FSavedMove_DF::Clear()
 {
 	FSavedMove_Character::Clear();
 	bWantsSprint = false;
+	bIsDodging = false;
+	bAirDashActive = false;
 }
 
 uint8 FSavedMove_DF::GetCompressedFlags() const
@@ -910,6 +974,14 @@ uint8 FSavedMove_DF::GetCompressedFlags() const
 	if (bWantsSprint)
 	{
 		F |= static_cast<uint8>(FSavedMove_Character::FLAG_Custom_0);
+	}
+	if (bIsDodging)
+	{
+		F |= static_cast<uint8>(FSavedMove_Character::FLAG_Custom_1);
+	}
+	if (bAirDashActive)
+	{
+		F |= static_cast<uint8>(FSavedMove_Character::FLAG_Custom_2);
 	}
 	return F;
 }
@@ -926,6 +998,8 @@ void FSavedMove_DF::SetMoveFor(
 		if (const UDFCharacterMovementComponent* const DF = Cast<UDFCharacterMovementComponent>(C->GetCharacterMovement()))
 		{
 			bWantsSprint = DF->bIsSprinting;
+			bIsDodging = DF->bIsDodging;
+			bAirDashActive = DF->IsAirDashDriveActive() || DF->IsAirDashAltitudeLocked();
 		}
 	}
 }
@@ -951,7 +1025,9 @@ bool FSavedMove_DF::CanCombineWith(
 	}
 	if (const FSavedMove_DF* const B = static_cast<FSavedMove_DF*>(NewMove.Get()))
 	{
-		return bWantsSprint == B->bWantsSprint;
+		return bWantsSprint == B->bWantsSprint
+			&& bIsDodging == B->bIsDodging
+			&& bAirDashActive == B->bAirDashActive;
 	}
 	return true;
 }

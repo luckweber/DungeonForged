@@ -4,6 +4,7 @@
 #include "CoreMinimal.h"
 #include "AI/DFAIKeys.h"
 #include "AIController.h"
+#include "Perception/AIPerceptionTypes.h"
 #include "ADFAIController.generated.h"
 
 struct FAIStimulus;
@@ -52,6 +53,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|AI")
 	UAIPerceptionComponent* GetDFPerception() const { return DFPerception; }
 
+	/** Alert nearby packmates to a hostile at @c LastKnownLocation (hearing/sight propagation). */
+	UFUNCTION(BlueprintCallable, Category = "DF|AI")
+	void ReceivePackAlert(AActor* SuspectedTarget, FVector LastKnownLocation, bool bHeardOnly);
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DF|AI")
 	TObjectPtr<UAIPerceptionComponent> DFPerception;
@@ -67,4 +72,6 @@ protected:
 
 	UFUNCTION()
 	void OnTargetPerceptionForgotten(AActor* Actor);
+
+	void HandleHostilePerceived(AActor* Actor, const FAIStimulus& Stimulus);
 };

@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/Combat/UDFStaggerComponent.cpp
 #include "Combat/UDFStaggerComponent.h"
+#include "Combat/UDFHitReactionComponent.h"
 
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
@@ -27,7 +28,23 @@ UDFStaggerComponent::UDFStaggerComponent()
 void UDFStaggerComponent::BeginPlay()
 {
 	Super::BeginPlay();
+	SyncStaggerEffectFromHitReaction();
 	BindToAbilitySystem();
+}
+
+void UDFStaggerComponent::SyncStaggerEffectFromHitReaction()
+{
+	if (StaggerGameplayEffect)
+	{
+		return;
+	}
+	if (UDFHitReactionComponent* const Hit = GetOwner() ? GetOwner()->FindComponentByClass<UDFHitReactionComponent>() : nullptr)
+	{
+		if (Hit->StaggerStunGameplayEffect)
+		{
+			StaggerGameplayEffect = Hit->StaggerStunGameplayEffect;
+		}
+	}
 }
 
 void UDFStaggerComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -137,6 +154,20 @@ void UDFStaggerComponent::PruneOldEntries()
 	RecentHits.RemoveAll([Threshold](const FStaggerHit& H) { return H.TimeSeconds < Threshold; });
 }
 
+void UDFStaggerComponent::RegisterPoiseHit(const float PoiseDamage, AActor* const Instigator)
+{
+	if (PoiseDamage <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+	AccumulatePoiseDamage(PoiseDamage, Instigator);
+}
+
+void UDFStaggerComponent::SetPendingStaggerInstigator(AActor* const Instigator)
+{
+	PendingStaggerInstigator = Instigator;
+}
+
 void UDFStaggerComponent::HandleHealthChange(const FOnAttributeChangeData& Data)
 {
 	const float Delta = Data.NewValue - Data.OldValue;
@@ -159,8 +190,15 @@ void UDFStaggerComponent::HandleHealthChange(const FOnAttributeChangeData& Data)
 	{
 		ActiveStaggerDR = 1.f;
 	}
-	float Damage = DamageRaw * NextPoiseDamageMultiplier * ActiveStaggerDR;
+	const float Damage = DamageRaw * NextPoiseDamageMultiplier * ActiveStaggerDR;
 	NextPoiseDamageMultiplier = 1.f;
+	AActor* const Instigator = PendingStaggerInstigator.Get();
+	PendingStaggerInstigator.Reset();
+	AccumulatePoiseDamage(Damage, Instigator);
+}
+
+void UDFStaggerComponent::AccumulatePoiseDamage(const float Damage, AActor* const Instigator)
+{
 	if (Damage <= KINDA_SMALL_NUMBER)
 	{
 		return;
@@ -178,11 +216,12 @@ void UDFStaggerComponent::HandleHealthChange(const FOnAttributeChangeData& Data)
 	{
 		return;
 	}
-
+	const UWorld* const World = GetWorld();
 	if (!World)
 	{
 		return;
 	}
+	const double Now = World->GetTimeSeconds();
 	RecentHits.Add({Damage, Now});
 	PruneOldEntries();
 
@@ -203,11 +242,11 @@ void UDFStaggerComponent::HandleHealthChange(const FOnAttributeChangeData& Data)
 	if (WindowSum >= Poise)
 	{
 		const float Overshoot = WindowSum - Poise;
-		TriggerStagger(Overshoot);
+		TriggerStagger(Overshoot, Instigator);
 	}
 }
 
-void UDFStaggerComponent::TriggerStagger(const float Overshoot)
+void UDFStaggerComponent::TriggerStagger(const float Overshoot, AActor* const Instigator)
 {
 	AActor* const Owner = GetOwner();
 	UAbilitySystemComponent* const ASC = BoundASC.Get();
@@ -248,7 +287,16 @@ void UDFStaggerComponent::TriggerStagger(const float Overshoot)
 			Owner, FDFGameplayTags::Event_Combat_Stagger_Triggered, Payload);
 	}
 
-	if (StaggerMontage)
+	bool bPlayedHitReact = false;
+	if (bPreferHitReactionMontage)
+	{
+		if (UDFHitReactionComponent* const Hit = Owner->FindComponentByClass<UDFHitReactionComponent>())
+		{
+			Hit->OnPoiseStaggerTriggered(Instigator, Overshoot);
+			bPlayedHitReact = true;
+		}
+	}
+	if (!bPlayedHitReact && StaggerMontage)
 	{
 		if (const ACharacter* const Char = Cast<ACharacter>(Owner))
 		{

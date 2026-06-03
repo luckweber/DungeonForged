@@ -38,13 +38,6 @@ void UDFAbility_Mage_TimeWarp::ActivateAbility(
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
-	if (UAbilitySystemComponent* const asc = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (asc->GetOwner() && asc->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(asc);
-		}
-	}
 	const TObjectPtr<UAnimMontage> M = TimeWarpMontage ? TimeWarpMontage : AbilityMontage;
 	if (!M)
 	{

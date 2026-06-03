@@ -77,13 +77,6 @@ void UDFAbility_Warrior_ShieldBash::ActivateAbility(
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
-	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (ASC->GetOwner() && ASC->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(ASC);
-		}
-	}
 
 	const TObjectPtr<UAnimMontage> Mont = ShieldBashMontage ? ShieldBashMontage : AbilityMontage;
 	if (!Mont)

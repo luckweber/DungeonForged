@@ -150,6 +150,10 @@ public:
 	UPROPERTY(SaveGame, BlueprintReadWrite, Category = "DF|Profile|Run")
 	bool bLastRunWasVictory = false;
 
+	/** Runs MetaXP threshold checks and appends @c PendingUnlocks (no GameState required). */
+	UFUNCTION(BlueprintCallable, Category = "DF|Meta|Nexus")
+	static void ProcessMetaLevelUps(UDFSaveGame* Save, UDataTable const* NexusLevelsTable);
+
 	/** 0-1 fill for nexus meta XP bar; @a NexusLevelsTable from game data (optional). */
 	UFUNCTION(BlueprintCallable, Category = "DF|Meta|Nexus", meta = (DisplayName = "Get Nexus Meta XP Fill (0-1)"))
 	float GetNexusMetaXPFillRatio(UDataTable const* NexusLevelsTable) const;

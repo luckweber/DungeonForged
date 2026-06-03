@@ -23,7 +23,7 @@ public:
 	virtual void BeginPlay() override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
-	/** Sphere + cone + LOS: nearest valid enemy, starts camera lock. */
+	/** Sphere + cone + LOS: highest-scored valid enemy, starts camera lock. */
 	UFUNCTION(BlueprintCallable, Category = "DF|LockOn")
 	bool TryLockOn();
 
@@ -33,6 +33,14 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "DF|LockOn")
 	void ReleaseLockOn();
+
+	/** Switch lock to a confirmed hit victim (local player, when enabled). */
+	UFUNCTION(BlueprintCallable, Category = "DF|LockOn")
+	void NotifyCombatHitConfirmed(AActor* HitVictim);
+
+	/** Best scored candidate in view (soft aim when not hard locked). */
+	UFUNCTION(BlueprintPure, Category = "DF|LockOn")
+	AActor* GetSoftTarget() const;
 
 	/** World-space indicator follow (call every frame while locked, local only). */
 	UFUNCTION(BlueprintCallable, Category = "DF|LockOn")
@@ -67,7 +75,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "DF|LockOn", meta = (ClampMin = "0.0"))
 	float LockOnRange = 1500.f;
 
-	/** Full cone angle in front of the player (degrees). */
+	/** Full cone angle in front of the view (degrees). */
 	UPROPERTY(EditDefaultsOnly, Category = "DF|LockOn", meta = (ClampMin = "0.0", ClampMax = "180.0"))
 	float LockOnAngle = 60.f;
 
@@ -76,6 +84,30 @@ protected:
 	float AutoBreakGraceDelay = 0.4f;
 
 	float TimeTargetInvalid = 0.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|LockOn|Scoring", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ScoreCameraWeight = 0.40f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|LockOn|Scoring", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ScoreDistanceWeight = 0.25f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|LockOn|Scoring", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ScoreThreatWeight = 0.20f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|LockOn|Scoring", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ScoreElevationWeight = 0.15f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|LockOn|Scoring", meta = (ClampMin = "50.0"))
+	float ElevationTolerance = 400.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|LockOn")
+	bool bRetargetOnHit = true;
+
+	UPROPERTY(EditDefaultsOnly, Category = "DF|LockOn")
+	bool bSoftAimWhenUnlocked = true;
+
+	/** If true, a widget instance was created for this local player. */
+	bool bWidgetCreated = false;
 
 	/** If set, only this class and subclasses are valid lock targets (e.g. ADFEnemyBase). */
 	UPROPERTY(EditDefaultsOnly, Category = "DF|LockOn")
@@ -92,17 +124,25 @@ protected:
 	/** Reordered each time cycle is used; stores weak refs to in-range candidates. */
 	TArray<TWeakObjectPtr<AActor>> CandidateBuffer;
 
-	/** If true, a widget instance was created for this local player. */
-	bool bWidgetCreated = false;
+	enum class ELockOnCandidateSort : uint8
+	{
+		Score,
+		ViewAngle,
+	};
 
-	bool BuildCandidatesInView(TArray<AActor*>& OutSorted) const;
+	bool BuildCandidates(TArray<AActor*>& OutSorted, ELockOnCandidateSort SortMode) const;
+	float ScoreTarget(AActor* Target) const;
+	float GetThreatScore(AActor* Target) const;
+	void GetViewPoint(FVector& OutOrigin, FVector& OutForward) const;
+	float AngleFromView(AActor* Target) const;
+	float SignedViewAngle(AActor* Target) const;
 	bool IsActorValidEnemyType(AActor* Actor) const;
 	/** Acquire / cycle: range + view cone + LOS + alive. */
 	bool IsTargetValidForAcquire(AActor* Target) const;
 	/** While locked: range + LOS + alive only (no cone — dodge/roll can leave the frontal arc). */
 	bool IsTargetValidForMaintain(AActor* Target) const;
 	bool IsOwnerDodging() const;
-	float AngleFromForward(AActor* Target) const;
 	bool HasLineOfSight(AActor* Target) const;
+	void SetCurrentTarget(AActor* NewTarget);
 	void EnsureLockOnWidget();
 };

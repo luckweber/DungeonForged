@@ -1,6 +1,8 @@
 // Source/DungeonForged/Private/Combat/ADFKnifeProjectile.cpp
 #include "Combat/ADFKnifeProjectile.h"
 #include "Combat/UDFProjectileHitTrackerComponent.h"
+#include "Combat/UDFProjectilePoolLibrary.h"
+#include "Combat/UDFProjectileSweepComponent.h"
 #include "GAS/DFGameplayTags.h"
 #include "GAS/DFRogueGAS.h"
 #include "GAS/Effects/UGE_Damage_Physical.h"
@@ -14,7 +16,6 @@
 #include "GameplayEffect.h"
 #include "AbilitySystemComponent.h"
 #include "NiagaraSystem.h"
-#include "Characters/ADFEnemyBase.h"
 
 ADFKnifeProjectile::ADFKnifeProjectile()
 {
@@ -34,8 +35,49 @@ ADFKnifeProjectile::ADFKnifeProjectile()
 	Move->ProjectileGravityScale = 0.f;
 	Collision->OnComponentHit.AddDynamic(this, &ADFKnifeProjectile::OnHit);
 	HitTracker = CreateDefaultSubobject<UDFProjectileHitTrackerComponent>(TEXT("HitTracker"));
+	ProjectileSweep = CreateDefaultSubobject<UDFProjectileSweepComponent>(TEXT("ProjectileSweep"));
 	PhysicalDamageEffect = UGE_Damage_Physical::StaticClass();
 	PoisonEffect = UGE_DoT_Poison::StaticClass();
+}
+
+FName ADFKnifeProjectile::GetPoolName() const
+{
+	return FName(TEXT("KnifeProjectile"));
+}
+
+void ADFKnifeProjectile::OnAcquiredFromPool()
+{
+	if (HitTracker)
+	{
+		HitTracker->ClearHitHistory();
+	}
+	if (Move)
+	{
+		Move->MaxSpeed = FlightSpeed;
+		Move->InitialSpeed = FlightSpeed;
+		Move->Velocity = GetActorForwardVector() * FlightSpeed;
+		Move->UpdateComponentVelocity();
+	}
+	if (ProjectileSweep)
+	{
+		ProjectileSweep->ResetTraceSegment();
+	}
+	SetLifeSpan(0.f);
+}
+
+void ADFKnifeProjectile::OnReleasedToPool()
+{
+	PhysicalHitDamage = 0.f;
+	PoisonMagnitude = 0.f;
+	if (Move)
+	{
+		Move->StopMovementImmediately();
+	}
+}
+
+void ADFKnifeProjectile::FinishProjectile()
+{
+	UDFProjectilePoolLibrary::FinishProjectile(this, this);
 }
 
 void ADFKnifeProjectile::BeginPlay()
@@ -46,6 +88,11 @@ void ADFKnifeProjectile::BeginPlay()
 		Move->MaxSpeed = FlightSpeed;
 		Move->InitialSpeed = FlightSpeed;
 		Move->Velocity = GetActorForwardVector() * FlightSpeed;
+	}
+	if (ProjectileSweep)
+	{
+		ProjectileSweep->OnSweepHit.AddDynamic(this, &ADFKnifeProjectile::OnSweepHit);
+		ProjectileSweep->ResetTraceSegment();
 	}
 }
 
@@ -59,16 +106,16 @@ void ADFKnifeProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* Other, UPri
 	{
 		if (bDestroyOnHit)
 		{
-			Destroy();
+			FinishProjectile();
 		}
 		return;
 	}
-	// PvE: only hurt enemies; tune for PvP later.
-	if (!Cast<ADFEnemyBase>(Other))
+	UAbilitySystemComponent* const TgtPrecheck = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Other);
+	if (!TgtPrecheck)
 	{
 		if (bDestroyOnHit)
 		{
-			Destroy();
+			FinishProjectile();
 		}
 		return;
 	}
@@ -76,12 +123,12 @@ void ADFKnifeProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* Other, UPri
 	{
 		if (bDestroyOnHit)
 		{
-			Destroy();
+			FinishProjectile();
 		}
 		return;
 	}
 	UAbilitySystemComponent* const Src = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Inst);
-	UAbilitySystemComponent* const Tgt = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Other);
+	UAbilitySystemComponent* const Tgt = TgtPrecheck;
 	float AppliedDamage = 0.f;
 	if (Src && Tgt && PhysicalDamageEffect)
 	{
@@ -132,6 +179,11 @@ void ADFKnifeProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* Other, UPri
 	}
 	if (bDestroyOnHit)
 	{
-		Destroy();
+		FinishProjectile();
 	}
+}
+
+void ADFKnifeProjectile::OnSweepHit(const FHitResult& Hit, UPrimitiveComponent* const SweptComponent)
+{
+	OnHit(SweptComponent, Hit.GetActor(), Hit.GetComponent(), FVector::ZeroVector, Hit);
 }

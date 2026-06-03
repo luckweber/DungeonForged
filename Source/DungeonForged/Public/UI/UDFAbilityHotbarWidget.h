@@ -32,6 +32,8 @@ protected:
 	UDataTable* ResolveAbilityDataTable() const;
 	void CollectSlots();
 	void RefreshEmbeddedVitals() const;
+	void TryBindEmbeddedVitals();
+	void OnEmbeddedVitalChanged(const FOnAttributeChangeData& Data);
 
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UProgressBar> HealthOrb = nullptr;
@@ -98,7 +100,8 @@ protected:
 
 	TArray<TObjectPtr<UDFAbilitySlotWidget>> Slots;
 	TArray<FName> LastShownAbilityRows;
-	float RefreshAccumulator = 0.f;
+	float RebindAccumulator = 0.f;
+	bool bEmbeddedVitalsBound = false;
 
 	void BindToPlayerCharacter();
 	void UnbindFromPlayerCharacter();

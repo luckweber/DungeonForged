@@ -2,6 +2,7 @@
 #include "UI/UDFBossHealthBarWidget.h"
 #include "Boss/ADFBossBase.h"
 #include "DungeonForgedModule.h"
+#include "GAS/DFGameplayTags.h"
 #include "GAS/UDFAttributeSet.h"
 #include "AbilitySystemComponent.h"
 #include "Components/Image.h"
@@ -40,9 +41,11 @@ void UDFBossHealthBarWidget::ShowForBoss(ADFBossBase* const Boss, const FText& D
 	}
 	bBossAttributesBound = false;
 	TryBindBossAttributes();
+	BindBossTagEvents();
 	Boss->OnBossPhaseChanged.AddDynamic(this, &UDFBossHealthBarWidget::OnPhaseChanged);
 	Boss->OnBossEnraged.AddDynamic(this, &UDFBossHealthBarWidget::OnEnraged);
 	RefreshHealthFill();
+	RefreshEnrageCountdown();
 	OnPhaseChanged(0, Boss->CurrentPhase, Boss);
 	OnEnraged(Boss, Boss->bIsEnraged);
 
@@ -54,6 +57,7 @@ void UDFBossHealthBarWidget::ShowForBoss(ADFBossBase* const Boss, const FText& D
 	{
 		StartRebindTimer();
 	}
+	StartHudRefreshTimer();
 }
 
 void UDFBossHealthBarWidget::HideBossBar()
@@ -86,6 +90,36 @@ void UDFBossHealthBarWidget::StopRebindTimer()
 	RebindTimerHandle.Invalidate();
 }
 
+void UDFBossHealthBarWidget::StartHudRefreshTimer()
+{
+	UWorld* const W = GetWorld();
+	if (!W || HudRefreshTimerHandle.IsValid() || !TrackedBoss.IsValid())
+	{
+		return;
+	}
+	W->GetTimerManager().SetTimer(
+		HudRefreshTimerHandle, this, &UDFBossHealthBarWidget::OnHudRefreshTick, HudRefreshIntervalSec, true);
+}
+
+void UDFBossHealthBarWidget::StopHudRefreshTimer()
+{
+	if (UWorld* const W = GetWorld())
+	{
+		W->GetTimerManager().ClearTimer(HudRefreshTimerHandle);
+	}
+	HudRefreshTimerHandle.Invalidate();
+}
+
+void UDFBossHealthBarWidget::OnHudRefreshTick()
+{
+	if (!TrackedBoss.IsValid())
+	{
+		StopHudRefreshTimer();
+		return;
+	}
+	RefreshEnrageCountdown();
+}
+
 void UDFBossHealthBarWidget::OnRebindTimerTick()
 {
 	if (!TrackedBoss.IsValid())
@@ -96,6 +130,7 @@ void UDFBossHealthBarWidget::OnRebindTimerTick()
 	if (!bBossAttributesBound)
 	{
 		TryBindBossAttributes();
+		BindBossTagEvents();
 	}
 	RefreshHealthFill();
 	if (BossNameText)
@@ -133,6 +168,44 @@ void UDFBossHealthBarWidget::TryBindBossAttributes()
 	bBossAttributesBound = true;
 }
 
+void UDFBossHealthBarWidget::BindBossTagEvents()
+{
+	if (!TrackedBoss.IsValid() || VulnerableTagDelegateHandle.IsValid() || !FDFGameplayTags::State_BossVulnerable.IsValid())
+	{
+		return;
+	}
+	UAbilitySystemComponent* const ASC = TrackedBoss->GetAbilitySystemComponent();
+	if (!IsValid(ASC))
+	{
+		return;
+	}
+	RefreshVulnerableCallout(ASC->HasMatchingGameplayTag(FDFGameplayTags::State_BossVulnerable));
+	VulnerableTagDelegateHandle = ASC->RegisterGameplayTagEvent(
+		FDFGameplayTags::State_BossVulnerable, EGameplayTagEventType::NewOrRemoved)
+		.AddUObject(this, &UDFBossHealthBarWidget::OnVulnerableTagChanged);
+}
+
+void UDFBossHealthBarWidget::OnVulnerableTagChanged(const FGameplayTag Tag, const int32 NewCount)
+{
+	(void)Tag;
+	RefreshVulnerableCallout(NewCount > 0);
+}
+
+void UDFBossHealthBarWidget::UnbindBossTagEvents()
+{
+	if (ADFBossBase* const Boss = TrackedBoss.Get())
+	{
+		if (UAbilitySystemComponent* const ASC = Boss->GetAbilitySystemComponent())
+		{
+			if (VulnerableTagDelegateHandle.IsValid() && FDFGameplayTags::State_BossVulnerable.IsValid())
+			{
+				ASC->UnregisterGameplayTagEvent(VulnerableTagDelegateHandle, FDFGameplayTags::State_BossVulnerable);
+			}
+		}
+	}
+	VulnerableTagDelegateHandle.Reset();
+}
+
 void UDFBossHealthBarWidget::NativeDestruct()
 {
 	ClearBossBindings();
@@ -168,6 +241,7 @@ void UDFBossHealthBarWidget::OnEnraged(AActor* const Boss, const bool bEnraged)
 	{
 		EnrageIcon->SetVisibility(bEnraged ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 	}
+	RefreshEnrageCountdown();
 }
 
 void UDFBossHealthBarWidget::RefreshHealthFill()
@@ -188,9 +262,52 @@ void UDFBossHealthBarWidget::RefreshHealthFill()
 	BossHealthBar->SetPercent(Pct);
 }
 
+void UDFBossHealthBarWidget::RefreshEnrageCountdown()
+{
+	if (!EnrageCountdownText)
+	{
+		return;
+	}
+	if (!TrackedBoss.IsValid())
+	{
+		EnrageCountdownText->SetVisibility(ESlateVisibility::Collapsed);
+		return;
+	}
+	const float Remaining = TrackedBoss->GetEnrageSecondsRemaining();
+	if (Remaining <= KINDA_SMALL_NUMBER)
+	{
+		EnrageCountdownText->SetVisibility(ESlateVisibility::Collapsed);
+		return;
+	}
+	const int32 TotalSec = FMath::CeilToInt(Remaining);
+	const int32 Minutes = TotalSec / 60;
+	const int32 Seconds = TotalSec % 60;
+	EnrageCountdownText->SetText(FText::FromString(FString::Printf(TEXT("Enrage %d:%02d"), Minutes, Seconds)));
+	EnrageCountdownText->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+}
+
+void UDFBossHealthBarWidget::RefreshVulnerableCallout(const bool bVisible)
+{
+	if (!VulnerableCalloutText)
+	{
+		return;
+	}
+	if (bVisible)
+	{
+		VulnerableCalloutText->SetText(NSLOCTEXT("DF", "BossVulnerableCallout", "VULNERABLE!"));
+		VulnerableCalloutText->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	}
+	else
+	{
+		VulnerableCalloutText->SetVisibility(ESlateVisibility::Collapsed);
+	}
+}
+
 void UDFBossHealthBarWidget::ClearBossBindings()
 {
 	StopRebindTimer();
+	StopHudRefreshTimer();
+	UnbindBossTagEvents();
 	UnbindAllAttributeChanges();
 	bBossAttributesBound = false;
 	if (ADFBossBase* const B = TrackedBoss.Get())

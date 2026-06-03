@@ -1,6 +1,211 @@
 // Source/DungeonForged/Private/GAS/Elemental/UDFElementalLibrary.cpp
 #include "GAS/Elemental/UDFElementalLibrary.h"
 #include "GAS/DFGameplayTags.h"
+#include "Abilities/GameplayAbility.h"
+#include "AbilitySystemComponent.h"
+#include "GameplayEffect.h"
+
+EDFElementType UDFElementalLibrary::GetElementFromEffectTag(const FGameplayTag Tag)
+{
+	if (!Tag.IsValid())
+	{
+		return EDFElementType::None;
+	}
+	if (Tag == FDFGameplayTags::Effect_Element_Fire) return EDFElementType::Fire;
+	if (Tag == FDFGameplayTags::Effect_Element_Ice) return EDFElementType::Ice;
+	if (Tag == FDFGameplayTags::Effect_Element_Water) return EDFElementType::Water;
+	if (Tag == FDFGameplayTags::Effect_Element_Lightning) return EDFElementType::Lightning;
+	if (Tag == FDFGameplayTags::Effect_Element_Earth) return EDFElementType::Earth;
+	if (Tag == FDFGameplayTags::Effect_Element_Arcane) return EDFElementType::Arcane;
+	if (Tag == FDFGameplayTags::Effect_Element_Physical) return EDFElementType::Physical;
+	if (Tag == FDFGameplayTags::Effect_Element_True) return EDFElementType::ElementTrue;
+	return EDFElementType::None;
+}
+
+namespace
+{
+	bool TagContainerHasElementTag(const FGameplayTagContainer& Tags, EDFElementType& OutElement)
+	{
+		static const FGameplayTag ElementTags[] = {
+			FDFGameplayTags::Effect_Element_Fire,
+			FDFGameplayTags::Effect_Element_Ice,
+			FDFGameplayTags::Effect_Element_Water,
+			FDFGameplayTags::Effect_Element_Lightning,
+			FDFGameplayTags::Effect_Element_Earth,
+			FDFGameplayTags::Effect_Element_Arcane,
+			FDFGameplayTags::Effect_Element_Physical,
+			FDFGameplayTags::Effect_Element_True,
+		};
+		for (const FGameplayTag& ElTag : ElementTags)
+		{
+			if (ElTag.IsValid() && Tags.HasTag(ElTag))
+			{
+				OutElement = UDFElementalLibrary::GetElementFromEffectTag(ElTag);
+				return OutElement != EDFElementType::None;
+			}
+		}
+		return false;
+	}
+
+	void CollectInferenceTags(const FGameplayEffectSpec& Spec, FGameplayTagContainer& OutTags)
+	{
+		OutTags.Reset();
+		OutTags.AppendTags(Spec.GetDynamicAssetTags());
+		if (Spec.Def)
+		{
+			OutTags.AppendTags(Spec.Def->GetAssetTags());
+		}
+		if (const FGameplayEffectContext* const Ctx = Spec.GetContext().Get())
+		{
+		if (const UGameplayAbility* const Ability = Ctx->GetAbility())
+		{
+			OutTags.AppendTags(Ability->AbilityTags);
+		}
+		}
+	}
+}
+
+EDFElementType UDFElementalLibrary::InferElementFromGameplayTags(const FGameplayTagContainer& Tags)
+{
+	EDFElementType Direct = EDFElementType::None;
+	if (TagContainerHasElementTag(Tags, Direct))
+	{
+		return Direct;
+	}
+
+	auto MatchesParent = [&Tags](const FGameplayTag& Parent) -> bool
+	{
+		if (!Parent.IsValid())
+		{
+			return false;
+		}
+		for (const FGameplayTag& Tag : Tags)
+		{
+			if (Tag.MatchesTag(Parent))
+			{
+				return true;
+			}
+		}
+		return false;
+	};
+
+	if (MatchesParent(FDFGameplayTags::Ability_Fire))
+	{
+		return EDFElementType::Fire;
+	}
+	if (MatchesParent(FDFGameplayTags::Ability_Ice))
+	{
+		return EDFElementType::Ice;
+	}
+	if (MatchesParent(FDFGameplayTags::Ability_Universal_CallLightning))
+	{
+		return EDFElementType::Lightning;
+	}
+	if (Tags.HasTag(FDFGameplayTags::Ability_Mage_FrostBolt)
+		|| Tags.HasTag(FDFGameplayTags::Ability_Mage_BlizzardStorm)
+		|| Tags.HasTag(FDFGameplayTags::Ability_Ice_FrostBolt)
+		|| Tags.HasTag(FDFGameplayTags::Ability_Ice_Blizzard))
+	{
+		return EDFElementType::Ice;
+	}
+	if (Tags.HasTag(FDFGameplayTags::Ability_Mage_ArcaneBarrage)
+		|| Tags.HasTag(FDFGameplayTags::Ability_Universal_Siphon)
+		|| Tags.HasTag(FDFGameplayTags::Ability_Passive_Mage_ArcaneMastery))
+	{
+		return EDFElementType::Arcane;
+	}
+
+	return EDFElementType::None;
+}
+
+EDFElementType UDFElementalLibrary::ResolveElementFromEffectSpec(const FGameplayEffectSpec& Spec)
+{
+	static const FGameplayTag ElementTags[] = {
+		FDFGameplayTags::Effect_Element_Fire,
+		FDFGameplayTags::Effect_Element_Ice,
+		FDFGameplayTags::Effect_Element_Water,
+		FDFGameplayTags::Effect_Element_Lightning,
+		FDFGameplayTags::Effect_Element_Earth,
+		FDFGameplayTags::Effect_Element_Arcane,
+		FDFGameplayTags::Effect_Element_Physical,
+		FDFGameplayTags::Effect_Element_True,
+	};
+
+	FGameplayTagContainer Combined = Spec.GetDynamicAssetTags();
+	if (Spec.Def)
+	{
+		Combined.AppendTags(Spec.Def->GetAssetTags());
+	}
+	for (const FGameplayTag& ElTag : ElementTags)
+	{
+		if (ElTag.IsValid() && Combined.HasTag(ElTag))
+		{
+			return GetElementFromEffectTag(ElTag);
+		}
+	}
+
+	FGameplayTagContainer InferenceTags;
+	CollectInferenceTags(Spec, InferenceTags);
+	if (const EDFElementType FromAbility = InferElementFromGameplayTags(InferenceTags);
+		FromAbility != EDFElementType::None)
+	{
+		return FromAbility;
+	}
+
+	if (Combined.HasTag(FDFGameplayTags::Effect_Damage_True))
+	{
+		return EDFElementType::ElementTrue;
+	}
+	if (Combined.HasTag(FDFGameplayTags::Effect_Damage_Physical))
+	{
+		return EDFElementType::Physical;
+	}
+	if (Combined.HasTag(FDFGameplayTags::Effect_Damage_Magic))
+	{
+		return EDFElementType::Arcane;
+	}
+	return EDFElementType::None;
+}
+
+void UDFElementalLibrary::StampDefaultElementOnDamageSpec(
+	FGameplayEffectSpec& Spec,
+	const EDFElementType ExplicitElement /*= EDFElementType::None*/)
+{
+	for (const FGameplayTag& Tag : Spec.GetDynamicAssetTags())
+	{
+		if (GetElementFromEffectTag(Tag) != EDFElementType::None)
+		{
+			return;
+		}
+	}
+
+	const EDFElementType Element = ExplicitElement != EDFElementType::None
+		? ExplicitElement
+		: ResolveElementFromEffectSpec(Spec);
+	if (Element == EDFElementType::None)
+	{
+		return;
+	}
+
+	const FGameplayTag ElTag = GetElementEffectTag(Element);
+	if (ElTag.IsValid())
+	{
+		Spec.AddDynamicAssetTag(ElTag);
+	}
+}
+
+FActiveGameplayEffectHandle UDFElementalLibrary::ApplyOutgoingDamageSpecToTarget(
+	UAbilitySystemComponent* const SourceASC,
+	UAbilitySystemComponent* const TargetASC,
+	FGameplayEffectSpec& Spec)
+{
+	if (!SourceASC || !TargetASC)
+	{
+		return FActiveGameplayEffectHandle();
+	}
+	StampDefaultElementOnDamageSpec(Spec, EDFElementType::None);
+	return SourceASC->ApplyGameplayEffectSpecToTarget(Spec, TargetASC);
+}
 
 FGameplayTag UDFElementalLibrary::GetElementEffectTag(EDFElementType Element)
 {

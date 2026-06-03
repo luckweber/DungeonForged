@@ -35,13 +35,6 @@ void UDFAbility_Mage_BlizzardStorm::ActivateAbility(const FGameplayAbilitySpecHa
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
-	if (UAbilitySystemComponent* const asc = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (asc->GetOwner() && asc->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(asc);
-		}
-	}
 	const TObjectPtr<UAnimMontage> M = BlizzardCastMontage ? BlizzardCastMontage : AbilityMontage;
 	if (!M || !ActorInfo)
 	{

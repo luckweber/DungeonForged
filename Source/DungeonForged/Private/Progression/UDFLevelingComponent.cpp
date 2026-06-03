@@ -148,6 +148,35 @@ void UDFLevelingComponent::OnRep_CurrentXP()
 	BroadcastXP();
 }
 
+void UDFLevelingComponent::AuthorityRestoreProgress(
+	const int32 InLevel, const int32 InXP, const int32 InUnspentPoints)
+{
+	APlayerState* const PS = Cast<APlayerState>(GetOwner());
+	if (!PS || !PS->HasAuthority())
+	{
+		return;
+	}
+	const int32 TargetLevel = FMath::Clamp(InLevel, 1, MaxLevel);
+	if (UAbilitySystemComponent* const ASC = GetOwnerASC())
+	{
+		if (LevelScalingHandle.IsValid())
+		{
+			ASC->RemoveActiveGameplayEffect(LevelScalingHandle, 1);
+			LevelScalingHandle = FActiveGameplayEffectHandle();
+		}
+	}
+	CurrentLevel = TargetLevel;
+	CurrentXP = FMath::Max(0, InXP);
+	UnspentAttributePoints = FMath::Max(0, InUnspentPoints);
+	if (const FDFLevelTableRow* const R = FindRowForLevel(CurrentLevel))
+	{
+		ApplyLevelStatScalingForCurrentRow(*R);
+	}
+	UpdateCharacterLevelAttribute();
+	UpdateLevelGameplayTags();
+	BroadcastXP();
+}
+
 void UDFLevelingComponent::OnRep_UnspentAttributePoints()
 {
 }

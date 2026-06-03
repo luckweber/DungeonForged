@@ -12,8 +12,9 @@
  * - Duration: Instant.
  * - Executions: add an Execution Definition with Calculation class = UDFDamageCalculation
  *   (Source/DungeonForged/Public/GAS/DFDamageCalculation.h). That class reads
- *   SetByCaller "Data.Damage" and applies additive damage to the target UDFAttributeSet::Health
- *   (and optional crit/mitigation in the same execution). Data.Knockback is passed on the
+ *   SetByCaller "Data.Damage" and applies damage via UDFAttributeSet::IncomingDamage (meta),
+ *   then PostGameplayEffectExecute applies mana shield / absorption and subtracts Health.
+ *   Data.Knockback is passed on the
  *   spec for UDFHitReactionComponent / physics but is not read by UDFDamageCalculation
  *   unless you extend the execution to use it.
  * - SetByCaller Magnitudes: map tags Data.Damage and Data.Knockback in the effect asset

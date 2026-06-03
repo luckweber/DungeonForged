@@ -2,6 +2,7 @@
 #include "Boss/ADFMeteorImpactActor.h"
 #include "Boss/ADFBossBase.h"
 #include "GAS/DFGameplayTags.h"
+#include "GAS/Elemental/UDFElementalLibrary.h"
 #include "GAS/Effects/UDFGameplayEffectLibrary.h"
 #include "GAS/Effects/UGE_Debuff_Stun.h"
 #include "Components/SphereComponent.h"
@@ -109,14 +110,14 @@ void ADFMeteorImpactActor::RunImpactOnAuthority()
 			{
 				if (DmgInner.IsValid() && DmgInner.Data)
 				{
-					Src->ApplyGameplayEffectSpecToTarget(*DmgInner.Data, Tgt);
+					UDFElementalLibrary::ApplyOutgoingDamageSpecToTarget(Src, Tgt, *DmgInner.Data);
 				}
 			}
 			else
 			{
 				if (DmgOuter.IsValid() && DmgOuter.Data)
 				{
-					Src->ApplyGameplayEffectSpecToTarget(*DmgOuter.Data, Tgt);
+					UDFElementalLibrary::ApplyOutgoingDamageSpecToTarget(Src, Tgt, *DmgOuter.Data);
 				}
 			}
 			if (StunH.IsValid() && StunH.Data)

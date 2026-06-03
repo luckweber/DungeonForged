@@ -3,6 +3,8 @@
 
 #include "AI/DFAIKeys.h"
 #include "AI/UDFAIAwarenessSubsystem.h"
+#include "Characters/ADFEnemyBase.h"
+#include "Combat/UDFCombatDirectorSubsystem.h"
 #include "AIController.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "GameFramework/Pawn.h"
@@ -26,13 +28,22 @@ void UDFBTService_TelegraphCoordinator::TickNode(
 		return;
 	}
 	UWorld* const World = OwnerComp.GetWorld();
-	UDFAIAwarenessSubsystem* const Awareness = World ? World->GetSubsystem<UDFAIAwarenessSubsystem>() : nullptr;
-	if (!Awareness)
+	UDFCombatDirectorSubsystem* const Director = World ? World->GetSubsystem<UDFCombatDirectorSubsystem>() : nullptr;
+	ADFEnemyBase* const Enemy = Cast<ADFEnemyBase>(Pawn);
+	bool bAllowed = true;
+	if (Director && Enemy)
 	{
-		BB->SetValueAsBool(DFAIKeys::bCanTelegraph, true);
-		return;
+		bAllowed = Director->CanEnemyTelegraph(Enemy);
 	}
-	const int32 LocalMax = FMath::Max(1, MaxConcurrentTelegraphs > 0 ? MaxConcurrentTelegraphs : Awareness->MaxConcurrentTelegraphs);
-	const int32 Count = Awareness->GetTelegraphingCountWithin(Pawn->GetActorLocation(), CoordinationRadiusCm);
-	BB->SetValueAsBool(DFAIKeys::bCanTelegraph, Count < LocalMax);
+	else
+	{
+		UDFAIAwarenessSubsystem* const Awareness = World ? World->GetSubsystem<UDFAIAwarenessSubsystem>() : nullptr;
+		if (Awareness)
+		{
+			const int32 LocalMax = FMath::Max(1, MaxConcurrentTelegraphs > 0 ? MaxConcurrentTelegraphs : Awareness->MaxConcurrentTelegraphs);
+			const int32 Count = Awareness->GetTelegraphingCountWithin(Pawn->GetActorLocation(), CoordinationRadiusCm);
+			bAllowed = Count < LocalMax;
+		}
+	}
+	BB->SetValueAsBool(DFAIKeys::bCanTelegraph, bAllowed);
 }

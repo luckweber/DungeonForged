@@ -62,6 +62,30 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DF|Combat|Feedback")
 	static FGameplayTag ResolveImpactTag(EDFHitFeedbackBand Band, FGameplayTag DamageSourceTag);
 
+	/** Spawns impact VFX/SFX from @c UDFCombatTuningData for a resolved @c Impact.* tag. */
+	UFUNCTION(BlueprintCallable, Category = "DF|Combat|Feedback", meta = (WorldContext = "WorldContextObject"))
+	static void SpawnImpactAssetsForTag(
+		UObject* WorldContextObject,
+		const FVector Location,
+		const FVector Normal,
+		FGameplayTag ImpactTag);
+
+	/** Executes native @c GameplayCue.Combat.* for band + impact tag (client-side). */
+	static void ExecuteCombatImpactCue(
+		UObject* WorldContextObject,
+		const FDFHitConfirmedContext& Context,
+		EDFHitFeedbackBand Band);
+
+	/** Block / parry feedback cue (client-side). */
+	static void ExecuteCombatFeedbackCue(
+		UObject* WorldContextObject,
+		FGameplayTag GameplayCueTag,
+		AActor* TargetActor,
+		AActor* InstigatorActor,
+		const FVector Location,
+		const FVector Normal,
+		FGameplayTag ImpactTag = FGameplayTag());
+
 	/** Attacker-side hit-stop + camera shake (local or via Client_OnAttackHitConfirmed). */
 	UFUNCTION(BlueprintCallable, Category = "DF|Combat|Feedback", meta = (WorldContext = "WorldContextObject"))
 	static void DispatchAttackerHitFeel(UObject* WorldContextObject, const FDFHitConfirmedContext& Context);
@@ -69,6 +93,9 @@ public:
 	/** Victim-side screen FX when the victim is locally controlled. */
 	UFUNCTION(BlueprintCallable, Category = "DF|Combat|Feedback", meta = (WorldContext = "WorldContextObject"))
 	static void DispatchVictimHitFeel(UObject* WorldContextObject, const FDFHitConfirmedContext& Context);
+
+	/** Local montage rate-scale on the victim (DMC-style hit-stop, multi-hit friendly). */
+	static void ApplyVictimMontageHitStop(AActor* Victim, EDFHitFeedbackBand Band, float MagnitudeFactor = 1.f);
 
 	/** Tag outgoing damage specs so combat text is not duplicated in AttributeSet (A1). */
 	static void MarkSpecCombatFeedbackCentralized(struct FGameplayEffectSpec& Spec);

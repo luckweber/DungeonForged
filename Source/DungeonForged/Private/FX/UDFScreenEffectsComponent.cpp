@@ -2,7 +2,10 @@
 #include "FX/UDFScreenEffectsComponent.h"
 #include "FX/UDFCameraShakeFunctionLibrary.h"
 #include "FX/UDFHitStopSubsystem.h"
+#include "FX/UDFImpactFramingComponent.h"
 #include "Characters/ADFPlayerCharacter.h"
+#include "AbilitySystemComponent.h"
+#include "GAS/DFGameplayTags.h"
 #include "Camera/CameraComponent.h"
 #include "Components/PostProcessComponent.h"
 #include "GAS/UDFAttributeSet.h"
@@ -96,10 +99,6 @@ void UDFScreenEffectsComponent::OnGASReady(UDFAttributeSet* const InAttributeSet
 void UDFScreenEffectsComponent::HandleHealthChanged(const float H, const float M)
 {
 	LowHealthSetEnabledFromRatio(H, M);
-	if (!bLowHealthVignette && !bBerserk && !bDeathInProgress)
-	{
-		SetVignette(0.f, FLinearColor::White, false);
-	}
 }
 
 void UDFScreenEffectsComponent::HandleOutOfHealth()
@@ -192,6 +191,38 @@ void UDFScreenEffectsComponent::SetChroma(const float Intensity)
 	}
 }
 
+void UDFScreenEffectsComponent::SetBlurAmount(const float Amt)
+{
+	const float Clamped = FMath::Clamp(Amt, 0.f, 1.f);
+	if (ScreenEffectMaterial)
+	{
+		ScreenEffectMaterial->SetScalarParameterValue(FName("BlurAmount"), Clamped);
+		return;
+	}
+	if (PostProcessComp)
+	{
+		PostProcessComp->Settings.bOverride_MotionBlurAmount = true;
+		PostProcessComp->Settings.MotionBlurAmount = Clamped;
+		PostProcessComp->bEnabled = true;
+	}
+}
+
+void UDFScreenEffectsComponent::BlurPulse(const float Duration, const float Intensity)
+{
+	BlurInit = FMath::Clamp(Intensity, 0.f, 1.f);
+	BlurInitDuration = FMath::Max(0.01f, Duration);
+	BlurTimeRemaining = BlurInitDuration;
+	SetBlurAmount(BlurInit);
+}
+
+void UDFScreenEffectsComponent::SetHitVignette(const float Intensity, const FLinearColor& Tint, const float Duration)
+{
+	HitVignetteIntensity = FMath::Clamp(Intensity, 0.f, 1.f);
+	HitVignetteTint = Tint;
+	HitVignetteDuration = FMath::Max(0.01f, Duration);
+	HitVignetteTimeRemaining = HitVignetteDuration;
+}
+
 void UDFScreenEffectsComponent::SetSaturationMult(const float Mult)
 {
 	if (ScreenEffectMaterial)
@@ -245,6 +276,53 @@ void UDFScreenEffectsComponent::LerpLocalPlayerFOV(
 		FMath::FInterpTo(Ch->FollowCamera->FieldOfView, TargetFOV, DeltaTime, InterpSpeed));
 }
 
+void UDFScreenEffectsComponent::ResolveAndApplyVignette()
+{
+	struct FCandidate
+	{
+		EDFScreenVignettePriority Priority = EDFScreenVignettePriority::None;
+		float Intensity = 0.f;
+		FLinearColor Tint = FLinearColor::White;
+	};
+	FCandidate Best;
+	auto Consider = [&Best](const EDFScreenVignettePriority Priority, const float Intensity, const FLinearColor& Tint)
+	{
+		if (Intensity <= KINDA_SMALL_NUMBER)
+		{
+			return;
+		}
+		if (static_cast<uint8>(Priority) >= static_cast<uint8>(Best.Priority))
+		{
+			Best.Priority = Priority;
+			Best.Intensity = Intensity;
+			Best.Tint = Tint;
+		}
+	};
+
+	if (bDeathInProgress)
+	{
+		const float D = FMath::Clamp(DeathFXTime / 2.f, 0.f, 1.f);
+		Consider(EDFScreenVignettePriority::Death, 0.2f + 0.6f * D, FLinearColor::Black);
+	}
+	if (bBerserk)
+	{
+		Consider(EDFScreenVignettePriority::Berserk, 0.5f, FLinearColor::Red);
+	}
+	if (HitVignetteTimeRemaining > 0.f)
+	{
+		Consider(EDFScreenVignettePriority::Hit, HitVignetteIntensity, HitVignetteTint);
+	}
+	if (bLowHealthVignette && !bBerserk && !bDeathInProgress)
+	{
+		const float P = FMath::Fmod(LowHealthPhase, kLowPulseSec) / kLowPulseSec;
+		const float W = 0.5f + 0.5f * FMath::Sin(P * 2.f * PI);
+		const float Vi = FMath::Lerp(kLowVigMin, kLowVigMax, W);
+		Consider(EDFScreenVignettePriority::LowHealth, Vi, FLinearColor(0.7f, 0.1f, 0.1f, 1.f));
+	}
+
+	SetVignette(Best.Intensity, Best.Tint, Best.Priority == EDFScreenVignettePriority::LowHealth);
+}
+
 void UDFScreenEffectsComponent::TickComponent(
 	const float DeltaTime,
 	const ELevelTick TickType,
@@ -283,19 +361,50 @@ void UDFScreenEffectsComponent::TickComponent(
 			SetChroma(ChromaInit * Alpha);
 		}
 	}
+	if (BlurTimeRemaining > 0.f && !bDeathInProgress && !bBerserk)
+	{
+		BlurTimeRemaining = FMath::Max(0.f, BlurTimeRemaining - DeltaTime);
+		if (BlurTimeRemaining <= 0.f)
+		{
+			BlurInit = 0.f;
+			SetBlurAmount(0.f);
+		}
+		else
+		{
+			const float Alpha = (BlurInitDuration > KINDA_SMALL_NUMBER)
+				? (BlurTimeRemaining / BlurInitDuration)
+				: 0.f;
+			SetBlurAmount(BlurInit * Alpha);
+		}
+	}
 	if (bBerserk)
 	{
-		SetVignette(0.5f, FLinearColor::Red, false);
-		SetFilmGrain(0.12f);
-		LerpLocalPlayerFOV(100.f, DeltaTime, 2.f);
+		if (FDFGameplayTags::State_Berserk.IsValid())
+		{
+			if (const APawn* const P = Cast<APawn>(GetOwner()))
+			{
+				if (const UAbilitySystemComponent* const ASC = P->FindComponentByClass<UAbilitySystemComponent>())
+				{
+					if (!ASC->HasMatchingGameplayTag(FDFGameplayTags::State_Berserk))
+					{
+						BerserkSetActive(false);
+					}
+				}
+			}
+		}
+		if (bBerserk)
+		{
+			SetFilmGrain(0.12f);
+			if (!bDeathInProgress)
+			{
+				SetBlurAmount(0.08f);
+			}
+			LerpLocalPlayerFOV(100.f, DeltaTime, 2.f);
+		}
 	}
 	if (bLowHealthVignette && !bBerserk)
 	{
 		LowHealthPhase += DeltaTime;
-		const float P = FMath::Fmod(LowHealthPhase, kLowPulseSec) / kLowPulseSec;
-		const float W = 0.5f + 0.5f * FMath::Sin(P * 2.f * PI);
-		const float Vi = FMath::Lerp(kLowVigMin, kLowVigMax, W);
-		SetVignette(Vi, FLinearColor(0.7f, 0.1f, 0.1f, 1.f), true);
 	}
 	if (bHealEffectActive)
 	{
@@ -344,10 +453,6 @@ void UDFScreenEffectsComponent::TickComponent(
 	if (HitVignetteTimeRemaining > 0.f)
 	{
 		HitVignetteTimeRemaining = FMath::Max(0.f, HitVignetteTimeRemaining - DeltaTime);
-		if (HitVignetteTimeRemaining <= 0.f)
-		{
-			SetVignette(0.f, FLinearColor::White, false);
-		}
 	}
 	if (SpectacleBloomTimeRemaining > 0.f)
 	{
@@ -387,15 +492,17 @@ void UDFScreenEffectsComponent::TickComponent(
 	if (bDeathInProgress)
 	{
 		DeathFXTime += DeltaTime;
-		const float d = FMath::Clamp(DeathFXTime / 2.f, 0.f, 1.f);
-		SetSaturationMult(1.f - d);
-		SetVignette(0.2f + 0.6f * d, FLinearColor::Black, false);
+		const float D = FMath::Clamp(DeathFXTime / 2.f, 0.f, 1.f);
+		SetSaturationMult(1.f - D);
+		SetBlurAmount(D * 0.65f);
 	}
+	ResolveAndApplyVignette();
 }
 
 void UDFScreenEffectsComponent::DamageReceived(const float DamagePercent)
 {
-	FlashScreen(FLinearColor::Red, 0.15f, DamagePercent * 0.8f);
+	const float S = DF_VfxScaleFromWorld(GetWorld());
+	FlashScreen(FLinearColor::Red, 0.15f, DamagePercent * 0.8f * S);
 	if (DamagePercent > 0.3f)
 	{
 		if (const APawn* const P = Cast<APawn>(GetOwner()))
@@ -405,8 +512,17 @@ void UDFScreenEffectsComponent::DamageReceived(const float DamagePercent)
 				UDFCameraShakeFunctionLibrary::PlayHeavyHitOnOwner(this, PC);
 			}
 		}
+		BlurPulse(0.12f, FMath::Clamp(DamagePercent * 0.35f, 0.08f, 0.35f) * S);
 	}
-	ChromaticAberrationPulse(0.3f, FMath::Min(1.f, DamagePercent * 2.f));
+	ChromaticAberrationPulse(0.3f, FMath::Min(1.f, DamagePercent * 2.f) * S);
+}
+
+void UDFScreenEffectsComponent::RefreshAccessibilityPresentation()
+{
+	if (UDFAttributeSet* const Attr = BoundAttributeSet.Get())
+	{
+		HandleHealthChanged(Attr->GetHealth(), Attr->GetMaxHealth());
+	}
 }
 
 void UDFScreenEffectsComponent::HealReceived(const float HealPercent)
@@ -422,8 +538,9 @@ void UDFScreenEffectsComponent::BerserkSetActive(const bool bActive)
 	bBerserk = bActive;
 	if (!bBerserk)
 	{
-		SetVignette(0.f, FLinearColor::White, false);
 		SetFilmGrain(0.f);
+		SetBlurAmount(0.f);
+		BlurTimeRemaining = 0.f;
 		if (ADFPlayerCharacter* const Ch = Cast<ADFPlayerCharacter>(GetOwner()))
 		{
 			if (Ch->FollowCamera)
@@ -460,6 +577,7 @@ void UDFScreenEffectsComponent::ApplyDodgeJuice(const float Duration)
 	const float D = FMath::Max(0.05f, Duration);
 	FlashScreen(FLinearColor(0.35f, 0.55f, 1.f, 1.f), 0.08f, 0.45f * S);
 	ChromaticAberrationPulse(D, 0.6f * S);
+	BlurPulse(D, 0.18f * S);
 	if (ADFPlayerCharacter* const Ch = Cast<ADFPlayerCharacter>(GetOwner()))
 	{
 		if (APlayerController* const PC = Ch->GetController<APlayerController>())
@@ -485,6 +603,7 @@ void UDFScreenEffectsComponent::ApplyKillSpectacle()
 	const float S = DF_VfxScaleFromWorld(GetWorld());
 	FlashScreen(FLinearColor(1.f, 0.85f, 0.4f, 1.f), 0.12f, 0.55f * S);
 	ChromaticAberrationPulse(0.25f, 0.75f * S);
+	BlurPulse(0.2f, 0.22f * S);
 	SetSaturationMult(1.15f);
 	SpectacleBloomBoost = 0.8f * S;
 	SpectacleBloomTimeRemaining = 0.35f;
@@ -511,9 +630,7 @@ void UDFScreenEffectsComponent::ApplyRoomClearSpectacle()
 	const float S = DF_VfxScaleFromWorld(GetWorld());
 	FlashScreen(FLinearColor(0.9f, 0.95f, 1.f, 1.f), 0.2f, 0.35f * S);
 	ChromaticAberrationPulse(0.4f, 0.5f * S);
-	SetVignette(0.35f, FLinearColor(0.05f, 0.1f, 0.2f, 1.f));
-	HitVignetteTimeRemaining = 0.5f;
-	HitVignetteDuration = 0.5f;
+	SetHitVignette(0.35f, FLinearColor(0.05f, 0.1f, 0.2f, 1.f), 0.5f);
 	SpectacleBloomBoost = 0.5f * S;
 	SpectacleBloomTimeRemaining = 0.55f;
 	if (ADFPlayerCharacter* const Ch = Cast<ADFPlayerCharacter>(GetOwner()))
@@ -542,6 +659,13 @@ void UDFScreenEffectsComponent::ApplyHitFromCombat(
 {
 	const float S = DF_VfxScaleFromWorld(GetWorld());
 	float HitStopSync = 0.15f;
+	if (const ADFPlayerCharacter* const OwnerPlayer = Cast<ADFPlayerCharacter>(GetOwner()))
+	{
+		if (OwnerPlayer->ImpactFraming)
+		{
+			HitStopSync = FMath::Max(HitStopSync, OwnerPlayer->ImpactFraming->GetActiveFreezeRemainingSeconds());
+		}
+	}
 	if (UWorld* const W = GetWorld())
 	{
 		if (const UDFHitStopSubsystem* const HS = W->GetSubsystem<UDFHitStopSubsystem>())
@@ -553,29 +677,38 @@ void UDFScreenEffectsComponent::ApplyHitFromCombat(
 	{
 	case EDFHitFeedbackBand::Light:
 		UDFCameraShakeFunctionLibrary::PlayLightHitOnOwner(this, PC);
-		HitVignetteTimeRemaining = HitStopSync;
-		HitVignetteDuration = HitStopSync;
-		SetVignette(FMath::Clamp(DamagePercent * 0.35f, 0.08f, 0.35f), FLinearColor(0.5f, 0.f, 0.f, 1.f));
+		SetHitVignette(
+			FMath::Clamp(DamagePercent * 0.35f, 0.08f, 0.35f),
+			FLinearColor(0.5f, 0.f, 0.f, 1.f),
+			HitStopSync);
 		break;
 	case EDFHitFeedbackBand::Heavy:
 		DamageReceived(DamagePercent);
 		UDFCameraShakeFunctionLibrary::PlayHeavyHitOnOwner(this, PC);
-		HitVignetteTimeRemaining = HitStopSync;
-		HitVignetteDuration = HitStopSync;
+		SetHitVignette(
+			FMath::Clamp(DamagePercent * 0.55f, 0.15f, 0.55f),
+			FLinearColor(0.65f, 0.f, 0.f, 1.f),
+			HitStopSync);
 		break;
 	case EDFHitFeedbackBand::Critical:
 		DamageReceived(DamagePercent);
 		ChromaticAberrationPulse(HitStopSync, FMath::Min(1.f, DamagePercent * 2.f) * S);
+		BlurPulse(HitStopSync, FMath::Clamp(DamagePercent * 0.4f, 0.12f, 0.45f));
 		UDFCameraShakeFunctionLibrary::PlayHeavyHitOnOwner(this, PC);
-		HitVignetteTimeRemaining = HitStopSync;
-		HitVignetteDuration = HitStopSync;
+		SetHitVignette(
+			FMath::Clamp(DamagePercent * 0.65f, 0.2f, 0.65f),
+			FLinearColor(0.85f, 0.1f, 0.f, 1.f),
+			HitStopSync);
 		break;
 	case EDFHitFeedbackBand::Knockback:
 		DamageReceived(DamagePercent);
 		ChromaticAberrationPulse(HitStopSync, FMath::Min(2.f, DamagePercent * 2.5f) * S);
+		BlurPulse(HitStopSync * 1.2f, FMath::Clamp(DamagePercent * 0.5f, 0.18f, 0.55f));
 		UDFCameraShakeFunctionLibrary::PlayBossSlamOnOwner(this, PC);
-		HitVignetteTimeRemaining = HitStopSync;
-		HitVignetteDuration = HitStopSync;
+		SetHitVignette(
+			FMath::Clamp(DamagePercent * 0.75f, 0.25f, 0.75f),
+			FLinearColor(0.9f, 0.f, 0.f, 1.f),
+			HitStopSync);
 		break;
 	default: break;
 	}

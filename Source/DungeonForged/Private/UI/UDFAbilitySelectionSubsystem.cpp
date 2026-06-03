@@ -10,6 +10,65 @@
 #include "GameFramework/PlayerState.h"
 #include "Math/UnrealMathUtility.h"
 
+namespace DFAbilityDraft
+{
+static bool CollectGrantedAbilityTags(const UDFRunManager* RM, FGameplayTagContainer& OutTags)
+{
+	OutTags.Reset();
+	if (!RM || !RM->AbilityDataTable)
+	{
+		return false;
+	}
+	for (const FName& RowName : RM->GetCurrentRunState().GrantedAbilities)
+	{
+		if (const FDFAbilityTableRow* const Row =
+				RM->AbilityDataTable->FindRow<FDFAbilityTableRow>(RowName, TEXT("CollectGrantedAbilityTags"), false))
+		{
+			if (Row->AbilityTag.IsValid())
+			{
+				OutTags.AddTag(Row->AbilityTag);
+			}
+		}
+	}
+	return OutTags.Num() > 0;
+}
+
+static bool PassesDraftFilters(const FDFAbilityTableRow& Row, const FGameplayTagContainer& GrantedTags)
+{
+	if (!Row.ExcludedIfGrantedTags.IsEmpty() && GrantedTags.HasAny(Row.ExcludedIfGrantedTags))
+	{
+		return false;
+	}
+	if (!Row.RequiresSynergyTags.IsEmpty() && !GrantedTags.HasAny(Row.RequiresSynergyTags))
+	{
+		return false;
+	}
+	return true;
+}
+
+static EItemRarity PickWeightedRarity(FRandomStream& Rng)
+{
+	const float T = Rng.FRand();
+	if (T < 0.60f)
+	{
+		return EItemRarity::Common;
+	}
+	if (T < 0.85f)
+	{
+		return EItemRarity::Uncommon;
+	}
+	if (T < 0.97f)
+	{
+		return EItemRarity::Rare;
+	}
+	if (T < 0.99f)
+	{
+		return EItemRarity::Epic;
+	}
+	return EItemRarity::Legendary;
+}
+} // namespace DFAbilityDraft
+
 void UDFAbilitySelectionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -77,24 +136,6 @@ void UDFAbilitySelectionSubsystem::SyncHistoryFromRun()
 	PlayerAbilityHistory.Reset();
 }
 
-static EItemRarity PickWeightedRarity(FRandomStream& Rng)
-{
-	const float t = Rng.FRand();
-	if (t < 0.6f) return EItemRarity::Common;
-	if (t < 0.85f) return EItemRarity::Uncommon;
-	if (t < 0.97f) return EItemRarity::Rare;
-	return EItemRarity::Epic;
-}
-
-static EItemRarity RarityToBucket(const EItemRarity R)
-{
-	if (R == EItemRarity::Legendary)
-	{
-		return EItemRarity::Epic;
-	}
-	return R;
-}
-
 TArray<FDFAbilityRolledChoice> UDFAbilitySelectionSubsystem::RollAbilityChoices(const int32 Count)
 {
 	TArray<FDFAbilityRolledChoice> Out;
@@ -105,55 +146,77 @@ TArray<FDFAbilityRolledChoice> UDFAbilitySelectionSubsystem::RollAbilityChoices(
 	{
 		return Out;
 	}
-	FRandomStream Rng(FMath::Rand() * 7919 + FPlatformTime::Cycles());
 
-	// Rarity -> row names (available only)
+	const UDFRunManager* const RM =
+		GetWorld() && GetWorld()->GetGameInstance()
+			? GetWorld()->GetGameInstance()->GetSubsystem<UDFRunManager>()
+			: nullptr;
+	FGameplayTagContainer GrantedTags;
+	DFAbilityDraft::CollectGrantedAbilityTags(RM, GrantedTags);
+
+	int32 SeedMix = FMath::Rand() * 7919 + FPlatformTime::Cycles();
+	if (RM)
+	{
+		SeedMix ^= RM->GetCurrentRunState().CurrentFloor * 19603;
+		SeedMix ^= static_cast<int32>(RM->GetCurrentRunState().RunStartTime);
+	}
+	FRandomStream Rng(SeedMix);
+
 	TMap<EItemRarity, TArray<FName>> ByRarity;
-	Tbl->ForeachRow<FDFAbilityTableRow>(TEXT("RollAbilityChoices"), [&](const FName& Key, const FDFAbilityTableRow& Row) {
-		if (PlayerAbilityHistory.Contains(Key) || !Row.AbilityClass)
+	Tbl->ForeachRow<FDFAbilityTableRow>(
+		TEXT("RollAbilityChoices"),
+		[&](const FName& Key, const FDFAbilityTableRow& Row)
 		{
-			return;
-		}
-		ByRarity.FindOrAdd(RarityToBucket(Row.Rarity)).AddUnique(Key);
-	});
+			if (PlayerAbilityHistory.Contains(Key) || !Row.AbilityClass)
+			{
+				return;
+			}
+			if (!DFAbilityDraft::PassesDraftFilters(Row, GrantedTags))
+			{
+				return;
+			}
+			ByRarity.FindOrAdd(Row.Rarity).AddUnique(Key);
+		});
 
 	const TArray<EItemRarity> FallbackOrder = {
-		EItemRarity::Common, EItemRarity::Uncommon, EItemRarity::Rare, EItemRarity::Epic
-	};
+		EItemRarity::Common,
+		EItemRarity::Uncommon,
+		EItemRarity::Rare,
+		EItemRarity::Epic,
+		EItemRarity::Legendary};
 
 	TSet<FName> Picked;
 	for (int32 i = 0; i < Count; ++i)
 	{
-		const EItemRarity FirstTry = PickWeightedRarity(Rng);
+		const EItemRarity FirstTry = DFAbilityDraft::PickWeightedRarity(Rng);
 		bool bDone = false;
 		for (int32 Round = 0; Round < 2 && !bDone; ++Round)
 		{
 			const EItemRarity RarityWant = (Round == 0) ? FirstTry : EItemRarity::Common;
-			// 1) try RarityWant
+			if (TArray<FName>* Pool = ByRarity.Find(RarityWant))
 			{
-				if (TArray<FName>* Pool = ByRarity.Find(RarityWant))
+				Pool->RemoveAll([&Picked](const FName& N) { return Picked.Contains(N); });
+				if (Pool->Num() > 0)
 				{
-					Pool->RemoveAll([&Picked](const FName& N) { return Picked.Contains(N); });
-					if (Pool->Num() > 0)
+					const int32 Ix = Rng.RandRange(0, Pool->Num() - 1);
+					const FName N = (*Pool)[Ix];
+					if (const FDFAbilityTableRow* R = Tbl->FindRow<FDFAbilityTableRow>(N, TEXT("RollPick"), false))
 					{
-						const int32 Ix = Rng.RandRange(0, Pool->Num() - 1);
-						const FName N = (*Pool)[Ix];
-						if (const FDFAbilityTableRow* R = Tbl->FindRow<FDFAbilityTableRow>(N, TEXT("RollPick"), false))
-						{
-							Picked.Add(N);
-							FDFAbilityRolledChoice C;
-							C.RowName = N;
-							C.Data = *R;
-							Out.Add(C);
-							Pool->RemoveAt(Ix);
-							bDone = true;
-						}
+						Picked.Add(N);
+						FDFAbilityRolledChoice C;
+						C.RowName = N;
+						C.Data = *R;
+						Out.Add(C);
+						Pool->RemoveAt(Ix);
+						bDone = true;
 					}
 				}
 			}
-			if (bDone) break;
-			// 2) try all buckets
-			for (EItemRarity R : FallbackOrder)
+			if (bDone)
+			{
+				break;
+			}
+			for (const EItemRarity R : FallbackOrder)
 			{
 				if (TArray<FName>* Pool = ByRarity.Find(R))
 				{
@@ -174,7 +237,10 @@ TArray<FDFAbilityRolledChoice> UDFAbilitySelectionSubsystem::RollAbilityChoices(
 						}
 					}
 				}
-				if (bDone) break;
+				if (bDone)
+				{
+					break;
+				}
 			}
 		}
 	}
@@ -207,7 +273,6 @@ void UDFAbilitySelectionSubsystem::SkipSelection(ADFPlayerCharacter* const Playe
 	{
 		return;
 	}
-	// Player is unused for run gold; grant path still needs a valid pawn+ASC.
 	(void)Player;
 	RM->AddRunGold(SkipGoldReward);
 	SyncHistoryFromRun();

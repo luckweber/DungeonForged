@@ -130,14 +130,6 @@ void UDFAbility_Warrior_Execute::ActivateAbility(
 		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
 		return;
 	}
-	if (UAbilitySystemComponent* const Asc = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (Asc->GetOwner() && Asc->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(Asc);
-		}
-	}
-
 	FinisherTarget = ResolveFinisherTarget(ActorInfo, TriggerEventData);
 	FinisherHitsLanded = 0;
 	bFinisherInputPhaseActive = false;

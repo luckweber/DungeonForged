@@ -54,19 +54,6 @@ bool UDFAbility_Dodge::CanActivateAbility(const FGameplayAbilitySpecHandle Handl
 		}
 		return false;
 	}
-	const float StaminaCost = GetEffectiveDodgeStaminaCost();
-	if (StaminaCost > 0.f && ActorInfo && ActorInfo->AbilitySystemComponent.IsValid())
-	{
-		if (const UDFAttributeSet* const Attrs = ActorInfo->AbilitySystemComponent->GetSet<UDFAttributeSet>())
-		{
-			if (Attrs->GetStamina() < StaminaCost)
-			{
-				DFDodgeDebug::Logf(TEXT("CanActivate FAIL stamina=%.1f need=%.1f"),
-					Attrs->GetStamina(), StaminaCost);
-				return false;
-			}
-		}
-	}
 	if (const ACharacter* const Char = ActorInfo ? Cast<ACharacter>(ActorInfo->AvatarActor.Get()) : nullptr)
 	{
 		if (const UDFCharacterMovementComponent* const CMC = Char
@@ -86,6 +73,11 @@ bool UDFAbility_Dodge::CanActivateAbility(const FGameplayAbilitySpecHandle Handl
 		}
 	}
 	return true;
+}
+
+float UDFAbility_Dodge::GetAbilityStaminaCost() const
+{
+	return GetEffectiveDodgeStaminaCost();
 }
 
 float UDFAbility_Dodge::GetEffectiveDodgeStaminaCost() const
@@ -208,8 +200,6 @@ void UDFAbility_Dodge::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 		return;
 	}
 
-	AbilityCost_Stamina = GetEffectiveDodgeStaminaCost();
-
 	ACharacter* const Char = Cast<ACharacter>(ActorInfo->AvatarActor.Get());
 	UDFCharacterMovementComponent* const CMC = Char ? Cast<UDFCharacterMovementComponent>(Char->GetCharacterMovement()) : nullptr;
 	if (!CMC)
@@ -230,14 +220,6 @@ void UDFAbility_Dodge::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 		AbilityCost_Stamina,
 		PickedMontage ? *PickedMontage->GetName() : TEXT("(none)"),
 		CMC->GetDodgeCooldownRemaining());
-
-	if (UAbilitySystemComponent* const ASC = GetAbilitySystemComponentFromActorInfo())
-	{
-		if (ASC->GetOwner() && ASC->GetOwner()->HasAuthority())
-		{
-			ApplyResourceCostsToOwner(ASC);
-		}
-	}
 
 	const bool bMontageHasRootMotion = PickedMontage && DFMontageHasRootMotion(PickedMontage);
 	const bool bUseAnimRootMotion = bPreferAnimRootMotion && bMontageHasRootMotion;

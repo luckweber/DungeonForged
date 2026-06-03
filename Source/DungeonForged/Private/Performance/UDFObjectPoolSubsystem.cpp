@@ -1,5 +1,6 @@
 // Source/DungeonForged/Private/Performance/UDFObjectPoolSubsystem.cpp
 #include "Performance/UDFObjectPoolSubsystem.h"
+#include "Combat/ADFKnifeProjectile.h"
 #include "Combat/DFArcaneMissileProjectile.h"
 #include "Combat/DFFireballProjectile.h"
 #include "Combat/DFFrostBoltProjectile.h"
@@ -11,6 +12,7 @@ namespace DungeonForgedPoolNames
 	static const FName Fireball = FName(TEXT("FireballProjectile"));
 	static const FName FrostBolt = FName(TEXT("FrostBoltProjectile"));
 	static const FName ArcaneMissile = FName(TEXT("ArcaneMissileProjectile"));
+	static const FName Knife = FName(TEXT("KnifeProjectile"));
 	static const FName LootDrop = FName(TEXT("LootDrop"));
 }
 
@@ -43,6 +45,11 @@ void UDFObjectPoolSubsystem::RegisterDefaultActorPools()
 		TSharedPtr<TDFActorObjectPool<ADFArcaneMissileProjectile>> P = MakeShared<TDFActorObjectPool<ADFArcaneMissileProjectile>>();
 		P->Initialize(TSubclassOf<ADFArcaneMissileProjectile>(ADFArcaneMissileProjectile::StaticClass()), 40, W);
 		ActorPools.Add(DungeonForgedPoolNames::ArcaneMissile, P);
+	}
+	{
+		TSharedPtr<TDFActorObjectPool<ADFKnifeProjectile>> P = MakeShared<TDFActorObjectPool<ADFKnifeProjectile>>();
+		P->Initialize(TSubclassOf<ADFKnifeProjectile>(ADFKnifeProjectile::StaticClass()), 24, W);
+		ActorPools.Add(DungeonForgedPoolNames::Knife, P);
 	}
 	{
 		TSharedPtr<TDFActorObjectPool<ADFLootDrop>> P = MakeShared<TDFActorObjectPool<ADFLootDrop>>();

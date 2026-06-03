@@ -1,6 +1,7 @@
 // Source/DungeonForged/Private/GameModes/Run/ADFRunGameState.cpp
 #include "GameModes/Run/ADFRunGameState.h"
 #include "Boss/ADFBossBase.h"
+#include "Performance/UDFAssetLoaderSubsystem.h"
 #include "Run/DFRunManager.h"
 #include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
@@ -32,11 +33,21 @@ void ADFRunGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME(ADFRunGameState, ElapsedRunTime);
 	DOREPLIFETIME(ADFRunGameState, TotalKills);
 	DOREPLIFETIME(ADFRunGameState, TotalGoldCollected);
+	DOREPLIFETIME(ADFRunGameState, EnemiesRemaining);
 	DOREPLIFETIME(ADFRunGameState, CurrentPhase);
 	DOREPLIFETIME(ADFRunGameState, ActiveBoss);
 }
 
-void ADFRunGameState::OnRep_CurrentFloor() {}
+void ADFRunGameState::OnRep_CurrentFloor()
+{
+	if (UWorld* const W = GetWorld())
+	{
+		if (UDFAssetLoaderSubsystem* const Loader = W->GetSubsystem<UDFAssetLoaderSubsystem>())
+		{
+			Loader->PreloadFloorAssets(FMath::Max(1, CurrentFloor));
+		}
+	}
+}
 
 void ADFRunGameState::OnRep_ElapsedRunTime() {}
 
@@ -46,6 +57,8 @@ void ADFRunGameState::OnRep_TotalKills()
 }
 
 void ADFRunGameState::OnRep_TotalGoldCollected() {}
+
+void ADFRunGameState::OnRep_EnemiesRemaining() {}
 
 void ADFRunGameState::OnRep_CurrentPhase()
 {
@@ -101,6 +114,15 @@ void ADFRunGameState::SetPhase(ERunPhase const Phase)
 	LastPhaseNotified = CurrentPhase;
 	// Server / standalone: also broadcast (no OnRep in single process).
 	OnPhaseChanged.Broadcast(CurrentPhase, Old);
+}
+
+void ADFRunGameState::AuthoritySetEnemiesRemaining(const int32 Count)
+{
+	if (GetLocalRole() != ROLE_Authority)
+	{
+		return;
+	}
+	EnemiesRemaining = FMath::Max(0, Count);
 }
 
 FDFRunSummary ADFRunGameState::GetRunSummary() const
